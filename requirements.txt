@@ -2,3 +2,6 @@ requests
 bs4
 PyPDF2
 python-dotenv
+datasets
+openai
+anthropic
