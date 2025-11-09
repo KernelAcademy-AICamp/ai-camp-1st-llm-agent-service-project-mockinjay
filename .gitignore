@@ -219,3 +219,5 @@ __marimo__/
 
 data/raw/*
 data/preprocess/*
+parlant-data/*
+parlant/parlant-data/*
