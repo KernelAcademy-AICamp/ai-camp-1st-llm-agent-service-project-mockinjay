@@ -6,3 +6,9 @@ datasets
 openai
 anthropic
 parlant
+httpx
+lxml
+moto
+pymongo
+pinecone
+sentence-transformers
