@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="chat-container">
+    <div class="chat-header">
+        <h1>🏥 CareGuide</h1>
+        <div class="header-buttons">
+            <button id="profile-btn" class="profile-button" onclick="showProfileModal()">
+                프로필 설정
+            </button>
+            <button id="reset-btn" class="reset-button" onclick="resetSession()">
+                대화 초기화
+            </button>
+        </div>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+        <div class="welcome-message">
+            <p>안녕하세요! CareGuide입니다.</p>
+            <p>의료 관련 질문을 입력해주세요.</p>
+            <p class="profile-hint">💡 상단의 "프로필 설정" 버튼으로 사용자 유형을 선택하시면 맞춤형 정보를 받을 수 있습니다.</p>
+        </div>
+    </div>
+
+    <div class="chat-input-container">
+        <input
+            type="text"
+            id="message-input"
+            placeholder="의료 관련 질문을 입력하세요..."
+            onkeypress="handleKeyPress(event)"
+        >
+        <button id="send-btn" onclick="sendMessage()">전송</button>
+    </div>
+
+    <div class="disclaimer">
+        ⚠️ CareGuide는 의료 정보 제공 서비스로, 진단이나 처방을 대체할 수 없습니다.
+    </div>
+</div>
+
+<!-- Profile Selection Modal -->
+<div id="profile-modal" class="modal">
+    <div class="modal-content">
+        <h2>사용자 유형을 선택해주세요</h2>
+        <p class="modal-subtitle">선택한 프로필에 따라 정보의 수준과 양이 조정됩니다.</p>
+
+        <div class="profile-buttons">
+            <button class="profile-option" onclick="selectProfile('researcher')">
+                <div class="profile-icon">🔬</div>
+                <div class="profile-title">연구자/전문가</div>
+                <div class="profile-description">
+                    • 학술적 정보 및 전문 용어<br>
+                    • 최대 10개 검색 결과<br>
+                    • 논문 초록, DOI, 인용 정보 포함
+                </div>
+            </button>
+
+            <button class="profile-option" onclick="selectProfile('patient')">
+                <div class="profile-icon">🏥</div>
+                <div class="profile-title">질환자/경험자</div>
+                <div class="profile-description">
+                    • 실용적 정보, 일상 적용 가능<br>
+                    • 최대 5개 검색 결과<br>
+                    • 치료법 및 자가 관리 중심
+                </div>
+            </button>
+
+            <button class="profile-option" onclick="selectProfile('general')">
+                <div class="profile-icon">👤</div>
+                <div class="profile-title">일반인/초심자</div>
+                <div class="profile-description">
+                    • 쉬운 설명, 평이한 언어<br>
+                    • 최대 3개 검색 결과<br>
+                    • 기본 개념 이해 중심
+                </div>
+            </button>
+        </div>
+
+        <button class="close-modal-btn" onclick="hideProfileModal()">닫기</button>
+    </div>
+</div>
+
+<!-- Loading Indicator -->
+<div id="loading-indicator" class="loading-indicator" style="display: none;">
+    <div class="spinner"></div>
+    <p>응답을 기다리는 중...</p>
+</div>
+{% endblock %}

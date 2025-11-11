@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}CareGuide - 의료 정보 챗봇{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    {% block content %}{% endblock %}
+
+    <!-- Use SSE version for real-time updates -->
+    <script src="{{ url_for('static', filename='js/chat_sse.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

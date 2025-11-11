@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="chat-container">
+    <div class="chat-header">
+        <h1>🏥 CareGuide</h1>
+        <button id="profile-btn" class="profile-button" onclick="showProfileModal()">프로필 설정</button>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+        <div class="welcome-message">
+            <p>안녕하세요! CareGuide입니다.</p>
+            <p>의료 관련 질문을 입력해주세요.</p>
+        </div>
+    </div>
+
+    <div class="chat-input-container">
+        <input type="text" id="message-input" placeholder="의료 관련 질문을 입력하세요..." onkeypress="handleKeyPress(event)">
+        <button id="send-btn" onclick="sendMessage()">전송</button>
+    </div>
+
+    <div class="disclaimer">
+        ⚠️ CareGuide는 의료 정보 제공 서비스로, 진단이나 처방을 대체할 수 없습니다.
+    </div>
+</div>
+
+<div id="profile-modal" class="modal">
+    <div class="modal-content">
+        <h2>사용자 유형을 선택해주세요</h2>
+
+        <div class="profile-buttons">
+            <button class="profile-option" onclick="selectProfile('researcher')">
+                🔬 연구자/전문가
+                <small>학술적 정보, 논문 10편</small>
+            </button>
+
+            <button class="profile-option" onclick="selectProfile('patient')">
+                🏥 질환자/경험자
+                <small>실용적 정보, 논문 5편</small>
+            </button>
+
+            <button class="profile-option" onclick="selectProfile('general')">
+                👤 일반인
+                <small>간단한 요약, 논문 3편</small>
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

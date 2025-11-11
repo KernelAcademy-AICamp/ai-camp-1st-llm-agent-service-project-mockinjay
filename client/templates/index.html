@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="landing-container">
+    <div class="landing-content">
+        <h1>🏥 CareGuide</h1>
+        <p class="subtitle">AI 기반 의료 정보 제공 챗봇</p>
+
+        <div class="features">
+            <div class="feature">
+                <h3>🔍 하이브리드 검색</h3>
+                <p>키워드 + 의미 기반 검색으로 정확한 정보 제공</p>
+            </div>
+            <div class="feature">
+                <h3>📚 다양한 데이터 소스</h3>
+                <p>QA 데이터베이스, 논문, 의료 데이터, PubMed 실시간 검색</p>
+            </div>
+            <div class="feature">
+                <h3>👤 맞춤형 프로필</h3>
+                <p>연구자, 환자, 일반인을 위한 맞춤 정보</p>
+            </div>
+        </div>
+
+        <a href="/chat" class="start-button">대화 시작하기</a>
+
+        <div class="disclaimer">
+            <p>⚠️ CareGuide는 의료 정보 제공 서비스입니다.</p>
+            <p>진단이나 처방을 대체할 수 없으며, 증상이 있을 경우 전문 의료진과 상담하세요.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.landing-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+}
+
+.landing-content {
+    background: white;
+    border-radius: 20px;
+    padding: 60px 40px;
+    max-width: 800px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.landing-content h1 {
+    font-size: 3em;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.subtitle {
+    font-size: 1.3em;
+    color: #666;
+    margin-bottom: 40px;
+}
+
+.features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 30px;
+    margin: 40px 0;
+}
+
+.feature {
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 10px;
+}
+
+.feature h3 {
+    font-size: 1.3em;
+    margin-bottom: 10px;
+    color: #667eea;
+}
+
+.feature p {
+    color: #666;
+    font-size: 0.95em;
+}
+
+.start-button {
+    display: inline-block;
+    padding: 15px 40px;
+    background: #667eea;
+    color: white;
+    text-decoration: none;
+    border-radius: 30px;
+    font-size: 1.2em;
+    font-weight: bold;
+    transition: all 0.3s;
+    margin: 20px 0;
+}
+
+.start-button:hover {
+    background: #764ba2;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.disclaimer {
+    margin-top: 40px;
+    padding: 20px;
+    background: #fff3cd;
+    border-radius: 10px;
+    border-left: 4px solid #ffc107;
+}
+
+.disclaimer p {
+    margin: 5px 0;
+    color: #856404;
+    font-size: 0.9em;
+}
+</style>
+{% endblock %}
