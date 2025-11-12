@@ -12,3 +12,5 @@ moto
 pymongo
 pinecone
 sentence-transformers
+deep-translator
+toon-python

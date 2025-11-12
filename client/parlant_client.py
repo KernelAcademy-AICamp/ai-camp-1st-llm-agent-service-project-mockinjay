@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 class ParlantConfig:
     """Configuration for Parlant client"""
     base_url: str
-    timeout: float = 60.0
+    timeout: float = 600.0  # 10 minutes for complex operations (PubMed search + LLM refinement)
 
     @classmethod
     def from_env(cls) -> 'ParlantConfig':
         """Create config from environment variables"""
         return cls(
             base_url=os.getenv("PARLANT_SERVER", "http://localhost:8800").rstrip("/"),
-            timeout=float(os.getenv("PARLANT_HTTP_TIMEOUT", "60"))
+            timeout=float(os.getenv("PARLANT_HTTP_TIMEOUT", "600"))
         )
 
 

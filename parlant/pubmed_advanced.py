@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 import asyncio
 from dotenv import load_dotenv
 import os
+from deep_translator import GoogleTranslator
+import re
 
 load_dotenv()
 
@@ -11,9 +13,9 @@ load_dotenv()
 
 class PubMedAdvancedSearch:
     """PubMed API 고급 검색 클래스 - efetch 활용"""
-    
+
     BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-    
+
     def __init__(self, email: str = "your_email@example.com", api_key: Optional[str] = None):
         """
         Args:
@@ -23,6 +25,36 @@ class PubMedAdvancedSearch:
         self.email = email
         self.api_key = api_key
         self.rate_limit_delay = 0.1 if api_key else 0.34  # API key 유무에 따른 딜레이
+        self.translator = GoogleTranslator(source='ko', target='en')
+
+    def _contains_korean(self, text: str) -> bool:
+        """Check if text contains Korean characters"""
+        korean_pattern = re.compile('[가-힣]+')
+        return bool(korean_pattern.search(text))
+
+    def _translate_to_english(self, query: str) -> str:
+        """Translate Korean query to English for PubMed search
+
+        PubMed works best with English queries, so we automatically translate
+        Korean text to English for better search results.
+
+        Args:
+            query: Original query (may be Korean or English)
+
+        Returns:
+            English query
+        """
+        if not query or not self._contains_korean(query):
+            print(f"✅ Query is already in English: '{query}'")
+            return query
+
+        try:
+            translated = self.translator.translate(query)
+            print(f"🌐 Translated query: '{query}' → '{translated}'")
+            return translated
+        except Exception as e:
+            print(f"⚠️ Translation failed: {e}, using original query")
+            return query
     
     async def search_papers(
         self, 

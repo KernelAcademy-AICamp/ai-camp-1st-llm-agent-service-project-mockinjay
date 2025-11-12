@@ -3,14 +3,27 @@
 {% block content %}
 <div class="chat-container">
     <div class="chat-header">
-        <h1>🏥 CareGuide</h1>
+        <div class="header-left">
+            <h1>🏥 CareGuide</h1>
+            <span id="profile-badge" class="profile-badge"></span>
+        </div>
         <div class="header-buttons">
-            <button id="profile-btn" class="profile-button" onclick="showProfileModal()">
-                프로필 설정
+            <button id="home-btn" class="home-button" onclick="goToHome()">
+                🏠 홈
             </button>
-            <button id="reset-btn" class="reset-button" onclick="resetSession()">
+            <button id="new-room-btn" class="new-room-button" onclick="showProfileModal()">
+                새 채팅방
+            </button>
+            <button id="reset-btn" class="reset-button" onclick="resetCurrentRoom()">
                 대화 초기화
             </button>
+        </div>
+    </div>
+
+    <!-- Room Tabs Section -->
+    <div class="room-tabs-container" id="room-tabs-container">
+        <div class="room-tabs" id="room-tabs">
+            <!-- Room tabs will be dynamically added here -->
         </div>
     </div>
 
@@ -37,11 +50,11 @@
     </div>
 </div>
 
-<!-- Profile Selection Modal -->
+<!-- New Room Creation Modal -->
 <div id="profile-modal" class="modal">
     <div class="modal-content">
-        <h2>사용자 유형을 선택해주세요</h2>
-        <p class="modal-subtitle">선택한 프로필에 따라 정보의 수준과 양이 조정됩니다.</p>
+        <h2>새 채팅방의 프로필을 선택해주세요</h2>
+        <p class="modal-subtitle">프로필에 따라 정보의 수준과 양이 조정됩니다.</p>
 
         <div class="profile-buttons">
             <button class="profile-option" onclick="selectProfile('researcher')">
@@ -79,9 +92,260 @@
     </div>
 </div>
 
-<!-- Loading Indicator -->
+<!-- Loading/Status Indicator -->
 <div id="loading-indicator" class="loading-indicator" style="display: none;">
     <div class="spinner"></div>
     <p>응답을 기다리는 중...</p>
 </div>
+
+<!-- Typing Indicator (in chat) -->
+<template id="typing-indicator-template">
+    <div class="message assistant typing-indicator">
+        <div class="message-bubble">
+            <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Header Updates */
+.chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 30px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header-left h1 {
+    margin: 0;
+    font-size: 1.8em;
+}
+
+.profile-badge {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.profile-badge.researcher {
+    background: rgba(52, 152, 219, 0.3);
+    border-color: #3498db;
+}
+
+.profile-badge.patient {
+    background: rgba(46, 204, 113, 0.3);
+    border-color: #2ecc71;
+}
+
+.profile-badge.general {
+    background: rgba(149, 165, 166, 0.3);
+    border-color: #95a5a6;
+}
+
+.header-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.home-button,
+.new-room-button,
+.reset-button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: rgba(255, 255, 255, 0.9);
+    color: #333;
+}
+
+.home-button:hover,
+.new-room-button:hover,
+.reset-button:hover {
+    background: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.new-room-button {
+    background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+    color: white;
+}
+
+/* Room Tabs */
+.room-tabs-container {
+    background: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+    padding: 0 20px;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.room-tabs {
+    display: flex;
+    gap: 5px;
+    min-height: 50px;
+    align-items: flex-end;
+}
+
+.room-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.9em;
+    color: #495057;
+    position: relative;
+    margin-bottom: -2px;
+}
+
+.room-tab:hover {
+    background: #f8f9fa;
+}
+
+.room-tab.active {
+    background: white;
+    border-bottom: 2px solid white;
+    font-weight: 600;
+    color: #212529;
+}
+
+.room-tab.active.researcher {
+    border-top: 3px solid #3498db;
+    color: #3498db;
+}
+
+.room-tab.active.patient {
+    border-top: 3px solid #2ecc71;
+    color: #2ecc71;
+}
+
+.room-tab.active.general {
+    border-top: 3px solid #95a5a6;
+    color: #95a5a6;
+}
+
+.room-tab-icon {
+    font-size: 1.2em;
+}
+
+.room-tab-label {
+    flex-grow: 1;
+}
+
+.room-tab-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: transparent;
+    color: #6c757d;
+    font-size: 1em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-left: 4px;
+}
+
+.room-tab-close:hover {
+    background: #dc3545;
+    color: white;
+}
+
+.room-tab.active .room-tab-close {
+    color: inherit;
+}
+
+/* Scrollbar for room tabs */
+.room-tabs-container::-webkit-scrollbar {
+    height: 6px;
+}
+
+.room-tabs-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.room-tabs-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.room-tabs-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Modal Updates */
+.modal-content h2 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.modal-subtitle {
+    color: #7f8c8d;
+    margin-bottom: 25px;
+    font-size: 0.95em;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .chat-header {
+        flex-direction: column;
+        gap: 15px;
+        padding: 15px 20px;
+    }
+
+    .header-left {
+        flex-direction: column;
+        gap: 10px;
+        width: 100%;
+    }
+
+    .header-buttons {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .home-button,
+    .new-room-button,
+    .reset-button {
+        flex: 1;
+        padding: 8px 12px;
+        font-size: 0.85em;
+    }
+
+    .room-tab {
+        padding: 8px 12px;
+        font-size: 0.85em;
+    }
+}
+</style>
 {% endblock %}

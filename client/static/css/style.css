@@ -435,3 +435,69 @@ body {
 .chat-messages::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
+
+/* ==================== Typing Indicator ==================== */
+
+.typing-indicator {
+    opacity: 0.8;
+}
+
+.typing-dots {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 0;
+}
+
+.typing-dots span {
+    width: 8px;
+    height: 8px;
+    background: #667eea;
+    border-radius: 50%;
+    display: inline-block;
+    animation: typing 1.4s infinite;
+}
+
+.typing-dots span:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.typing-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing {
+    0%, 60%, 100% {
+        opacity: 0.3;
+        transform: scale(0.8);
+    }
+    30% {
+        opacity: 1;
+        transform: scale(1.2);
+    }
+}
+
+/* ==================== Message Status Styles ==================== */
+
+.message.status-processing .message-bubble {
+    border-left: 3px solid #fbbf24;
+}
+
+.message.status-typing .message-bubble {
+    border-left: 3px solid #667eea;
+}
+
+.message.status-error .message-bubble {
+    border-left: 3px solid #ef4444;
+    background: #fee2e2;
+}
+
+/* ==================== Smooth Scroll Behavior ==================== */
+
+.chat-messages {
+    scroll-behavior: smooth;
+}

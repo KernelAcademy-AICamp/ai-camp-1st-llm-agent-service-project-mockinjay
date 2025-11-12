@@ -6,7 +6,9 @@ import os
 import uuid
 import logging
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from collections import defaultdict
+from random import random
 
 from flask import Flask, jsonify, render_template, request, session, Response, stream_with_context
 from flask_cors import CORS
@@ -42,8 +44,36 @@ SERVER_START_ID = str(uuid.uuid4())[:8]
 SERVER_START_TIME = time.time()
 
 # In-memory user session storage
-# Maps user_id -> {"session_id": str, "last_offset": int, "profile": str}
-user_sessions: Dict[str, Dict[str, Any]] = {}
+# Structure: user_id -> profile -> {session_id, last_offset}
+user_sessions: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+# Request deduplication cache
+# Maps (session_id, min_offset) -> (timestamp, response)
+request_cache: Dict[Tuple[str, int], Tuple[float, List[Any]]] = {}
+CACHE_TTL = 2.0  # 2 seconds cache TTL
+
+
+# ==================== Retry and Backoff Logic ====================
+
+def calculate_retry_delay(retries: int, base_delay: float = 0.5, max_delay: float = 10.0) -> float:
+    """
+    Calculate exponential backoff delay with jitter (Parlant pattern)
+
+    Args:
+        retries: Number of retries so far
+        base_delay: Base delay in seconds (default: 0.5s)
+        max_delay: Maximum delay in seconds (default: 10s)
+
+    Returns:
+        Delay in seconds with jitter applied
+    """
+    # Exponential backoff: 0.5s → 1s → 2s → 4s → 8s → 10s (capped)
+    retry_delay = min(base_delay * pow(2.0, retries), max_delay)
+
+    # Add 25% random jitter to prevent thundering herd
+    jitter = retry_delay * (1 - 0.25 * random())
+
+    return jitter
 
 
 # ==================== Helper Functions ====================
@@ -81,34 +111,40 @@ def resolve_agent_id() -> str:
     )
 
 
-def get_or_create_user_state(user_id: str) -> Dict[str, Any]:
+def get_or_create_user_state(user_id: str, profile: str) -> Dict[str, Any]:
     """
-    Get or create user state
+    Get or create user state for a specific profile
 
     The user_id is combined with SERVER_START_ID to ensure that
     each server restart creates completely new sessions with fresh
     guest customers in Parlant.
 
+    Args:
+        user_id: Unique browser session identifier
+        profile: User profile type (researcher, patient, general)
+
     Returns:
-        Dictionary with session_id, last_offset, profile
+        Dictionary with session_id, last_offset
     """
     # Create unique key combining user_id with server start ID
     # This ensures server restart = new session = new guest customer
     unique_key = f"{user_id}_{SERVER_START_ID}"
 
-    return user_sessions.setdefault(
-        unique_key,
+    if unique_key not in user_sessions:
+        user_sessions[unique_key] = {}
+
+    return user_sessions[unique_key].setdefault(
+        profile,
         {
             "session_id": None,
             "last_offset": 0,
-            "profile": DEFAULT_PROFILE,
         },
     )
 
 
 def create_parlant_session(profile: Optional[str] = None) -> str:
     """
-    Create a Parlant session
+    Create a Parlant session with customer tag for profile
 
     Args:
         profile: User profile (researcher/patient/general)
@@ -116,13 +152,39 @@ def create_parlant_session(profile: Optional[str] = None) -> str:
     Returns:
         Session ID
     """
-    metadata = {}
-    if profile:
-        metadata["careguide_profile"] = profile
+    # Default to general if no profile specified
+    if not profile:
+        profile = "general"
 
     with get_parlant_client() as client:
+        # 1. Create or get profile tag
+        tag_name = f"profile:{profile}"
+
+        # Check if tag exists
+        existing_tags = client.list_tags()
+        profile_tag = next((t for t in existing_tags if t.get("name") == tag_name), None)
+
+        if not profile_tag:
+            logger.info("Creating new profile tag: %s", tag_name)
+            profile_tag = client.create_tag(name=tag_name)
+        else:
+            logger.info("Using existing profile tag: %s", tag_name)
+
+        # 2. Create customer with profile tag
+        customer_name = f"user_{uuid.uuid4().hex[:8]}"
+        customer = client.create_customer(
+            name=customer_name,
+            tags=[profile_tag["id"]]
+        )
+        logger.info("Created customer %s with profile tag: %s", customer["id"], tag_name)
+
+        # 3. Create session with customer and metadata
+        # Keep metadata for client-side tracking
+        metadata = {"careguide_profile": profile}
+
         session_data = client.create_session(
             agent_id=resolve_agent_id(),
+            customer_id=customer["id"],
             metadata=metadata,
             allow_greeting=False
         )
@@ -131,7 +193,7 @@ def create_parlant_session(profile: Optional[str] = None) -> str:
     if not session_id:
         raise RuntimeError("Parlant session creation response is missing an 'id' field.")
 
-    logger.info("Created Parlant session: %s", session_id)
+    logger.info("Created Parlant session: %s (profile: %s)", session_id, profile)
     return session_id
 
 
@@ -150,17 +212,72 @@ def update_session_profile(session_id: str, profile: str) -> None:
         )
 
 
-def extract_assistant_messages(events: List[Dict[str, Any]]) -> List[str]:
+def group_events_by_correlation(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Extract assistant messages from events
+    Group events by correlation_id (Parlant pattern)
 
     Args:
         events: List of event dicts
 
     Returns:
-        List of message strings
+        Dictionary mapping base correlation_id to list of events
+    """
+    grouped = defaultdict(list)
+
+    for event in events:
+        correlation_id = event.get("correlation_id", "")
+        # Split by '::' and take first part as base correlation ID
+        base_correlation_id = correlation_id.split("::")[0] if correlation_id else "unknown"
+        grouped[base_correlation_id].append(event)
+
+    return dict(grouped)
+
+
+def get_message_status(correlation_group: List[Dict[str, Any]]) -> str:
+    """
+    Get the latest status from a correlation group
+
+    Args:
+        correlation_group: List of events with same correlation_id
+
+    Returns:
+        Status string (pending, processing, typing, ready, error)
+    """
+    # Find the latest status event
+    status_events = [e for e in correlation_group if e.get("kind") == "status"]
+
+    if not status_events:
+        return "ready"
+
+    # Get the last status event
+    last_status = status_events[-1]
+    status_data = last_status.get("data", {})
+
+    # Extract status from various possible fields
+    status = (
+        status_data.get("status") or
+        status_data.get("state") or
+        status_data.get("stage") or
+        "ready"
+    )
+
+    return status
+
+
+def extract_assistant_messages(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Extract assistant messages from events with status tracking (Parlant pattern)
+
+    Args:
+        events: List of event dicts
+
+    Returns:
+        List of message dicts with text and status
     """
     messages = []
+
+    # Group events by correlation_id for status tracking
+    correlation_groups = group_events_by_correlation(events)
 
     for event in events:
         # Log event for debugging
@@ -210,8 +327,21 @@ def extract_assistant_messages(events: List[Dict[str, Any]]) -> List[str]:
             message_text = payload
 
         if message_text and isinstance(message_text, str) and message_text.strip():
-            logger.info("Extracted message: %s...", message_text[:50])
-            messages.append(message_text.strip())
+            # Get correlation_id and find status
+            correlation_id = event.get("correlation_id", "")
+            base_correlation_id = correlation_id.split("::")[0] if correlation_id else "unknown"
+
+            # Get status from correlation group
+            correlation_group = correlation_groups.get(base_correlation_id, [])
+            status = get_message_status(correlation_group)
+
+            logger.info("Extracted message (status=%s): %s...", status, message_text[:50])
+
+            messages.append({
+                "text": message_text.strip(),
+                "status": status,
+                "correlation_id": correlation_id
+            })
         else:
             logger.debug("No message text found in event data: %s", payload)
 
@@ -266,51 +396,94 @@ def extract_paper_results(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def collect_agent_updates(
     user_state: Dict[str, Any],
     max_attempts: int = 3,
-    wait_for_data: int = 30
-) -> tuple[List[str], List[Dict[str, Any]]]:
+    wait_for_data: int = 30,
+    use_exponential_backoff: bool = False
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Poll for agent responses
+    Poll for agent responses with improved error handling
 
     Args:
         user_state: User state dict
         max_attempts: Maximum polling attempts
         wait_for_data: Seconds to wait per attempt
+        use_exponential_backoff: Use exponential backoff on failures
 
     Returns:
-        (messages, papers)
+        (messages, papers) - messages are now dicts with text and status
     """
     messages = []
     papers = []
     session_id = user_state["session_id"]
+    error_count = 0
 
     with get_parlant_client() as client:
         for attempt in range(max_attempts):
-            events = client.list_events(
-                session_id=session_id,
-                min_offset=user_state["last_offset"],
-                wait_for_data=wait_for_data,
-                kinds="message,status,tool"
-            )
+            try:
+                # Check cache first (request deduplication)
+                cache_key = (session_id, user_state["last_offset"])
+                now = time.time()
 
-            if events:
-                # Update offset
-                user_state["last_offset"] = max(
-                    event.get("offset", -1) for event in events
-                ) + 1
+                if cache_key in request_cache:
+                    cached_time, cached_events = request_cache[cache_key]
+                    if now - cached_time < CACHE_TTL:
+                        logger.debug("Using cached events for session %s", session_id)
+                        events = cached_events
+                    else:
+                        # Cache expired, remove
+                        del request_cache[cache_key]
+                        events = None
+                else:
+                    events = None
 
-            # Extract messages and papers
-            messages.extend(extract_assistant_messages(events))
+                if events is None:
+                    # Fetch new events with long polling
+                    events = client.list_events(
+                        session_id=session_id,
+                        min_offset=user_state["last_offset"],
+                        wait_for_data=wait_for_data,
+                        kinds="message,status,tool"
+                    )
 
-            for paper in extract_paper_results(events):
-                if paper not in papers:
-                    papers.append(paper)
+                    # Cache the response
+                    request_cache[cache_key] = (now, events)
 
-            # If we have messages, break
-            if messages:
-                break
+                if events:
+                    # Update offset
+                    user_state["last_offset"] = max(
+                        event.get("offset", -1) for event in events
+                    ) + 1
 
-            # If no events, continue polling
-            if not events:
+                    # Reset error count on success
+                    error_count = 0
+
+                # Extract messages with status (Parlant pattern)
+                new_messages = extract_assistant_messages(events)
+                messages.extend(new_messages)
+
+                # Extract papers
+                for paper in extract_paper_results(events):
+                    if paper not in papers:
+                        papers.append(paper)
+
+                # If we have messages, break
+                if messages:
+                    break
+
+                # If no events, continue polling
+                if not events:
+                    continue
+
+            except Exception as exc:
+                error_count += 1
+                logger.error("Error polling events (attempt %d/%d): %s", attempt + 1, max_attempts, exc)
+
+                # Use exponential backoff if enabled
+                if use_exponential_backoff and error_count > 0:
+                    delay = calculate_retry_delay(error_count - 1)
+                    logger.info("Backing off for %.2fs before retry", delay)
+                    time.sleep(delay)
+
+                # Continue to next attempt
                 continue
 
     return messages, papers
@@ -326,12 +499,94 @@ def index():
 
 @app.route("/chat")
 def chat():
-    """Render the chat page"""
+    """Render the chat page and initialise a browser session."""
     if "user_id" not in session:
         session["user_id"] = str(uuid.uuid4())
 
-    get_or_create_user_state(session["user_id"])
-    return render_template("chat.html")
+    # Initialize default profile state (but don't create Parlant session yet)
+    profile = request.args.get("profile", DEFAULT_PROFILE)
+    get_or_create_user_state(session["user_id"], profile)
+    return render_template("chat.html", initial_profile=profile)
+
+
+@app.route("/api/rooms/create", methods=["POST"])
+def create_chat_room():
+    """Create a new chat room with specified profile."""
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+
+    profile = (data.get("profile") or DEFAULT_PROFILE).strip().lower()
+
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        return jsonify(
+            {
+                "error": "Invalid profile",
+                "message": "프로필은 researcher, patient, general 중 하나여야 합니다.",
+            }
+        ), 400
+
+    user_id = session.get("user_id")
+    if not user_id:
+        user_id = str(uuid.uuid4())
+        session["user_id"] = user_id
+
+    user_state = get_or_create_user_state(user_id, profile)
+
+    try:
+        # Create Parlant session if it doesn't exist
+        if not user_state["session_id"]:
+            user_state["session_id"] = create_parlant_session(profile)
+            user_state["last_offset"] = 0
+
+        return jsonify(
+            {
+                "status": "success",
+                "profile": profile,
+                "session_id": user_state["session_id"],
+                "message": f"{profile.capitalize()} 채팅방이 생성되었습니다.",
+            }
+        )
+
+    except Exception as exc:
+        logger.exception("Failed to create Parlant session.")
+        return jsonify(
+            {
+                "error": "session_creation_failed",
+                "message": "Parlant 세션 생성 중 오류가 발생했습니다.",
+                "detail": str(exc),
+            }
+        ), 502
+
+
+@app.route("/api/rooms/list", methods=["GET"])
+def list_chat_rooms():
+    """List all active chat rooms for the current user."""
+    user_id = session.get("user_id")
+
+    if not user_id:
+        return jsonify({"rooms": []})
+
+    # Get unique key
+    unique_key = f"{user_id}_{SERVER_START_ID}"
+
+    if unique_key not in user_sessions:
+        return jsonify({"rooms": []})
+
+    rooms = []
+    for profile, state in user_sessions[unique_key].items():
+        if state.get("session_id"):
+            rooms.append(
+                {
+                    "profile": profile,
+                    "session_id": state["session_id"],
+                    "last_offset": state["last_offset"],
+                }
+            )
+
+    return jsonify({"rooms": rooms})
 
 
 @app.route("/api/message", methods=["POST"])
@@ -341,7 +596,8 @@ def process_message():
 
     Request JSON:
         {
-            "message": "user message text"
+            "message": "user message text",
+            "profile": "researcher|patient|general"
         }
 
     Response JSON:
@@ -356,11 +612,19 @@ def process_message():
         data = {}
 
     user_input = (data.get("message") or "").strip()
+    profile = (data.get("profile") or DEFAULT_PROFILE).strip().lower()
 
     if not user_input:
         return jsonify({
             "status": "error",
             "message": "메시지가 비어 있습니다. 질문을 입력해 주세요.",
+        }), 400
+
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        return jsonify({
+            "status": "error",
+            "message": "유효하지 않은 프로필입니다.",
         }), 400
 
     # Get or create user session
@@ -369,12 +633,12 @@ def process_message():
         user_id = str(uuid.uuid4())
         session["user_id"] = user_id
 
-    user_state = get_or_create_user_state(user_id)
+    user_state = get_or_create_user_state(user_id, profile)
 
     try:
         # Create Parlant session if needed
         if not user_state["session_id"]:
-            user_state["session_id"] = create_parlant_session(user_state.get("profile"))
+            user_state["session_id"] = create_parlant_session(profile)
             user_state["last_offset"] = 0
 
         # Send customer message (non-blocking)
@@ -402,17 +666,19 @@ def process_message():
 @app.route("/api/poll", methods=["GET"])
 def poll_messages():
     """
-    Poll for new messages from the assistant
+    Poll for new messages from the assistant (with long polling)
 
     Query Parameters:
-        wait: Wait time in seconds (default: 10)
+        wait: Wait time in seconds (default: 30, max: 30)
+        profile: User profile (researcher|patient|general)
 
     Response JSON:
         {
             "status": "ok",
-            "messages": ["message1", "message2"],
+            "messages": [{"text": "...", "status": "ready", "correlation_id": "..."}],
             "papers": [...],
-            "has_more": false
+            "has_more": false,
+            "current_status": "ready"|"processing"|"typing"
         }
     """
     user_id = session.get("user_id")
@@ -425,7 +691,13 @@ def poll_messages():
             "has_more": False
         })
 
-    user_state = get_or_create_user_state(user_id)
+    profile = request.args.get("profile", DEFAULT_PROFILE).strip().lower()
+
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        profile = DEFAULT_PROFILE
+
+    user_state = get_or_create_user_state(user_id, profile)
 
     if not user_state.get("session_id"):
         logger.warning("Poll request with no Parlant session_id")
@@ -437,24 +709,45 @@ def poll_messages():
         })
 
     try:
-        wait_time = int(request.args.get("wait", "10"))
+        # Use longer default wait time for long polling (Parlant pattern)
+        wait_time = int(request.args.get("wait", "30"))
         wait_time = min(wait_time, 30)  # Cap at 30 seconds
 
         logger.info(
-            "Polling session %s from offset %d (wait=%ds)",
+            "Long polling session %s from offset %d (wait=%ds)",
             user_state["session_id"],
             user_state["last_offset"],
             wait_time
         )
 
-        # Poll for new events
-        with get_parlant_client() as client:
-            events = client.list_events(
-                session_id=user_state["session_id"],
-                min_offset=user_state["last_offset"],
-                wait_for_data=wait_time,
-                kinds="message,status,tool"
-            )
+        # Check cache first (request deduplication)
+        cache_key = (user_state["session_id"], user_state["last_offset"])
+        now = time.time()
+
+        if cache_key in request_cache:
+            cached_time, cached_events = request_cache[cache_key]
+            if now - cached_time < CACHE_TTL:
+                logger.debug("Using cached events")
+                events = cached_events
+            else:
+                # Cache expired
+                del request_cache[cache_key]
+                events = None
+        else:
+            events = None
+
+        if events is None:
+            # Poll for new events with long polling
+            with get_parlant_client() as client:
+                events = client.list_events(
+                    session_id=user_state["session_id"],
+                    min_offset=user_state["last_offset"],
+                    wait_for_data=wait_time,
+                    kinds="message,status,tool"
+                )
+
+            # Cache the response
+            request_cache[cache_key] = (now, events)
 
         logger.info("Received %d events", len(events))
 
@@ -469,17 +762,30 @@ def poll_messages():
             logger.info("Updating offset from %d to %d", user_state["last_offset"], new_offset)
             user_state["last_offset"] = new_offset
 
-        # Extract messages and papers
+        # Extract messages with status (Parlant pattern)
         messages = extract_assistant_messages(events)
         papers = extract_paper_results(events)
 
-        logger.info("Extracted %d messages and %d papers", len(messages), len(papers))
+        # Determine current status from latest status event
+        current_status = "ready"
+        status_events = [e for e in events if e.get("kind") == "status"]
+        if status_events:
+            last_status_event = status_events[-1]
+            status_data = last_status_event.get("data", {})
+            current_status = (
+                status_data.get("status") or
+                status_data.get("state") or
+                "ready"
+            )
+
+        logger.info("Extracted %d messages and %d papers (current_status=%s)", len(messages), len(papers), current_status)
 
         return jsonify({
             "status": "ok",
             "messages": messages,
             "papers": papers,
-            "has_more": len(messages) > 0  # Suggest polling again if we got messages
+            "has_more": len(messages) > 0,  # Suggest polling again if we got messages
+            "current_status": current_status
         })
 
     except Exception as exc:
@@ -501,6 +807,9 @@ def stream_messages():
     This replaces polling with a persistent connection that pushes
     messages to the client as soon as they're available.
 
+    Query Parameters:
+        profile: User profile (researcher|patient|general)
+
     The stream will:
     1. Wait for new events from Parlant
     2. Extract and send messages immediately
@@ -508,25 +817,35 @@ def stream_messages():
     """
     user_id = session.get("user_id")
     if not user_id:
-        # Send error event and close
+        # Send error event and close with proper status
+        logger.error("SSE connection attempted without user session")
         def error_gen():
-            yield f"event: error\ndata: {json.dumps({'error': 'No session'})}\n\n"
-        return Response(error_gen(), mimetype='text/event-stream')
+            yield f"event: error\ndata: {json.dumps({'error': 'No user session. Please refresh the page.'})}\n\n"
+        return Response(error_gen(), mimetype='text/event-stream', status=401)
 
-    user_state = get_or_create_user_state(user_id)
+    profile = request.args.get("profile", DEFAULT_PROFILE).strip().lower()
+
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        profile = DEFAULT_PROFILE
+
+    user_state = get_or_create_user_state(user_id, profile)
 
     if not user_state.get("session_id"):
+        logger.error("SSE connection attempted without Parlant session for user %s", user_id)
         def error_gen():
-            yield f"event: error\ndata: {json.dumps({'error': 'No Parlant session'})}\n\n"
-        return Response(error_gen(), mimetype='text/event-stream')
+            yield f"event: error\ndata: {json.dumps({'error': 'No Parlant session. Please refresh the page.'})}\n\n"
+        return Response(error_gen(), mimetype='text/event-stream', status=500)
 
     def generate():
-        """Generator function for SSE stream"""
+        """Generator function for SSE stream with improved completion detection"""
         session_id = user_state["session_id"]
         last_offset = user_state["last_offset"]
-        max_attempts = 30  # Increased from 20 to 30 (7.5 minutes total)
+        max_attempts = 30  # 30 attempts (7.5 minutes total)
         attempt = 0
         total_messages_sent = 0  # Track total messages sent
+        consecutive_empty_polls = 0  # Track consecutive polls with no events
+        last_event_time = time.time()  # Track when we last received events
 
         logger.info("Starting SSE stream for session %s", session_id)
 
@@ -545,7 +864,7 @@ def stream_messages():
                     events = client.list_events(
                         session_id=session_id,
                         min_offset=last_offset,
-                        wait_for_data=15,  # Increased from 10 to 15 seconds
+                        wait_for_data=30,  # Increased to 30 seconds for complex tool operations
                         kinds="message,status,tool"
                     )
 
@@ -556,20 +875,48 @@ def stream_messages():
                         last_offset = max(event.get("offset", -1) for event in events) + 1
                         user_state["last_offset"] = last_offset
 
-                        # Extract messages
+                        # Reset inactivity tracking - we got events
+                        consecutive_empty_polls = 0
+                        last_event_time = time.time()
+
+                        # Extract messages with status (Parlant pattern)
                         messages = extract_assistant_messages(events)
                         papers = extract_paper_results(events)
 
-                        # Send messages
+                        # Determine current agent status
+                        current_status = "ready"
+                        status_events = [e for e in events if e.get("kind") == "status"]
+                        if status_events:
+                            last_status_event = status_events[-1]
+                            status_data = last_status_event.get("data", {})
+                            current_status = (
+                                status_data.get("status") or
+                                status_data.get("state") or
+                                status_data.get("stage") or
+                                "ready"
+                            )
+
+                        # Send status update first (for UI indicators)
+                        if status_events:
+                            yield f"event: status\ndata: {json.dumps({'status': current_status})}\n\n"
+                            logger.debug("SSE sent status: %s", current_status)
+
+                        # Send messages with status
                         if messages:
-                            for message in messages:
+                            for msg in messages:
                                 data = json.dumps({
                                     'type': 'message',
-                                    'message': message
+                                    'text': msg.get('text') if isinstance(msg, dict) else msg,
+                                    'status': msg.get('status', 'ready') if isinstance(msg, dict) else 'ready',
+                                    'correlation_id': msg.get('correlation_id', '') if isinstance(msg, dict) else ''
                                 })
                                 yield f"event: message\ndata: {data}\n\n"
                                 total_messages_sent += 1
-                                logger.info("SSE sent message #%d: %s...", total_messages_sent, message[:50])
+                                msg_text = msg.get('text') if isinstance(msg, dict) else msg
+                                logger.info("SSE sent message #%d (status=%s): %s...",
+                                           total_messages_sent,
+                                           msg.get('status', 'ready') if isinstance(msg, dict) else 'ready',
+                                           msg_text[:50] if msg_text else '')
 
                         # Send papers
                         if papers:
@@ -594,24 +941,68 @@ def stream_messages():
                                     break
 
                         # Determine if we should complete the stream
+                        # Only complete when agent explicitly signals completion
                         should_complete = False
 
                         if agent_finished:
-                            # Agent explicitly finished
+                            # Agent explicitly finished - this is the most reliable indicator
                             logger.info("Agent finished status detected, completing SSE stream")
                             should_complete = True
-                        elif total_messages_sent >= 2:
-                            # We have at least 2 messages total (disclaimer + actual response)
-                            logger.info("Received %d messages total, completing SSE stream", total_messages_sent)
+                        elif current_status in {"ready", "completed"}:
+                            # Agent is in ready/completed state AND we have messages
+                            # This means the agent has finished processing
+                            if total_messages_sent > 10:
+                                logger.info(
+                                    "Agent status is '%s' with %d messages sent, completing SSE stream",
+                                    current_status,
+                                    total_messages_sent
+                                )
+                                should_complete = True
+                            else:
+                                # Ready but no messages yet - keep waiting
+                                logger.debug("Agent ready but no messages yet, continuing...")
+
+                        # Inactivity-based completion
+                        # If agent is idle (no events) for too long after sending messages
+                        if not should_complete and total_messages_sent > 0:
+                            time_since_last_event = time.time() - last_event_time
+
+                            # Option 1: Consecutive empty polls (more reliable)
+                            if consecutive_empty_polls >= 3:
+                                # 3 consecutive empty polls (~45 seconds of inactivity)
+                                logger.info(
+                                    "Inactivity-based completion: %d consecutive empty polls, %d messages sent",
+                                    consecutive_empty_polls,
+                                    total_messages_sent
+                                )
+                                should_complete = True
+
+                            # Option 2: Time-based (backup)
+                            elif time_since_last_event > 60:
+                                # No events for 60 seconds
+                                logger.info(
+                                    "Time-based completion: %.1fs since last event, %d messages sent",
+                                    time_since_last_event,
+                                    total_messages_sent
+                                )
+                                should_complete = True
+
+                        # Absolute timeout - prevent infinite loops
+                        if not should_complete and attempt >= max_attempts:
+                            logger.warning(
+                                "Max attempts reached (%d), forcing completion with %d messages",
+                                max_attempts,
+                                total_messages_sent
+                            )
                             should_complete = True
-                        elif total_messages_sent == 1:
-                            # Only one message so far - likely just disclaimer
-                            # Keep waiting for the actual response
-                            logger.debug("Only 1 message received so far (likely disclaimer), continuing...")
 
                         if should_complete:
                             yield f"event: complete\ndata: {json.dumps({'status': 'complete'})}\n\n"
                             break
+                    else:
+                        # No events in this poll
+                        consecutive_empty_polls += 1
+                        logger.debug("Empty poll #%d", consecutive_empty_polls)
 
                     # Small delay before next check
                     time.sleep(1)
@@ -637,6 +1028,9 @@ def get_chat_history():
     """
     Get complete chat history for current session
 
+    Query Parameters:
+        profile: User profile (researcher|patient|general)
+
     Returns all messages from the beginning of the session,
     useful for restoring chat after page refresh.
 
@@ -658,7 +1052,13 @@ def get_chat_history():
             "total": 0
         })
 
-    user_state = get_or_create_user_state(user_id)
+    profile = request.args.get("profile", DEFAULT_PROFILE).strip().lower()
+
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        profile = DEFAULT_PROFILE
+
+    user_state = get_or_create_user_state(user_id, profile)
 
     if not user_state.get("session_id"):
         return jsonify({
@@ -763,12 +1163,14 @@ def get_pending_messages():
 
     Query Parameters:
         quick: "true" for fast check (wait=1s)
+        profile: User profile (researcher|patient|general)
 
     Response JSON:
         {
-            "messages": [...],
+            "messages": [{"text": "...", "status": "ready", "correlation_id": "..."}],
             "papers": [...],
-            "has_pending": true/false
+            "has_pending": true/false,
+            "current_status": "ready"|"processing"|"typing"
         }
     """
     user_id = session.get("user_id")
@@ -779,7 +1181,13 @@ def get_pending_messages():
             "has_pending": False
         })
 
-    user_state = get_or_create_user_state(user_id)
+    profile = request.args.get("profile", DEFAULT_PROFILE).strip().lower()
+
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        profile = DEFAULT_PROFILE
+
+    user_state = get_or_create_user_state(user_id, profile)
 
     if not user_state.get("session_id"):
         return jsonify({
@@ -805,7 +1213,7 @@ def get_pending_messages():
                 session_id=user_state["session_id"],
                 min_offset=user_state["last_offset"],
                 wait_for_data=wait_time,
-                kinds="message,tool"
+                kinds="message,status,tool"
             )
 
         if events:
@@ -814,16 +1222,29 @@ def get_pending_messages():
                 event.get("offset", -1) for event in events
             ) + 1
 
-        # Extract messages and papers
+        # Extract messages with status (Parlant pattern)
         messages = extract_assistant_messages(events)
         papers = extract_paper_results(events)
 
-        logger.info("Found %d pending messages", len(messages))
+        # Determine current status
+        current_status = "ready"
+        status_events = [e for e in events if e.get("kind") == "status"]
+        if status_events:
+            last_status_event = status_events[-1]
+            status_data = last_status_event.get("data", {})
+            current_status = (
+                status_data.get("status") or
+                status_data.get("state") or
+                "ready"
+            )
+
+        logger.info("Found %d pending messages (status=%s)", len(messages), current_status)
 
         return jsonify({
             "messages": messages,
             "papers": papers,
-            "has_pending": len(messages) > 0
+            "has_pending": len(messages) > 0,
+            "current_status": current_status
         })
 
     except Exception as exc:
@@ -836,53 +1257,54 @@ def get_pending_messages():
         }), 500
 
 
-@app.route("/api/profile", methods=["POST"])
-def set_profile():
+@app.route("/api/session/validate")
+def validate_session():
     """
-    Set user profile
+    Validate if user has an active session for the given profile
 
-    Request JSON:
-        {
-            "profile_type": "researcher" | "patient" | "general"
-        }
+    Query Parameters:
+        profile: User profile (researcher|patient|general)
 
     Response JSON:
         {
-            "status": "success",
-            "profile": "researcher"
+            "valid": true/false,
+            "session_id": "session_id" (if valid)
         }
     """
-    try:
-        data = request.get_json(force=True) or {}
-    except Exception:
-        data = {}
+    profile = request.args.get("profile", DEFAULT_PROFILE).strip().lower()
 
-    profile_type = (data.get("profile_type") or DEFAULT_PROFILE or "general").lower()
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        profile = DEFAULT_PROFILE
 
-    # Get or create user session
     user_id = session.get("user_id")
     if not user_id:
-        user_id = str(uuid.uuid4())
-        session["user_id"] = user_id
+        return jsonify({"valid": False, "error": "No user session"})
 
-    user_state = get_or_create_user_state(user_id)
-    user_state["profile"] = profile_type
-
-    # Update Parlant session if it exists
+    user_state = get_or_create_user_state(user_id, profile)
     session_id = user_state.get("session_id")
-    if session_id:
-        try:
-            update_session_profile(session_id, profile_type)
-        except Exception as exc:
-            logger.warning("Failed to update session metadata: %s", exc)
 
-    return jsonify({"status": "success", "profile": profile_type})
+    if not session_id:
+        return jsonify({"valid": False, "error": "No Parlant session"})
+
+    # If session_id exists in our state, consider it valid
+    # We trust that get_or_create_user_state() has already created a valid session
+    # Verifying with Parlant adds overhead and can fail for newly created sessions
+    return jsonify({
+        "valid": True,
+        "session_id": session_id
+    })
 
 
 @app.route("/api/session/reset", methods=["POST"])
 def reset_session():
     """
-    Reset user session (create new Parlant session)
+    Reset user session for a specific profile (delete and recreate)
+
+    Request JSON:
+        {
+            "profile": "researcher|patient|general"
+        }
 
     Response JSON:
         {
@@ -890,11 +1312,22 @@ def reset_session():
             "message": "Session reset successfully"
         }
     """
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+
+    profile = (data.get("profile") or DEFAULT_PROFILE).strip().lower()
+
+    # Validate profile
+    if profile not in ["researcher", "patient", "general"]:
+        profile = DEFAULT_PROFILE
+
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"status": "success", "message": "No session to reset"})
 
-    user_state = get_or_create_user_state(user_id)
+    user_state = get_or_create_user_state(user_id, profile)
 
     # Delete old session if exists
     old_session_id = user_state.get("session_id")
@@ -911,7 +1344,7 @@ def reset_session():
 
     return jsonify({
         "status": "success",
-        "message": "세션이 재설정되었습니다."
+        "message": f"{profile.capitalize()} 세션이 재설정되었습니다."
     })
 
 
