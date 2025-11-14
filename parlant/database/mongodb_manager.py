@@ -29,44 +29,44 @@ class MongoDBManager:
             print("MongoDB 연결 종료")
     
     async def create_indexes(self):
-        """인덱스 생성"""
+        """인덱스 생성 - Kidney collections"""
         try:
-            # QA 텍스트 검색 인덱스
-            await self.db.qa_data.create_index(
+            # QA Kidney 텍스트 검색 인덱스
+            await self.db.qa_kidney.create_index(
                 [("question", "text"), ("answer", "text")],
-                name="qa_text_search"
+                name="qa_kidney_text_search"
             )
         except Exception as e:
-            print(f"⚠️ QA 인덱스 생성 경고: {e}")
-        
+            print(f"⚠️ QA Kidney 인덱스 생성 경고: {e}")
+
         try:
-            # 논문 텍스트 검색 인덱스
-            await self.db.papers.create_index(
+            # 논문 Kidney 텍스트 검색 인덱스
+            await self.db.papers_kidney.create_index(
                 [("title", "text"), ("abstract", "text")],
-                name="paper_text_search"
+                name="paper_kidney_text_search"
             )
         except Exception as e:
-            print(f"⚠️ 논문 인덱스 생성 경고: {e}")
-        
+            print(f"⚠️ 논문 Kidney 인덱스 생성 경고: {e}")
+
         try:
-            # 논문 DOI 유니크 인덱스 (sparse)
-            await self.db.papers.create_index(
-                "metadata.doi",
+            # 논문 Kidney DOI 유니크 인덱스 (sparse)
+            await self.db.papers_kidney.create_index(
+                "doi",
                 unique=True,
                 sparse=True,
-                name="doi_unique"
+                name="doi_kidney_unique"
             )
         except Exception as e:
-            print(f"⚠️ DOI 인덱스 생성 경고: {e}")
-        
+            print(f"⚠️ DOI Kidney 인덱스 생성 경고: {e}")
+
         try:
-            # 의료 데이터 텍스트 검색 인덱스
-            await self.db.medical_data.create_index(
+            # 의료 Kidney 데이터 텍스트 검색 인덱스
+            await self.db.medical_kidney.create_index(
                 [("text", "text"), ("keyword", "text")],
-                name="medical_text_search"
+                name="medical_kidney_text_search"
             )
         except Exception as e:
-            print(f"⚠️ 의료 데이터 인덱스 생성 경고: {e}")
+            print(f"⚠️ 의료 Kidney 데이터 인덱스 생성 경고: {e}")
     
     # ==================== QA 데이터 ====================
     
@@ -102,28 +102,29 @@ class MongoDBManager:
                 })
             
             if operations:
-                result = await self.db.qa_data.bulk_write(operations)
-                print(f"✅ QA 데이터 삽입: {result.upserted_count}개 신규, {result.modified_count}개 업데이트")
+                result = await self.db.qa_kidney.bulk_write(operations)
+                print(f"✅ QA Kidney 데이터 삽입: {result.upserted_count}개 신규, {result.modified_count}개 업데이트")
         else:
-            result = await self.db.qa_data.insert_many(qa_list, ordered=False)
-            print(f"✅ QA 데이터 삽입: {len(result.inserted_ids)}개")
-    
+            result = await self.db.qa_kidney.insert_many(qa_list, ordered=False)
+            print(f"✅ QA Kidney 데이터 삽입: {len(result.inserted_ids)}개")
+
     async def search_qa(self, query: str, limit: int = 10) -> List[Dict]:
-        """QA 텍스트 검색"""
-        cursor = self.db.qa_data.find(
+        """QA Kidney 텍스트 검색"""
+        cursor = self.db.qa_kidney.find(
             {"$text": {"$search": query}},
             {
                 "score": {"$meta": "textScore"},
                 "question": 1,
                 "answer": 1,
+                "source_dataset": 1,  # Include source information for proper citation
                 "_id": 1
             }
         ).sort([("score", {"$meta": "textScore"})]).limit(limit)
-        
+
         results = []
         async for doc in cursor:
             results.append(doc)
-        
+
         return results
     
     # ==================== 논문 데이터 ====================
@@ -155,8 +156,8 @@ class MongoDBManager:
             
             # 중복 체크 및 삽입
             try:
-                await self.db.papers.update_one(
-                    {"metadata.doi": doi},
+                await self.db.papers_kidney.update_one(
+                    {"doi": doi},
                     {"$set": paper},
                     upsert=True
                 )
@@ -166,17 +167,17 @@ class MongoDBManager:
                     "title": paper.get("title", "Unknown"),
                     "reason": str(e)
                 })
-        
-        print(f"✅ 논문 삽입: {len(inserted)}개 성공, {len(skipped)}개 스킵")
-        
+
+        print(f"✅ 논문 Kidney 삽입: {len(inserted)}개 성공, {len(skipped)}개 스킵")
+
         return {
             "inserted": inserted,
             "skipped": skipped
         }
-    
+
     async def search_papers(self, query: str, limit: int = 10) -> List[Dict]:
-        """논문 텍스트 검색 - Abstract 포함"""
-        cursor = self.db.papers.find(
+        """논문 Kidney 텍스트 검색 - Abstract 포함"""
+        cursor = self.db.papers_kidney.find(
             {"$text": {"$search": query}},
             {
                 "score": {"$meta": "textScore"},
@@ -195,8 +196,8 @@ class MongoDBManager:
         return results
     
     async def get_paper_by_doi(self, doi: str) -> Optional[Dict]:
-        """DOI로 논문 조회"""
-        return await self.db.papers.find_one({"metadata.doi": doi})
+        """DOI로 논문 Kidney 조회"""
+        return await self.db.papers_kidney.find_one({"doi": doi})
     
     # ==================== 의료 데이터 ====================
     
@@ -227,15 +228,15 @@ class MongoDBManager:
                 })
             
             if operations:
-                result = await self.db.medical_data.bulk_write(operations)
-                print(f"✅ 의료 데이터 삽입: {result.upserted_count}개 신규, {result.modified_count}개 업데이트")
+                result = await self.db.medical_kidney.bulk_write(operations)
+                print(f"✅ 의료 Kidney 데이터 삽입: {result.upserted_count}개 신규, {result.modified_count}개 업데이트")
         else:
-            result = await self.db.medical_data.insert_many(medical_list, ordered=False)
-            print(f"✅ 의료 데이터 삽입: {len(result.inserted_ids)}개")
-    
+            result = await self.db.medical_kidney.insert_many(medical_list, ordered=False)
+            print(f"✅ 의료 Kidney 데이터 삽입: {len(result.inserted_ids)}개")
+
     async def search_medical(self, query: str, limit: int = 10) -> List[Dict]:
-        """의료 데이터 텍스트 검색"""
-        cursor = self.db.medical_data.find(
+        """의료 Kidney 데이터 텍스트 검색"""
+        cursor = self.db.medical_kidney.find(
             {"$text": {"$search": query}},
             {
                 "score": {"$meta": "textScore"},
@@ -255,15 +256,15 @@ class MongoDBManager:
     # ==================== 통계 ====================
     
     async def get_stats(self) -> Dict:
-        """데이터베이스 통계"""
-        qa_count = await self.db.qa_data.count_documents({})
-        paper_count = await self.db.papers.count_documents({})
-        medical_count = await self.db.medical_data.count_documents({})
-        
+        """데이터베이스 통계 - Kidney collections"""
+        qa_count = await self.db.qa_kidney.count_documents({})
+        paper_count = await self.db.papers_kidney.count_documents({})
+        medical_count = await self.db.medical_kidney.count_documents({})
+
         return {
-            "qa_data": qa_count,
-            "papers": paper_count,
-            "medical_data": medical_count,
+            "qa_kidney": qa_count,
+            "papers_kidney": paper_count,
+            "medical_kidney": medical_count,
             "total": qa_count + paper_count + medical_count
         }
     
@@ -278,11 +279,11 @@ class MongoDBManager:
             for line in f:
                 data.append(json.loads(line))
         
-        if collection_name == "qa_data":
+        if collection_name == "qa_kidney":
             await self.insert_qa_batch(data)
-        elif collection_name == "papers":
+        elif collection_name == "papers_kidney":
             await self.insert_papers_batch(data)
-        elif collection_name == "medical_data":
+        elif collection_name == "medical_kidney":
             await self.insert_medical_batch(data)
         
         print(f"✅ {jsonl_path} → {collection_name} 마이그레이션 완료")
@@ -297,10 +298,10 @@ async def test_mongodb():
     
     # 통계 확인
     stats = await manager.get_stats()
-    print(f"\n📊 데이터베이스 통계:")
-    print(f"  - QA: {stats['qa_data']:,}개")
-    print(f"  - 논문: {stats['papers']:,}개")
-    print(f"  - 의료: {stats['medical_data']:,}개")
+    print(f"\n📊 데이터베이스 통계 (Kidney collections):")
+    print(f"  - QA Kidney: {stats['qa_kidney']:,}개")
+    print(f"  - 논문 Kidney: {stats['papers_kidney']:,}개")
+    print(f"  - 의료 Kidney: {stats['medical_kidney']:,}개")
     print(f"  - 총합: {stats['total']:,}개")
     
     # 논문 검색 테스트 (Abstract 포함)

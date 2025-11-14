@@ -17,13 +17,13 @@ load_dotenv()
 
 
 class HybridSearchEngine:
-    """하이브리드 검색 엔진 - MongoDB + Pinecone + PubMed"""
-    
+    """하이브리드 검색 엔진 - MongoDB + Pinecone + PubMed (Kidney Data)"""
+
     def __init__(self):
         self.mongo = MongoDBManager()
-        self.vector_db = VectorDBManager()
+        self.vector_db = VectorDBManager()  # Uses kidney-medical-embeddings by default
         self.pubmed = PubMedAdvancedSearch(email=os.getenv("PUBMED_EMAIL"))
-        
+
         self.initialized = False
     
     async def initialize(self):
@@ -72,11 +72,11 @@ class HybridSearchEngine:
         else:
             tasks.append(self._keyword_paper_search(query, max_per_source))
         
-        # # 3. 의료 데이터 검색
-        # if use_semantic:
-        #     tasks.append(self._hybrid_medical_search(query, max_per_source))
-        # else:
-        #     tasks.append(self._keyword_medical_search(query, max_per_source))
+        # 3. 의료 데이터 검색
+        if use_semantic:
+            tasks.append(self._hybrid_medical_search(query, max_per_source))
+        else:
+            tasks.append(self._keyword_medical_search(query, max_per_source))
 
         # 4. PubMed 검색 (선택적)
         if use_pubmed:
@@ -102,53 +102,53 @@ class HybridSearchEngine:
     # ==================== 하이브리드 검색 (키워드 + 시맨틱) ====================
     
     async def _hybrid_qa_search(self, query: str, limit: int) -> List[Dict]:
-        """QA 하이브리드 검색"""
-        
-        # 1. 키워드 검색 (MongoDB)
+        """QA Kidney 하이브리드 검색"""
+
+        # 1. 키워드 검색 (MongoDB - qa_kidney collection)
         keyword_results = await self.mongo.search_qa(query, limit=limit)
-        
-        # 2. 시맨틱 검색 (Pinecone)
-        semantic_matches = await self.vector_db.semantic_search(
-            query, 
-            top_k=limit, 
-            namespace="qa"
-        )
-        
-        # 3. 결과 병합 (중복 제거 + 점수 조합)
-        merged = self._merge_results(keyword_results, semantic_matches, limit)
-        
-        return merged
-    
-    async def _hybrid_paper_search(self, query: str, limit: int) -> List[Dict]:
-        """논문 하이브리드 검색"""
-        
-        # 1. 키워드 검색
-        keyword_results = await self.mongo.search_papers(query, limit=limit)
-        
-        # 2. 시맨틱 검색
+
+        # 2. 시맨틱 검색 (Pinecone - qa_kidney namespace)
         semantic_matches = await self.vector_db.semantic_search(
             query,
             top_k=limit,
-            namespace="papers"
+            namespace="qa_kidney"
         )
-        
+
+        # 3. 결과 병합 (중복 제거 + 점수 조합)
+        merged = self._merge_results(keyword_results, semantic_matches, limit)
+
+        return merged
+    
+    async def _hybrid_paper_search(self, query: str, limit: int) -> List[Dict]:
+        """논문 Kidney 하이브리드 검색"""
+
+        # 1. 키워드 검색 (MongoDB - papers_kidney collection)
+        keyword_results = await self.mongo.search_papers(query, limit=limit)
+
+        # 2. 시맨틱 검색 (Pinecone - papers_kidney namespace)
+        semantic_matches = await self.vector_db.semantic_search(
+            query,
+            top_k=limit,
+            namespace="papers_kidney"
+        )
+
         # 3. 병합
         merged = self._merge_results(keyword_results, semantic_matches, limit)
-        
+
         return merged
     
     async def _hybrid_medical_search(self, query: str, limit: int) -> List[Dict]:
-        """의료 데이터 하이브리드 검색"""
-        
+        """의료 Kidney 데이터 하이브리드 검색"""
+
         keyword_results = await self.mongo.search_medical(query, limit=limit)
         semantic_matches = await self.vector_db.semantic_search(
             query,
             top_k=limit,
-            namespace="medical"
+            namespace="medical_kidney"
         )
-        
+
         merged = self._merge_results(keyword_results, semantic_matches, limit)
-        
+
         return merged
     
     # ==================== 키워드 검색 (폴백) ====================

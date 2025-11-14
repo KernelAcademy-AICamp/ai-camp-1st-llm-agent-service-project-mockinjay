@@ -38,15 +38,41 @@ SEARCH_ENGINE = None
 # ==================== Helper Functions ====================
 
 async def get_profile(context: ToolContext) -> str:
-    """Extract profile from customer.tags"""
-    try:
-        customer = await context.get_customer()
-        for tag_id in customer.tags:
-            tag = await context.get_tag(tag_id)
-            if tag.name.startswith("profile:"):
-                return tag.name.split(":")[1]
-    except:
-        pass
+    """Determine profile based on plugin_data or customer context
+
+    IMPORTANT: Profile-specific behavior is controlled by Parlant guidelines.
+    The LLM receives different instructions based on customer tags:
+    - "profile:researcher" → Academic language, max 10 results
+    - "profile:patient" → Practical advice, max 5 results
+    - "profile:general" → Simple language, max 3 results
+
+    This function attempts to read profile from context but defaults to
+    standard limits. The actual tone/style is controlled by LLM guidelines.
+
+    Args:
+        context: ToolContext with optional plugin_data
+
+    Returns:
+        Profile type for result limiting
+    """
+    # Check if profile is in plugin_data (preferred method)
+    if hasattr(context, 'plugin_data') and context.plugin_data:
+        profile = context.plugin_data.get('profile')
+        if profile and profile in ["researcher", "patient", "general"]:
+            print(f"✅ Profile from plugin_data: {profile}")
+            return profile
+
+    # Note: We don't fetch from REST API here to avoid deadlock
+    # The Parlant server is busy executing this tool, so HTTP requests
+    # to the same server will timeout or block.
+
+    # Instead, we rely on:
+    # 1. LLM guidelines (controlled by customer tags) for tone/style
+    # 2. Default result limits (can be adjusted by guidelines)
+
+    # Default profile for result limiting
+    # The actual response style is controlled by Parlant guidelines
+    print(f"ℹ️  Using default profile limits (guidelines control actual behavior)")
     return "general"
 
 
@@ -92,30 +118,56 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
         "general": "in very simple and plain language, minimizing technical terms"
     }
 
-    # 1. QA data summary (reduced: 3 items max, shorter excerpts)
+    number_of_results = {
+        "researcher": 10,
+        "patient": 5,
+        "general": 3
+    }
+
+
+    # 1. QA data summary (reduced: truncate long answers, include source)
     qa_summary = ""
     if raw_results["qa_results"]:
-        for i, item in enumerate(raw_results["qa_results"][:3], 1):
-            question = item.get('question', '')[:80]
-            answer = item.get('answer', '')[:150]
-            qa_summary += f"{i}. Q: {question}\n   A: {answer}...\n"
+        for i, item in enumerate(raw_results["qa_results"][:number_of_results[profile]], 1):
+            question = item.get('question', '')[:200]  # Limit question length
+            answer = item.get('answer', '')[:500]  # Limit answer to 500 chars
+            source = item.get('source_dataset', 'AI Hub')  # Get source or default to AI Hub
+            # Simplify source name for display
+            if source.startswith('dataset_'):
+                source = 'AI Hub'
+            qa_summary += f"{i}. Q: {question}\n   A: {answer}...\n   Source: {source}\n"
     else:
         qa_summary = "No results"
 
-    # 2. Local paper data summary (reduced: 3 items max, shorter titles)
+    # 2. Local paper data summary (include title, abstract, and source)
     paper_summary = ""
     if raw_results["paper_results"]:
-        for i, item in enumerate(raw_results["paper_results"][:3], 1):
-            title = item.get('title', '')[:120]
-            paper_summary += f"{i}. {title}\n"
+        for i, item in enumerate(raw_results["paper_results"][:number_of_results[profile]], 1):
+            title = item.get('title', 'N/A')
+            abstract = item.get('abstract', 'N/A')[:400]  # Limit abstract to 400 chars
+            source = item.get('source', '대한신장학회')  # Default to Korean Society of Nephrology
+
+            # Extract metadata if available
+            metadata = item.get('metadata', {})
+            journal = metadata.get('journal', '')[:50] if isinstance(metadata, dict) else ''
+            pub_date = metadata.get('publication_date', '') if isinstance(metadata, dict) else ''
+
+            paper_summary += f"""{i}. Title: {title}
+   Abstract: {abstract}...
+   Source: {source}"""
+            if journal:
+                paper_summary += f" | Journal: {journal}"
+            if pub_date:
+                paper_summary += f" ({pub_date})"
+            paper_summary += "\n"
     else:
         paper_summary = "No results"
 
-    # 3. Medical data summary (reduced: 2 items max, shorter text)
+    # 3. Medical data summary (truncate text to avoid JSON size limit)
     medical_summary = ""
     if raw_results["medical_results"]:
-        for i, item in enumerate(raw_results["medical_results"][:2], 1):
-            text = item.get('text', '')[:150]
+        for i, item in enumerate(raw_results["medical_results"][:number_of_results[profile]], 1):
+            text = item.get('text', '')[:300]  # Limit to 300 chars
             keywords = item.get('keyword', [])
             if isinstance(keywords, list):
                 kw_str = ', '.join(keywords[:3])
@@ -125,19 +177,20 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
     else:
         medical_summary = "No results"
 
-    # 4. PubMed real-time search results (reduced: 2 items max, shorter abstracts)
+    # 4. PubMed real-time search results (truncate all fields to avoid JSON size limit)
     pubmed_summary = ""
     if raw_results["pubmed_results"]:
-        for i, paper in enumerate(raw_results["pubmed_results"][:2], 1):
-            title = paper.get('title', 'N/A')[:120]
-            authors = ', '.join(paper.get('authors', [])[:2])
-            if len(paper.get('authors', [])) > 2:
+        for i, paper in enumerate(raw_results["pubmed_results"][:number_of_results[profile]], 1):
+            title = paper.get('title', 'N/A')[:200]  # Limit title to 200 chars
+            authors_list = paper.get('authors', [])[:3]  # Max 3 authors
+            authors = ', '.join(authors_list)
+            if len(paper.get('authors', [])) > 3:
                 authors += " et al."
-            journal = paper.get('journal', 'N/A')[:50]
+            journal = paper.get('journal', 'N/A')[:50]  # Limit journal name
             pub_date = paper.get('pub_date', 'N/A')
             pmid = paper.get('pmid', 'N/A')
             doi = paper.get('doi', 'N/A')[:40]
-            abstract = paper.get('abstract', 'N/A')[:200]
+            abstract = paper.get('abstract', 'N/A')[:400]  # Limit abstract to 400 chars
             url = paper.get('url', 'N/A')
 
             pubmed_summary += f"""{i}. {title}
@@ -170,8 +223,16 @@ Search Results ({raw_results['search_method'].upper()} method):
 Write an accurate answer in Korean. Requirements:
 - Profile: {detail_levels.get(profile, '')}
 - Integrate information from all sources
-- Cite sources: "According to QA database/local papers/medical data/PubMed research (PMID: [pmid])..."
+- Cite sources properly:
+  * For QA data: "AI Hub 데이터에 따르면..." or use specific source name shown
+  * For local papers: "대한신장학회 논문에서..." or use specific source/journal name shown
+  * For medical data: "의료 특허 데이터에서는..."
+  * For PubMed: Include paper title and "Smith et al. (2024)의 연구 (PMID: [pmid], DOI: [doi])에서는..."
 - Structure: Introduction → Main content → Conclusion → References
+- References section must include:
+  * Paper titles for all PubMed and local papers cited
+  * Abstract summaries (brief) for key papers
+  * Source organizations (AI Hub, 대한신장학회, etc.)
 - Add medical disclaimer: "⚠️ This is for educational purposes only. Consult healthcare professionals."
 
 Begin:"""
@@ -179,50 +240,41 @@ Begin:"""
     return prompt
 
 
-async def select_profile() -> str:
-    """Profile selection - Enhanced input validation"""
-    print("\n" + "="*70)
-    print("🏥 CareGuide Healthcare Chatbot v2.0")
-    print("   Hybrid Search | MongoDB | Pinecone | PubMed Advanced API")
-    print("="*70)
-    print("\nPlease select your user profile:\n")
-    print("1️⃣  Researcher/Expert")
-    print("   - Academic information, technical terminology")
-    print("   - Up to 10 results provided")
-    print("   - Includes paper abstracts, DOI, citation info\n")
+def get_default_profile() -> str:
+    """Get default profile from environment variable.
 
-    print("2️⃣  Patient/Experience Holder")
-    print("   - Practical information, applicable to daily life")
-    print("   - Up to 5 results provided")
-    print("   - Focus on treatments and self-care\n")
+    This is only used when running the Parlant server directly.
+    When accessed via the UI, the profile is determined by the client.
 
-    print("3️⃣  General Public/Novice")
-    print("   - Simple explanations, easy language")
-    print("   - Up to 3 results provided")
-    print("   - Focus on basic concept understanding\n")
+    Returns:
+        Default profile type (researcher, patient, or general)
+    """
+    profile = os.getenv("CARE_GUIDE_DEFAULT_PROFILE", "general").lower()
 
-    print("="*70)
+    if profile not in ["researcher", "patient", "general"]:
+        print(f"⚠️  Invalid profile '{profile}' in environment variable, using 'general'")
+        profile = "general"
 
-    mapping = {"1": "researcher", "2": "patient", "3": "general"}
+    profile_names = {
+        "researcher": "Researcher/Expert",
+        "patient": "Patient/Experience Holder",
+        "general": "General Public/Novice"
+    }
 
-    while True:
-        choice = input("\nSelect (1/2/3): ").strip()
-        if choice in mapping:
-            selected = mapping[choice]
-            profile_names = {
-                "researcher": "Researcher/Expert",
-                "patient": "Patient/Experience Holder",
-                "general": "General Public/Novice"
-            }
-            print(f"\n✅ '{profile_names[selected]}' profile selected.")
-            return selected
-        print("❌ Invalid input. Please select one of 1, 2, or 3.")
+    print(f"\n✅ Using default profile: {profile_names[profile]}")
+    print("   (Profile can be overridden by client session metadata)\n")
+
+    return profile
 
 
 # ==================== Medical Information Tools ====================
 
 @p.tool
-async def search_medical_qa(context: ToolContext, query: str) -> ToolResult:
+async def search_medical_qa(
+    context: ToolContext,
+    query: str,
+    profile: str = "general"
+) -> ToolResult:
     """Integrated medical information search tool
 
     **Search Methods**:
@@ -235,8 +287,9 @@ async def search_medical_qa(context: ToolContext, query: str) -> ToolResult:
     - Final score = keyword score × 0.4 + semantic score × 0.6
 
     Args:
-        context: ToolContext (includes profile info)
+        context: ToolContext
         query: User question
+        profile: User profile type (researcher/patient/general) - controls result count and detail level
 
     Returns:
         ToolResult with raw_results and refinement_prompt
@@ -245,9 +298,13 @@ async def search_medical_qa(context: ToolContext, query: str) -> ToolResult:
         # Initialize search engine
         await initialize_search_engine()
 
-        # Extract profile
-        profile = await get_profile(context)
+        # Validate and use profile
+        if profile not in ["researcher", "patient", "general"]:
+            print(f"⚠️ Invalid profile '{profile}', using 'general'")
+            profile = "general"
+
         max_results = PROFILE_LIMITS[profile]["max_results"]
+        print(f"✅ Using profile: {profile} (max_results={max_results})")
 
         print(f"\n🔍 [{profile.upper()}] Searching for '{query}'...")
 
@@ -275,20 +332,20 @@ async def search_medical_qa(context: ToolContext, query: str) -> ToolResult:
 
         print(f"✅ Search complete: {total_count} total results")
 
-        return ToolResult(
-            data={
-                "query": query,
-                "profile": profile,
-                "raw_results": raw_results,
-                "refinement_prompt": refinement_prompt,
-                "search_method": raw_results["search_method"],  # "hybrid" or "keyword"
-                "total_sources": 4,
-                "qa_count": len(raw_results["qa_results"]),
-                "paper_count": len(raw_results["paper_results"]),
-                "medical_count": len(raw_results["medical_results"]),
-                "pubmed_count": len(raw_results["pubmed_results"]),
-                "total_count": total_count,
-                "message": f"""✅ Found {total_count} total results using {raw_results['search_method'].upper()} search.
+        # Prepare result data
+        result_data = {
+            "query": query,
+            "profile": profile,
+            "raw_results": raw_results,
+            "refinement_prompt": refinement_prompt,
+            "search_method": raw_results["search_method"],  # "hybrid" or "keyword"
+            "total_sources": 4,
+            "qa_count": len(raw_results["qa_results"]),
+            "paper_count": len(raw_results["paper_results"]),
+            "medical_count": len(raw_results["medical_results"]),
+            "pubmed_count": len(raw_results["pubmed_results"]),
+            "total_count": total_count,
+            "message": f"""✅ Found {total_count} total results using {raw_results['search_method'].upper()} search.
 
 📊 Results by Source:
   • QA Data: {len(raw_results['qa_results'])}
@@ -298,8 +355,23 @@ async def search_medical_qa(context: ToolContext, query: str) -> ToolResult:
 
 🔬 Search Method: {raw_results['search_method'].upper()}
   {'- Keyword matching (40%) + Semantic similarity (60%)' if raw_results['search_method'] == 'hybrid' else '- Keyword matching only'}"""
-            }
-        )
+        }
+
+        # Log result size for debugging JSON serialization issues
+        import json
+        import sys
+        result_json = json.dumps(result_data)
+        result_size_bytes = sys.getsizeof(result_json)
+        result_size_kb = result_size_bytes / 1024
+
+        print(f"📊 Tool result size: {result_size_kb:.1f} KB ({result_size_bytes:,} bytes)")
+
+        if result_size_bytes > 1024 * 1024:
+            print(f"⚠️  WARNING: Result exceeds 1024KB Parlant limit! This may cause JSON parsing errors.")
+        elif result_size_bytes > 64 * 1024:
+            print(f"⚠️  Warning: Result is large ({result_size_kb:.1f} KB). Consider further reduction.")
+
+        return ToolResult(data=result_data)
 
     except Exception as e:
         print(f"❌ Search error: {e}")
@@ -844,10 +916,13 @@ async def add_profile_guidelines(agent: p.Agent) -> None:
         Provide detailed scientific explanations with specific data when available.
 
         When user asks medical questions, ALWAYS use search_medical_qa tool first.
+        IMPORTANT: Call the tool with profile="researcher" parameter:
+        search_medical_qa(query="...", profile="researcher")
+
         The tool provides refinement_prompt from 4 sources (QA, papers, medical data, PubMed).
         Use the refinement_prompt to generate comprehensive, research-oriented responses.
 
-        You may reference up to 10 results per source based on the profile limit.
+        With researcher profile, you'll get up to 10 results per source with high detail level.
         Include citations with PMIDs, DOIs, and publication dates when mentioning PubMed papers.
         Maintain a professional and scholarly tone throughout.
 
@@ -864,10 +939,13 @@ async def add_profile_guidelines(agent: p.Agent) -> None:
         Use empathetic language and acknowledge the challenges of living with illness.
 
         When user asks medical questions, ALWAYS use search_medical_qa tool first.
+        IMPORTANT: Call the tool with profile="patient" parameter:
+        search_medical_qa(query="...", profile="patient")
+
         The tool provides refinement_prompt from 4 sources (QA, papers, medical data, PubMed).
         Use the refinement_prompt to generate practical, patient-friendly responses.
 
-        You may reference up to 5 results per source based on the profile limit.
+        With patient profile, you'll get up to 5 results per source with medium detail level.
         Translate complex medical terms into everyday language.
         Provide encouragement while maintaining medical accuracy.
 
@@ -884,10 +962,13 @@ async def add_profile_guidelines(agent: p.Agent) -> None:
         Use analogies and examples to explain complex ideas.
 
         When user asks medical questions, ALWAYS use search_medical_qa tool first.
+        IMPORTANT: Call the tool with profile="general" parameter:
+        search_medical_qa(query="...", profile="general")
+
         The tool provides refinement_prompt from 4 sources (QA, papers, medical data, PubMed).
         Use the refinement_prompt to generate simple, accessible responses.
 
-        You may reference up to 3 results per source based on the profile limit.
+        With general profile, you'll get up to 3 results per source with low detail level.
         Avoid medical jargon unless absolutely necessary (then explain it).
         Break down information into small, digestible parts.
 
@@ -1056,14 +1137,14 @@ async def main() -> None:
     print("="*70)
 
     # Initialize search engine
-    print("\n[1/4] Initializing hybrid search engine...")
+    print("\n[1/3] Initializing hybrid search engine...")
     await initialize_search_engine()
 
-    # Select profile
-    print("\n[2/4] Selecting user profile...")
-    profile = await select_profile()
+    # Get default profile (can be overridden by client)
+    print("\n[2/3] Loading default profile...")
+    profile = get_default_profile()
 
-    print(f"\n[3/4] Setting up Parlant Server...")
+    print(f"\n[3/3] Setting up Parlant Server...")
 
     async with p.Server() as server:
         # Create Agent
@@ -1128,7 +1209,6 @@ Always respond in Korean unless specifically requested otherwise.""",
             tags=[profile_tag.id],
         )
 
-        print("\n[4/4] Setup complete!\n")
 
         # Display server information
         print("="*70)

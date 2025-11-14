@@ -1,0 +1,12 @@
+# Flask web framework
+Flask==3.0.0
+flask-cors==4.0.0
+
+# HTTP requests
+requests==2.31.0
+
+# Environment variable management
+python-dotenv==1.0.0
+
+# Production server (optional)
+gunicorn==21.2.0

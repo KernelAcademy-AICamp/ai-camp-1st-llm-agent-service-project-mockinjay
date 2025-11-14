@@ -17,9 +17,9 @@ load_dotenv()
 
 
 class VectorDBManager:
-    """Pinecone Vector DB 관리자"""
-    
-    def __init__(self, index_name: str = "medical-embeddings"):
+    """Pinecone Vector DB 관리자 - Kidney Medical Embeddings"""
+
+    def __init__(self, index_name: str = "kidney-medical-embeddings"):
         self.index_name = index_name
         self.dimension = 384  # all-MiniLM-L6-v2 차원
         
