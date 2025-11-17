@@ -331,3 +331,41 @@ htmlcov/
 # Flask
 instance/
 .webassets-cache
+.cursor
+backend/app/api/chat/parlant/embedding_cache/
+backend/app/api/chat/parlant/parlant-data/
+parlant-data/
+embedding_cache/
+
+
+
+# dependencies
+frontend/node_modules
+node_modules/
+.pnp
+.pnp.js
+
+# testing
+coverage
+
+# production
+build
+dist
+out
+
+# misc
+.DS_Store
+.env.local
+.env.*.local
+.vscode/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# Optional npm cache directory
+.npm/
+# Optional eslint cache
+.eslintcache
+
+# TypeScript
+*.tsbuildinfo
+frontend/.npm-cache

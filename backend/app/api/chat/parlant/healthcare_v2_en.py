@@ -1,10 +1,12 @@
 # healthcare_v2_en.py
 """
-CareGuide Healthcare Chatbot v2
-- Hybrid Search Engine (Keyword + Semantic)
-- MongoDB (Structured Data Storage)
-- Pinecone (Vector Database)
-- PubMed Advanced API (Real-time with Abstracts)
+CareGuide Healthcare Chatbot v2 - OPTIMIZED
+- Hybrid Search Engine (Keyword + Semantic) with Parallel Processing
+- MongoDB with Connection Pooling & Optimized Indexes
+- Pinecone Vector Database with Embedding Cache
+- PubMed Advanced API with Batch Parallel Fetching
+- Multi-tier Caching (LRU + Disk + Redis)
+- Advanced Components (QueryRouter, PerformanceMonitor, CrossEncoder)
 """
 
 import parlant.sdk as p
@@ -18,9 +20,33 @@ import uuid
 import os
 from typing import Optional, Dict
 from bson import ObjectId
+from toon_format import encode, decode
+import time
+from pathlib import Path
+import sys
 
-# ==================== New Import ====================
-from search.hybrid_search import HybridSearchEngine
+# 프로젝트 루트를 Python 경로에 추가
+project_root = Path(__file__).parent.parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
+# ==================== Optimized Imports ====================
+from app.services.hybrid_search import OptimizedHybridSearchEngine
+
+# Optional: Cache Manager (requires Redis)
+try:
+    from cache_manager import CacheManager
+    CACHE_AVAILABLE = True
+except ImportError:
+    print("⚠️ CacheManager not available (Redis not installed). Running without cache.")
+    CACHE_AVAILABLE = False
+    CacheManager = None
+
+# Advanced components
+from advanced_components import (
+    QueryRouter,
+    PerformanceMonitor,
+    CrossEncoderReranker,
+    HybridScoringSystem
+)
 
 # ==================== Configuration ====================
 PROFILE_LIMITS = {
@@ -30,9 +56,12 @@ PROFILE_LIMITS = {
 }
 
 # ==================== Global Variables ====================
-# Old: Direct JSONL file loading
-# New: Using hybrid search engine
+# Optimized: Using hybrid search engine with caching and advanced components
 SEARCH_ENGINE = None
+CACHE_MANAGER = None
+QUERY_ROUTER = None
+PERFORMANCE_MONITOR = None
+RERANKER = None
 
 
 # ==================== Helper Functions ====================
@@ -89,14 +118,46 @@ def convert_objectid_to_str(data):
 
 
 async def initialize_search_engine():
-    """Initialize search engine (run once at app start)"""
-    global SEARCH_ENGINE
+    """Initialize optimized search engine with caching and advanced components"""
+    global SEARCH_ENGINE, CACHE_MANAGER, QUERY_ROUTER, PERFORMANCE_MONITOR, RERANKER, CACHE_AVAILABLE
 
     if SEARCH_ENGINE is None:
-        print("🔍 Initializing hybrid search engine...")
-        SEARCH_ENGINE = HybridSearchEngine()
+        print("🔍 Initializing OPTIMIZED healthcare system...")
+
+        # 1. Initialize Cache Manager (if available)
+        if CACHE_AVAILABLE:
+            print("📦 Initializing cache manager...")
+            try:
+                CACHE_MANAGER = CacheManager()
+                await CACHE_MANAGER.connect()
+                print("✅ Cache manager ready (Redis connected)")
+            except Exception as e:
+                print(f"⚠️  Redis connection failed: {e}")
+                print("   Continuing without Redis cache...")
+                CACHE_MANAGER = None
+                CACHE_AVAILABLE = False
+        else:
+            print("⚠️  Cache manager unavailable - running without Redis cache")
+            CACHE_MANAGER = None
+
+        # 2. Initialize Hybrid Search Engine (Optimized)
+        print("🔍 Initializing optimized hybrid search engine...")
+        SEARCH_ENGINE = OptimizedHybridSearchEngine(use_cache=CACHE_AVAILABLE)
         await SEARCH_ENGINE.initialize()
-        print("✅ Search engine ready")
+        print("✅ Optimized search engine ready")
+
+        # 3. Initialize Advanced Components
+        print("🎯 Initializing advanced components...")
+        QUERY_ROUTER = QueryRouter()
+        PERFORMANCE_MONITOR = PerformanceMonitor()
+        RERANKER = CrossEncoderReranker()
+        print("✅ Advanced components ready")
+
+        print("🎉 OPTIMIZED healthcare system fully initialized!")
+        print("   - Parallel processing enabled")
+        print(f"   - Multi-tier caching {'active' if CACHE_AVAILABLE else 'disabled (Redis connection failed)'}")
+        print("   - Query routing ready")
+        print("   - Performance monitoring active")
 
 
 async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> str:
@@ -124,85 +185,72 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
         "general": 3
     }
 
+    # Prepare data for toon_format encoding (more compact than JSON)
+    max_results = number_of_results[profile]
 
-    # 1. QA data summary (reduced: truncate long answers, include source)
-    qa_summary = ""
+    # 1. QA data - encode as toon_format
+    qa_data = []
     if raw_results["qa_results"]:
-        for i, item in enumerate(raw_results["qa_results"][:number_of_results[profile]], 1):
-            question = item.get('question', '')[:200]  # Limit question length
-            answer = item.get('answer', '')[:500]  # Limit answer to 500 chars
-            source = item.get('source_dataset', 'AI Hub')  # Get source or default to AI Hub
-            # Simplify source name for display
+        for item in raw_results["qa_results"][:max_results]:
+            source = item.get('source_dataset', 'AI Hub')
             if source.startswith('dataset_'):
                 source = 'AI Hub'
-            qa_summary += f"{i}. Q: {question}\n   A: {answer}...\n   Source: {source}\n"
-    else:
-        qa_summary = "No results"
-
-    # 2. Local paper data summary (include title, abstract, and source)
-    paper_summary = ""
+            qa_data.append({
+                "question": item.get('question', '')[:200],
+                "answer": item.get('answer', '')[:500],
+                "source": source
+            })
+    
+    # 2. Local paper data - encode as toon_format
+    paper_data = []
     if raw_results["paper_results"]:
-        for i, item in enumerate(raw_results["paper_results"][:number_of_results[profile]], 1):
-            title = item.get('title', 'N/A')
-            abstract = item.get('abstract', 'N/A')[:400]  # Limit abstract to 400 chars
-            source = item.get('source', '대한신장학회')  # Default to Korean Society of Nephrology
-
-            # Extract metadata if available
+        for item in raw_results["paper_results"][:max_results]:
             metadata = item.get('metadata', {})
-            journal = metadata.get('journal', '')[:50] if isinstance(metadata, dict) else ''
-            pub_date = metadata.get('publication_date', '') if isinstance(metadata, dict) else ''
+            paper_data.append({
+                "title": item.get('title', 'N/A'),
+                "abstract": item.get('abstract', 'N/A')[:400],
+                "source": item.get('source', '대한신장학회'),
+                "journal": metadata.get('journal', '')[:50] if isinstance(metadata, dict) else '',
+                "pub_date": metadata.get('publication_date', '') if isinstance(metadata, dict) else ''
+            })
 
-            paper_summary += f"""{i}. Title: {title}
-   Abstract: {abstract}...
-   Source: {source}"""
-            if journal:
-                paper_summary += f" | Journal: {journal}"
-            if pub_date:
-                paper_summary += f" ({pub_date})"
-            paper_summary += "\n"
-    else:
-        paper_summary = "No results"
-
-    # 3. Medical data summary (truncate text to avoid JSON size limit)
-    medical_summary = ""
+    # 3. Medical data - encode as toon_format
+    medical_data = []
     if raw_results["medical_results"]:
-        for i, item in enumerate(raw_results["medical_results"][:number_of_results[profile]], 1):
-            text = item.get('text', '')[:300]  # Limit to 300 chars
+        for item in raw_results["medical_results"][:max_results]:
             keywords = item.get('keyword', [])
             if isinstance(keywords, list):
-                kw_str = ', '.join(keywords[:3])
+                keywords = keywords[:3]
             else:
-                kw_str = str(keywords)[:40]
-            medical_summary += f"{i}. [{kw_str}] {text}...\n"
-    else:
-        medical_summary = "No results"
+                keywords = [str(keywords)[:40]]
+            medical_data.append({
+                "keywords": keywords,
+                "text": item.get('text', '')[:300]
+            })
 
-    # 4. PubMed real-time search results (truncate all fields to avoid JSON size limit)
-    pubmed_summary = ""
+    # 4. PubMed data - encode as toon_format
+    pubmed_data = []
     if raw_results["pubmed_results"]:
-        for i, paper in enumerate(raw_results["pubmed_results"][:number_of_results[profile]], 1):
-            title = paper.get('title', 'N/A')[:200]  # Limit title to 200 chars
-            authors_list = paper.get('authors', [])[:3]  # Max 3 authors
-            authors = ', '.join(authors_list)
-            if len(paper.get('authors', [])) > 3:
-                authors += " et al."
-            journal = paper.get('journal', 'N/A')[:50]  # Limit journal name
-            pub_date = paper.get('pub_date', 'N/A')
-            pmid = paper.get('pmid', 'N/A')
-            doi = paper.get('doi', 'N/A')[:40]
-            abstract = paper.get('abstract', 'N/A')[:400]  # Limit abstract to 400 chars
-            url = paper.get('url', 'N/A')
+        for paper in raw_results["pubmed_results"][:max_results]:
+            authors_list = paper.get('authors', [])[:3]
+            pubmed_data.append({
+                "title": paper.get('title', 'N/A')[:200],
+                "authors": authors_list,
+                "journal": paper.get('journal', 'N/A')[:50],
+                "pub_date": paper.get('pub_date', 'N/A'),
+                "pmid": paper.get('pmid', 'N/A'),
+                "doi": paper.get('doi', 'N/A')[:40],
+                "abstract": paper.get('abstract', 'N/A')[:400],
+                "url": paper.get('url', 'N/A')
+            })
 
-            pubmed_summary += f"""{i}. {title}
-   Authors: {authors} | {journal} ({pub_date})
-   PMID: {pmid} | DOI: {doi}
-   Abstract: {abstract}...
-   URL: {url}
-"""
-    else:
-        pubmed_summary = "No results"
+    # Encode to toon_format (more compact than JSON)
+    qa_summary = encode(qa_data) if qa_data else "No results"
+    paper_summary = encode(paper_data) if paper_data else "No results"
+    medical_summary = encode(medical_data) if medical_data else "No results"
+    pubmed_summary = encode(pubmed_data) if pubmed_data else "No results"
 
-    # 5. Final prompt generation (simplified formatting)
+    # 5. Final prompt generation (using toon_format for compactness)
     prompt = f"""Question: "{query}"
 Profile: {profile.upper()}
 
@@ -219,6 +267,11 @@ Search Results ({raw_results['search_method'].upper()} method):
 
 [4] PubMed ({len(raw_results['pubmed_results'])} results):
 {pubmed_summary}
+
+Note: Results are in toon_format (compact data format). 
+- Simple objects: "key: value" format
+- Arrays: "[N,]header: row1,row2..." format
+- Use decode() if needed, but you can read the format directly.
 
 Write an accurate answer in Korean. Requirements:
 - Profile: {detail_levels.get(profile, '')}
@@ -273,29 +326,76 @@ def get_default_profile() -> str:
 async def search_medical_qa(
     context: ToolContext,
     query: str,
-    profile: str = "general"
+    profile: str = "general",
+    use_guidelines: bool = True,
+    use_qa: bool = True,
+    use_papers: bool = True,
+    use_medical: bool = True,
+    use_pubmed: bool = True,
+    max_per_source: Optional[int] = None,
+    max_guidelines: Optional[int] = None,
+    max_qa: Optional[int] = None,
+    max_papers: Optional[int] = None,
+    max_medical: Optional[int] = None,
+    max_pubmed: Optional[int] = None
 ) -> ToolResult:
-    """Integrated medical information search tool
+    """OPTIMIZED Integrated medical information search tool
+
+    **Optimizations**:
+    - Parallel processing (PubMed, MongoDB, Pinecone)
+    - Multi-tier caching (LRU + Disk + Redis)
+    - Query routing (intent classification)
+    - Cross-encoder re-ranking (improved relevance)
+    - Performance monitoring
 
     **Search Methods**:
-    1. MongoDB text search (keyword matching)
-    2. Pinecone vector search (semantic similarity)
-    3. Local paper database
-    4. PubMed API real-time search (abstracts, authors, DOI included)
+    1. MongoDB text search (parallel, connection pooled)
+    2. Pinecone vector search (cached embeddings)
+    3. Local paper database (optimized projections)
+    4. PubMed API (batch parallel fetching)
 
     **Hybrid Score Calculation**:
-    - Final score = keyword score × 0.4 + semantic score × 0.6
+    - Adaptive weights based on query type
+    - Cross-encoder re-ranking for top results
+
+    **Usage in Agent Conditions/Actions**:
+    You can customize which sources to search and how many results from each:
+
+    Example 1 - Search only papers and PubMed:
+        use_qa=False, use_medical=False, use_papers=True, use_pubmed=True
+
+    Example 2 - Get 20 papers and 10 PubMed articles:
+        max_papers=20, max_pubmed=10
+
+    Example 3 - Quick QA response (5 results only):
+        use_papers=False, use_medical=False, use_pubmed=False, max_qa=5
+
+    Example 4 - Researcher mode with custom limits:
+        profile="researcher", max_qa=5, max_pubmed=15
 
     Args:
         context: ToolContext
         query: User question
-        profile: User profile type (researcher/patient/general) - controls result count and detail level
+        profile: User profile type (researcher/patient/general)
+        use_guidelines: Enable guidelines database search (default: True)
+        use_qa: Enable QA database search (default: True)
+        use_papers: Enable local papers database search (default: True)
+        use_medical: Enable medical patents database search (default: True)
+        use_pubmed: Enable PubMed real-time search (default: True)
+        max_per_source: Maximum results per source (overrides profile default if set)
+        max_guidelines: Maximum guidelines results (overrides max_per_source and profile for guidelines)
+        max_qa: Maximum QA results (overrides max_per_source and profile for QA)
+        max_papers: Maximum papers results (overrides max_per_source and profile for papers)
+        max_medical: Maximum medical results (overrides max_per_source and profile for medical)
+        max_pubmed: Maximum PubMed results (overrides max_per_source and profile for PubMed)
 
     Returns:
-        ToolResult with raw_results and refinement_prompt
+        ToolResult with optimized search results and monitoring data
     """
+    start_time = time.time()
+
     try:
-        # Initialize search engine
+        # Initialize optimized search engine
         await initialize_search_engine()
 
         # Validate and use profile
@@ -303,18 +403,70 @@ async def search_medical_qa(
             print(f"⚠️ Invalid profile '{profile}', using 'general'")
             profile = "general"
 
-        max_results = PROFILE_LIMITS[profile]["max_results"]
-        print(f"✅ Using profile: {profile} (max_results={max_results})")
+        # Determine max_results: use max_per_source if provided, otherwise use profile default
+        profile_max = PROFILE_LIMITS[profile]["max_results"]
+        default_max = max_per_source if max_per_source is not None else profile_max
 
-        print(f"\n🔍 [{profile.upper()}] Searching for '{query}'...")
+        # Calculate per-source limits (individual params take precedence)
+        actual_max_guidelines = max_guidelines if max_guidelines is not None else default_max
+        actual_max_qa = max_qa if max_qa is not None else default_max
+        actual_max_papers = max_papers if max_papers is not None else default_max
+        actual_max_medical = max_medical if max_medical is not None else default_max
+        actual_max_pubmed = max_pubmed if max_pubmed is not None else default_max
 
-        # Execute hybrid search
+        print(f"✅ Using profile: {profile}")
+        print(f"📚 Source selection: Guidelines={use_guidelines}, QA={use_qa}, Papers={use_papers}, Medical={use_medical}, PubMed={use_pubmed}")
+        print(f"🔢 Source limits: Guidelines={actual_max_guidelines}, QA={actual_max_qa}, Papers={actual_max_papers}, Medical={actual_max_medical}, PubMed={actual_max_pubmed}")
+
+        # 1. Query Routing (classify intent)
+        query_intent = QUERY_ROUTER.classify_query(query)
+        print(f"🎯 Query intent: {query_intent}")
+
+        # Check cache first (if available)
+        cached_result = None
+        if CACHE_MANAGER:
+            # Include source selection and per-source limits in cache key
+            cache_key = f"{query}:{profile}:{query_intent}:{use_guidelines}:{use_qa}:{use_papers}:{use_medical}:{use_pubmed}:{actual_max_guidelines}:{actual_max_qa}:{actual_max_papers}:{actual_max_medical}:{actual_max_pubmed}"
+            cached_result = await CACHE_MANAGER.get("query_result", cache_key)
+            if cached_result:
+                elapsed = time.time() - start_time
+                print(f"⚡ Cache HIT! Response time: {elapsed:.3f}s")
+                PERFORMANCE_MONITOR.log_search(query, elapsed, cached_result.get('total_results', 0))
+                return ToolResult(
+                    data=cached_result['data'],
+                    metadata={"cached": True, "response_time": elapsed}
+                )
+
+        print(f"\n🔍 [{profile.upper()}] Optimized search for '{query}'...")
+
+        # 2. Execute OPTIMIZED hybrid search with per-source limits
         raw_results = await SEARCH_ENGINE.search_all_sources(
             query=query,
-            max_per_source=max_results,
-            use_semantic=True,  # Enable semantic search
-            use_pubmed=True     # Enable PubMed advanced search
+            use_semantic=True,
+            use_guidelines=use_guidelines,
+            use_qa=use_qa,
+            use_papers=use_papers,
+            use_medical=use_medical,
+            use_pubmed=use_pubmed,
+            max_guidelines=actual_max_guidelines,
+            max_qa=actual_max_qa,
+            max_papers=actual_max_papers,
+            max_medical=actual_max_medical,
+            max_pubmed=actual_max_pubmed
         )
+
+        # 3. Cross-encoder re-ranking for better relevance
+        if raw_results.get('qa_results') and isinstance(raw_results['qa_results'], list):
+            # Only rerank if we have dict items
+            if raw_results['qa_results'] and isinstance(raw_results['qa_results'][0], dict):
+                # Add combined text field for reranking
+                for r in raw_results['qa_results']:
+                    if 'text' not in r:
+                        r['text'] = f"{r.get('question', '')} {r.get('answer', '')}"
+
+                # Rerank using the 'text' field
+                reranked_qa = RERANKER.rerank(query, raw_results['qa_results'], top_k=actual_max_qa, text_field='text')
+                raw_results['qa_results'] = reranked_qa
 
         # Convert ObjectId to string (for serialization)
         raw_results = convert_objectid_to_str(raw_results)
@@ -324,6 +476,7 @@ async def search_medical_qa(
 
         # Total result count
         total_count = sum([
+            len(raw_results.get("guidelines_results", [])),
             len(raw_results["qa_results"]),
             len(raw_results["paper_results"]),
             len(raw_results["medical_results"]),
@@ -332,49 +485,72 @@ async def search_medical_qa(
 
         print(f"✅ Search complete: {total_count} total results")
 
-        # Prepare result data
+        # Calculate performance metrics
+        elapsed = time.time() - start_time
+        PERFORMANCE_MONITOR.log_search(query, elapsed, total_count)
+
+        # Get performance stats
+        perf_stats = PERFORMANCE_MONITOR.get_stats()
+
+        # Prepare result data (optimized to reduce size)
+        # Note: raw_results removed - data is already in refinement_prompt via toon_format
         result_data = {
             "query": query,
             "profile": profile,
-            "raw_results": raw_results,
-            "refinement_prompt": refinement_prompt,
-            "search_method": raw_results["search_method"],  # "hybrid" or "keyword"
-            "total_sources": 4,
-            "qa_count": len(raw_results["qa_results"]),
-            "paper_count": len(raw_results["paper_results"]),
-            "medical_count": len(raw_results["medical_results"]),
-            "pubmed_count": len(raw_results["pubmed_results"]),
-            "total_count": total_count,
-            "message": f"""✅ Found {total_count} total results using {raw_results['search_method'].upper()} search.
-
-📊 Results by Source:
-  • QA Data: {len(raw_results['qa_results'])}
-  • Local Papers: {len(raw_results['paper_results'])}
-  • Medical Patents: {len(raw_results['medical_results'])}
-  • PubMed Real-time: {len(raw_results['pubmed_results'])}
-
-🔬 Search Method: {raw_results['search_method'].upper()}
-  {'- Keyword matching (40%) + Semantic similarity (60%)' if raw_results['search_method'] == 'hybrid' else '- Keyword matching only'}"""
+            "refinement_prompt": refinement_prompt,  # Contains toon_format encoded data (essential for LLM)
+            "summary": {  # Compact summary only
+                "search_method": raw_results["search_method"],
+                "total_count": total_count,
+                "sources": {
+                    "guidelines": len(raw_results.get("guidelines_results", [])),
+                    "qa": len(raw_results["qa_results"]),
+                    "papers": len(raw_results["paper_results"]),
+                    "medical": len(raw_results["medical_results"]),
+                    "pubmed": len(raw_results["pubmed_results"])
+                },
+                "response_time": f"{elapsed:.3f}s"
+            }
         }
 
-        # Log result size for debugging JSON serialization issues
+        # Cache the result (if available)
+        if CACHE_MANAGER:
+            await CACHE_MANAGER.set("query_result", cache_key, {
+                'data': result_data,
+                'total_results': total_count
+            })
+
+        # Log result size
         import json
         import sys
         result_json = json.dumps(result_data)
-        result_size_bytes = sys.getsizeof(result_json)
+        result_size_bytes = len(result_json)  # Use len() instead of sys.getsizeof() for actual JSON size
         result_size_kb = result_size_bytes / 1024
 
         print(f"📊 Tool result size: {result_size_kb:.1f} KB ({result_size_bytes:,} bytes)")
+        print(f"📦 Result breakdown: query={len(query)} chars, prompt={len(refinement_prompt)} chars, summary={len(json.dumps(result_data['summary']))} chars")
+        print(f"⚡ Response time: {elapsed:.3f}s (Avg: {perf_stats['avg_latency']:.3f}s, P95: {perf_stats['p95_latency']:.3f}s)")
+        print(f"📊 Results by Source: Guidelines={len(raw_results.get('guidelines_results', []))}, QA={len(raw_results['qa_results'])}, Papers={len(raw_results['paper_results'])}, Medical={len(raw_results['medical_results'])}, PubMed={len(raw_results['pubmed_results'])}")
 
         if result_size_bytes > 1024 * 1024:
-            print(f"⚠️  WARNING: Result exceeds 1024KB Parlant limit! This may cause JSON parsing errors.")
+            print(f"⚠️  WARNING: Result exceeds 1024KB Parlant limit!")
         elif result_size_bytes > 64 * 1024:
-            print(f"⚠️  Warning: Result is large ({result_size_kb:.1f} KB). Consider further reduction.")
+            print(f"⚠️  Warning: Result is large ({result_size_kb:.1f} KB).")
+        else:
+            print(f"✅ Result size is optimal (<64KB)")
 
-        return ToolResult(data=result_data)
+        return ToolResult(
+            data=result_data,
+            metadata={
+                "cached": False,
+                "response_time": elapsed,
+                "query_intent": query_intent
+            }
+        )
 
     except Exception as e:
+        elapsed = time.time() - start_time
         print(f"❌ Search error: {e}")
+        print(f"⚠️  Response time: {elapsed:.3f}s (with error)")
         return ToolResult(
             data={
                 "error": str(e),
@@ -876,62 +1052,102 @@ The following emergency keywords were detected:
 
 # ==================== Guidelines ====================
 
-async def add_safety_guidelines(agent: p.Agent) -> None:
-    """Add medical safety guidelines"""
+async def add_safety_guidelines(agent: p.Agent) -> p.Guideline:
+    """Add medical safety guidelines with priority relationships
+
+    Returns:
+        The disclaimer guideline to be used in other priority relationships
+    """
 
     # CHK-001: No reassurance for symptoms
-    await agent.create_guideline(
+    no_reassurance = await agent.create_guideline(
         condition="User mentions symptoms",
         action="Never use reassuring phrases like 'don't worry' or 'it will be fine'. Always recommend consulting medical professionals. Respond in Korean."
     )
 
-    # CHK-002: Emergency priority
-    await agent.create_guideline(
+    # CHK-002: Emergency priority (HIGHEST PRIORITY)
+    emergency_guideline = await agent.create_guideline(
         condition="Emergency keywords like chest pain, difficulty breathing, severe bleeding, unconsciousness are mentioned",
         action="Immediately tell user to call 911. Provide clear instructions: 1) Call 911 now 2) Tell them your exact location 3) Describe symptoms accurately 4) Follow dispatcher's instructions. Stop all other conversations. Use strong, urgent language. Respond in Korean.",
         tools=[check_emergency_keywords]
     )
 
     # CHK-005: No diagnosis or prescription
-    await agent.create_guideline(
+    no_diagnosis = await agent.create_guideline(
         condition="User asks for diagnosis or prescription",
         action="Never provide diagnosis or prescribe medications. Clearly state: 'I am not a healthcare professional and cannot provide diagnosis or prescriptions. Please consult with a doctor.' Respond in Korean."
     )
 
-    # CHK-009: Disclaimer
-    await agent.create_guideline(
-        condition="All medical responses",
-        action="Add disclaimer at end: '⚠️ This information is for educational and reference purposes only and cannot replace medical advice. If you have symptoms, please consult with healthcare professionals.' Respond in Korean."
+    # CHK-009: Disclaimer - MANDATORY for ALL responses (ALWAYS ACTIVE)
+    disclaimer_guideline = await agent.create_guideline(
+        condition="EVERY single response without exception",
+        action="CRITICAL REQUIREMENT: You MUST end every response with this EXACT Korean disclaimer on a new line:\n\n⚠️ 이 답변은 교육 목적이며, 건강에 관한 궁금증이나 문제가 있을 경우 반드시 의료 전문가와 상담하시기 바랍니다.\n\nThis disclaimer is REQUIRED for client-side message processing. Never omit it under any circumstances."
     )
 
+    # Entailment relationships: ALL guidelines must trigger the disclaimer
+    # This ensures the disclaimer is ALWAYS included regardless of which guideline activates
+    await no_reassurance.entail(disclaimer_guideline)
+    await emergency_guideline.entail(disclaimer_guideline)
+    await no_diagnosis.entail(disclaimer_guideline)
 
-async def add_profile_guidelines(agent: p.Agent) -> None:
-    """User profile-based guidelines"""
+    # Priority relationships: Emergency has highest priority for content
+    # But disclaimer is still enforced via entailment
+    await emergency_guideline.prioritize_over(no_reassurance)
+    await emergency_guideline.prioritize_over(no_diagnosis)
+
+    return disclaimer_guideline
+
+
+async def add_profile_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideline) -> None:
+    """User profile-based guidelines with disclaimer enforcement
+
+    Args:
+        agent: The Parlant agent
+        disclaimer_guideline: The disclaimer guideline to prioritize
+    """
 
     # Researcher profile
-    await agent.create_guideline(
+    researcher_guideline = await agent.create_guideline(
         condition="The customer has the tag 'profile:researcher'",
         action="""You must use academic language and technical terminology.
         Focus on research findings, biological mechanisms, and evidence-based information.
         Provide detailed scientific explanations with specific data when available.
 
         When user asks medical questions, ALWAYS use search_medical_qa tool first.
-        IMPORTANT: Call the tool with profile="researcher" parameter:
-        search_medical_qa(query="...", profile="researcher")
 
-        The tool provides refinement_prompt from 4 sources (QA, papers, medical data, PubMed).
-        Use the refinement_prompt to generate comprehensive, research-oriented responses.
+        **Tool Usage - Customize based on query type**:
 
-        With researcher profile, you'll get up to 10 results per source with high detail level.
-        Include citations with PMIDs, DOIs, and publication dates when mentioning PubMed papers.
-        Maintain a professional and scholarly tone throughout.
+        For literature review / research questions:
+        search_medical_qa(query="...", profile="researcher", max_papers=20, max_pubmed=15, max_qa=5, use_medical=False)
+
+        For clinical questions needing comprehensive sources:
+        search_medical_qa(query="...", profile="researcher", max_qa=10, max_papers=10, max_medical=5, max_pubmed=10)
+
+        For quick factual questions:
+        search_medical_qa(query="...", profile="researcher", max_qa=10, use_papers=False, use_medical=False, use_pubmed=False)
+
+        **Available Parameters**:
+        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
+        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 10 for researcher)
+        - max_per_source: Set all sources at once (overridden by individual limits)
+
+        **Data Sources**:
+        The tool searches 5 sources: guidelines database, QA database, papers (local + PubMed), medical patents, and PubMed real-time.
+        Choose sources based on query - not all sources are needed for every question.
+
+        **Response Guidelines**:
+        - Cite all papers with authors, year, and identifiers (PMID/DOI when available)
+        - Don't distinguish between local papers and PubMed - treat all as "논문 연구"
+        - Integrate information from multiple sources naturally
+        - With researcher profile, you get up to 10 results per source by default (customize as needed)
+        - Maintain professional and scholarly tone throughout
 
         Always respond in Korean.""",
         tools=[search_medical_qa]
     )
 
     # Patient profile
-    await agent.create_guideline(
+    patient_guideline = await agent.create_guideline(
         condition="The customer has the tag 'profile:patient'",
         action="""You must use practical and applicable explanations.
         Focus on daily life applications, self-care methods, and patient-centered information.
@@ -939,22 +1155,41 @@ async def add_profile_guidelines(agent: p.Agent) -> None:
         Use empathetic language and acknowledge the challenges of living with illness.
 
         When user asks medical questions, ALWAYS use search_medical_qa tool first.
-        IMPORTANT: Call the tool with profile="patient" parameter:
-        search_medical_qa(query="...", profile="patient")
 
-        The tool provides refinement_prompt from 4 sources (QA, papers, medical data, PubMed).
-        Use the refinement_prompt to generate practical, patient-friendly responses.
+        **Tool Usage - Customize based on query type**:
 
-        With patient profile, you'll get up to 5 results per source with medium detail level.
-        Translate complex medical terms into everyday language.
-        Provide encouragement while maintaining medical accuracy.
+        For practical daily life questions:
+        search_medical_qa(query="...", profile="patient", max_qa=10, use_papers=False, use_medical=False, use_pubmed=False)
+
+        For treatment/management questions needing evidence:
+        search_medical_qa(query="...", profile="patient", max_qa=5, max_papers=5, use_medical=False, max_pubmed=3)
+
+        For symptom-related questions:
+        search_medical_qa(query="...", profile="patient", max_qa=8, max_papers=3, use_medical=False, use_pubmed=False)
+
+        **Available Parameters**:
+        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
+        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 5 for patient)
+        - max_per_source: Set all sources at once (overridden by individual limits)
+
+        **Data Sources**:
+        The tool searches 5 sources: guidelines database, QA database, papers, medical patents, and PubMed.
+        For patients, prioritize QA database (practical answers) over academic papers.
+        Not all sources are needed for every question.
+
+        **Response Guidelines**:
+        - Translate complex medical terms into everyday language
+        - Focus on actionable advice and practical tips
+        - When citing papers, don't distinguish local vs PubMed - just say "논문 연구에 따르면"
+        - With patient profile, you get up to 5 results per source by default (customize as needed)
+        - Provide encouragement while maintaining medical accuracy
 
         Always respond in Korean.""",
         tools=[search_medical_qa]
     )
 
     # General profile
-    await agent.create_guideline(
+    general_guideline = await agent.create_guideline(
         condition="The customer has the tag 'profile:general'",
         action="""You must use simple and easy-to-understand explanations.
         Minimize technical terminology and use plain, everyday language.
@@ -962,35 +1197,69 @@ async def add_profile_guidelines(agent: p.Agent) -> None:
         Use analogies and examples to explain complex ideas.
 
         When user asks medical questions, ALWAYS use search_medical_qa tool first.
-        IMPORTANT: Call the tool with profile="general" parameter:
-        search_medical_qa(query="...", profile="general")
 
-        The tool provides refinement_prompt from 4 sources (QA, papers, medical data, PubMed).
-        Use the refinement_prompt to generate simple, accessible responses.
+        **Tool Usage - Customize based on query type**:
 
-        With general profile, you'll get up to 3 results per source with low detail level.
-        Avoid medical jargon unless absolutely necessary (then explain it).
-        Break down information into small, digestible parts.
+        For simple definition/explanation questions:
+        search_medical_qa(query="...", profile="general", max_qa=5, use_papers=False, use_medical=False, use_pubmed=False)
+
+        For general health information:
+        search_medical_qa(query="...", profile="general", max_qa=3, max_papers=2, use_medical=False, use_pubmed=False)
+
+        For basic medical concepts:
+        search_medical_qa(query="...", profile="general", max_qa=5, max_papers=3, use_medical=False, use_pubmed=False)
+
+        **Available Parameters**:
+        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
+        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 3 for general)
+        - max_per_source: Set all sources at once (overridden by individual limits)
+
+        **Data Sources**:
+        The tool searches 5 sources: guidelines database, QA database, papers, medical patents, and PubMed.
+        For general users, prioritize QA database (simple answers) and limit papers.
+        Not all sources are needed for every question.
+
+        **Response Guidelines**:
+        - Avoid medical jargon unless absolutely necessary (then explain it immediately)
+        - Use analogies and everyday examples
+        - Don't distinguish between different paper sources - just say "연구에 따르면"
+        - Break down information into small, digestible parts
+        - With general profile, you get up to 3 results per source by default (customize as needed)
 
         Always respond in Korean.""",
         tools=[search_medical_qa]
     )
 
+    # Entailment: ALL profile guidelines must trigger the disclaimer
+    # When any profile guideline activates, the disclaimer MUST also activate
+    await researcher_guideline.entail(disclaimer_guideline)
+    await patient_guideline.entail(disclaimer_guideline)
+    await general_guideline.entail(disclaimer_guideline)
 
-async def add_blocking_guidelines(agent: p.Agent) -> None:
-    """Blocking guidelines"""
+
+async def add_blocking_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideline) -> None:
+    """Blocking guidelines with disclaimer enforcement
+
+    Args:
+        agent: The Parlant agent
+        disclaimer_guideline: The disclaimer guideline to enforce
+    """
 
     # Non-medical topic blocking
-    await agent.create_guideline(
+    non_medical_blocking = await agent.create_guideline(
         condition="User asks about non-medical topics (sports, politics, entertainment, etc.)",
         action="Politely decline: 'I apologize, but CareGuide can only handle medical and health-related questions. If you have medical questions, I'd be happy to help.' Redirect to medical topics. Respond in Korean."
     )
 
     # Inappropriate request blocking
-    await agent.create_guideline(
+    inappropriate_blocking = await agent.create_guideline(
         condition="User makes inappropriate, offensive, or harmful requests",
         action="Firmly decline: 'I cannot process inappropriate requests. If you need medical information, please ask appropriate questions.' If repeated, end conversation. Respond in Korean."
     )
+
+    # Even blocking responses must include the disclaimer
+    await non_medical_blocking.entail(disclaimer_guideline)
+    await inappropriate_blocking.entail(disclaimer_guideline)
 
 
 # ==================== Journey ====================
@@ -1040,16 +1309,17 @@ async def create_medical_info_journey(agent: p.Agent) -> p.Journey:
         chat_state="""Use the refinement_prompt from search_medical_qa to generate your response in Korean.
 
         Structure your response based on user profile:
-        - Researchers: Detailed technical info with citations (max 10 results per source)
-        - Patients: Practical advice with empathy (max 5 results per source)
-        - General users: Simple explanations (max 3 results per source)
+        - Researchers: Detailed technical info with citations
+        - Patients: Practical advice with empathy
+        - General users: Simple explanations
 
         Important:
-        1. Integrate information from all 4 sources (QA, local papers, medical data, PubMed)
-        2. Prioritize recent PubMed results when available
-        3. Cite sources properly (e.g., "According to PubMed research (PMID: 12345678, 2024)...")
-        4. Provide DOIs and URLs for PubMed papers
-        5. Always add medical disclaimer at the end
+        1. Integrate information from available sources (guidelines, QA, papers, medical data, PubMed)
+        2. NOT all sources are used for every query - depends on tool parameters used
+        3. Don't distinguish between local papers and PubMed papers - treat all as "논문 연구"
+        4. Cite papers with authors, year, and identifiers when available (e.g., "Smith et al. (2024) 연구에 따르면...")
+        5. Focus on the most relevant information, regardless of source
+        6. Always add medical disclaimer at the end
 
         Respond in Korean."""
     )
@@ -1185,15 +1455,15 @@ Always respond in Korean unless specifically requested otherwise.""",
 
         print("  ✅ Agent created")
 
-        # Add guidelines
+        # Add guidelines with proper priority relationships
         print("  🔧 Adding safety guidelines...")
-        await add_safety_guidelines(agent)
+        disclaimer_guideline = await add_safety_guidelines(agent)
 
         print("  🔧 Adding profile-based guidelines...")
-        await add_profile_guidelines(agent)
+        await add_profile_guidelines(agent, disclaimer_guideline)
 
         print("  🔧 Adding blocking guidelines...")
-        await add_blocking_guidelines(agent)
+        await add_blocking_guidelines(agent, disclaimer_guideline)
 
         # Create journey
         print("  🗺️ Creating Medical Information Journey...")
