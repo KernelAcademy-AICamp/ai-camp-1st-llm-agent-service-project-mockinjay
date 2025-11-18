@@ -9,8 +9,12 @@ interface ApiResponse {
 }
 
 interface DbCheckResponse {
-  status: string
+  status: 'connected' | 'disconnected'
   message: string
+  database?: string
+  collections?: number
+  collection_names?: string[]
+  error?: string
 }
 
 export default function Home() {
@@ -68,13 +72,13 @@ export default function Home() {
                 )}
               </div>
 
-              <div className={`border-l-4 ${dbStatus?.status === 'success' ? 'border-green-500' : 'border-red-500'} pl-4 py-2`}>
+              <div className={`border-l-4 ${dbStatus?.status === 'connected' ? 'border-green-500' : 'border-red-500'} pl-4 py-2`}>
                 <h3 className="font-semibold text-gray-700">MongoDB</h3>
                 <p className="text-sm text-gray-600">
                   {dbStatus?.message || 'DB 연결 실패'}
                 </p>
-                <p className={`text-xs ${dbStatus?.status === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                  {dbStatus?.status === 'success' ? '✓ 연결됨' : '✗ 연결 실패'}
+                <p className={`text-xs ${dbStatus?.status === 'connected' ? 'text-green-600' : 'text-red-600'}`}>
+                  {dbStatus?.status === 'connected' ? '✓ 연결됨' : '✗ 연결 실패'}
                 </p>
               </div>
             </>
