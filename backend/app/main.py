@@ -27,6 +27,11 @@ def database_check():
     """MongoDB 연결 상태 확인"""
     return check_connection()
 
+@app.get("/test/error/500")
+def test_server_error():
+    """500 에러 테스트용 엔드포인트"""
+    raise Exception("의도적인 500 에러 테스트")
+
 # 라우터 등록
 app.include_router(auth.router)
 app.include_router(user.router)

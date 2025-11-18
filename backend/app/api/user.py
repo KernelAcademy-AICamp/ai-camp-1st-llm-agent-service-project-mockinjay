@@ -25,7 +25,8 @@ async def get_profile(user_id: str = Depends(get_current_user)):
         "id": str(user["_id"]),
         "email": user["email"],
         "name": user["name"],
-        "profile": user["profile"]
+        "profile": user["profile"],
+        "role": user.get("role", "user")  # 기존 사용자를 위한 기본값
     }
 
 @router.put("/profile")
