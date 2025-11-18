@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.connection import check_connection
+from app.api import auth, user
 
 app = FastAPI(title="CareGuide API", version="1.0.0")
 
@@ -25,3 +26,7 @@ def health_check():
 def database_check():
     """MongoDB 연결 상태 확인"""
     return check_connection()
+
+# 라우터 등록
+app.include_router(auth.router)
+app.include_router(user.router)
