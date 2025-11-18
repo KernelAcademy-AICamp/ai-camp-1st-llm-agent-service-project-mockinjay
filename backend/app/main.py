@@ -6,6 +6,7 @@ from app.db.connection import check_connection
 from app.api.trends import router as trends_router
 from app.api.chat import router as chat_router, close_parlant_server
 import logging
+from app.api import auth, user
 
 logger = logging.getLogger(__name__)
 
@@ -57,3 +58,8 @@ def health_check():
 async def database_check():
     """MongoDB 연결 상태 확인"""
     return await check_connection()
+    return check_connection()
+
+# 라우터 등록
+app.include_router(auth.router)
+app.include_router(user.router)
