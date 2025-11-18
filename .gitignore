@@ -371,3 +371,4 @@ yarn-error.log*
 frontend/.npm-cache
 .claude/
 .serena/
+frontend
