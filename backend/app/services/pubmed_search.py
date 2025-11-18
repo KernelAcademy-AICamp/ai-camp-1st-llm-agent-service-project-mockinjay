@@ -301,7 +301,20 @@ class OptimizedPubMedSearch:
         return articles
 
     async def get_total_count(self, query: str) -> int:
-        """Get total count of results for a query (async with caching)"""
+        """
+        Retrieve the total number of PubMed results matching a search query.
+        
+        This method uses an internal per-query cache to avoid repeated API calls. On HTTP 429 (rate limiting) it retries up to three times with backoff; if rate limiting persists it returns 0 and does not raise. Other HTTP errors are propagated.
+        
+        Parameters:
+            query (str): A PubMed search term (as passed to the ESearch API `term` parameter).
+        
+        Returns:
+            int: The total count of matching PubMed records.
+        
+        Raises:
+            httpx.HTTPStatusError: For HTTP errors other than repeated 429 responses.
+        """
         # Check cache first
         with self._count_lock:
             if query in self._count_cache:
@@ -343,7 +356,16 @@ class OptimizedPubMedSearch:
                         raise  # Re-raise other HTTP errors
 
     async def get_related_articles(self, pmid: str, max_results: int = 10) -> List[Dict]:
-        """Get related articles using elink API (optimized)"""
+        """
+        Retrieve articles related to a given PubMed ID using the PubMed E-utilities elink endpoint.
+        
+        Parameters:
+            pmid (str): The PubMed ID to find related articles for.
+            max_results (int): Maximum number of related articles to return.
+        
+        Returns:
+            List[Dict]: A list of article dictionaries (each containing keys such as `pmid`, `title`, `abstract`, `authors`, `journal`, `pub_date`, `doi`, `keywords`, `mesh_terms`, `source`, and `url`). Returns an empty list if no related articles are found.
+        """
         params = self._build_api_params(
             dbfrom="pubmed",
             db="pubmed",

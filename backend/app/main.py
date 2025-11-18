@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
+    """
+    Manage application startup and shutdown for the FastAPI application.
+    
+    On entry logs a startup message and yields control for the application to run. On exit it closes the parlant server and logs a shutdown message.
+    """
     logger.info("Application starting up...")
     yield
     # Cleanup on shutdown
@@ -46,17 +50,34 @@ app.include_router(trends_router)
 
 @app.get("/")
 def root():
+    """
+    Return basic application metadata for the root endpoint.
+    
+    Returns:
+        dict: A mapping with keys "message" set to "CareGuide API" and "version" set to "1.0.0".
+    """
     return {"message": "CareGuide API", "version": "1.0.0"}
 
 
 @app.get("/health")
 def health_check():
+    """
+    Report API health status.
+    
+    Returns:
+        dict: Mapping with key "status" set to "healthy".
+    """
     return {"status": "healthy"}
 
 
 @app.get("/db-check")
 async def database_check():
-    """MongoDB 연결 상태 확인"""
+    """
+    Check MongoDB connection status.
+    
+    Returns:
+        bool: `True` if the MongoDB connection is healthy, `False` otherwise.
+    """
     return await check_connection()
     return check_connection()
 

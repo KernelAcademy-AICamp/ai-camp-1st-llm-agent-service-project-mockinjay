@@ -10,10 +10,16 @@ logger = logging.getLogger(__name__)
 
 async def check_connection():
     """
-    Check MongoDB connection status
-
+    Check MongoDB connectivity and report basic database status.
+    
     Returns:
-        dict: Connection status information including database name and collection count
+        dict: Status information with the following keys:
+            - status (str): "connected" when the check succeeds, "disconnected" when it fails.
+            - database (str): Name of the checked database (present on success).
+            - collections (int): Number of collections in the database (present on success).
+            - collection_names (list[str]): Names of the collections (present on success).
+            - message (str): Human-readable result message.
+            - error (str): String representation of the error (present on failure).
     """
     try:
         manager = OptimizedMongoDBManager()

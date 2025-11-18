@@ -18,10 +18,14 @@ class PaperSummarizationService:
 
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize summarization service
-
-        Args:
-            api_key: OpenAI API key (defaults to env variable)
+        Initialize the PaperSummarizationService with an optional OpenAI API key.
+        
+        If `api_key` is not provided, the constructor reads `OPENAI_API_KEY` from the environment.
+        If no API key is available, the service logs a warning and leaves `self.client` as `None` (AI features disabled).
+        Also sets `self.model` from the `OPENAI_MODEL` environment variable, defaulting to "gpt-4o-mini".
+        
+        Parameters:
+            api_key (Optional[str]): Optional OpenAI API key; when omitted the `OPENAI_API_KEY` env var is used.
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -36,14 +40,21 @@ class PaperSummarizationService:
         language: str = "ko"
     ) -> Dict:
         """
-        Summarize a single paper
-
-        Args:
-            paper: Paper dictionary with title, abstract, etc.
-            language: Target language for summary (ko/en)
-
+        Generate a structured summary for a single research paper.
+        
+        Produces a concise summary, a list of key findings, and a clinical significance note in the requested language. If the service's AI client is not configured, returns the paper's abstract (or a placeholder) and an `error` field; if the paper has no abstract, returns a message indicating the absence of an abstract.
+        
+        Parameters:
+            paper (Dict): Paper metadata; expected keys include `title` and `abstract`.
+            language (str): Target language for the summary ("ko" for Korean, "en" for English). Defaults to "ko".
+        
         Returns:
-            Dictionary with summary and key insights
+            Dict: A dictionary containing:
+                - summary (str): The generated summary text (or fallback text).
+                - key_findings (List[str]): Extracted key findings as a list of short items.
+                - clinical_significance (str): A short description of clinical implications.
+                - tokens_used (int, optional): Total tokens consumed by the AI response when available.
+                - error (str, optional): Error message when summarization could not be performed.
         """
         if not self.client:
             return {
@@ -103,16 +114,25 @@ class PaperSummarizationService:
         max_papers: int = 10
     ) -> Dict:
         """
-        Create a comprehensive summary of multiple papers
-
-        Args:
-            papers: List of paper dictionaries
-            query: Original search query for context
-            language: Target language (ko/en)
-            max_papers: Maximum number of papers to include
-
+        Produce a consolidated analysis of multiple research papers tailored to the given query and language.
+        
+        Parameters:
+            papers (List[Dict]): List of paper dictionaries; each may include keys like "title", "abstract", and "pub_date".
+            query (str): Original search query or topic that provides context for the synthesis.
+            language (str): Target language for the output ("ko" for Korean, otherwise English).
+            max_papers (int): Maximum number of papers from `papers` to include in the analysis.
+        
         Returns:
-            Comprehensive analysis dictionary
+            Dict: A structured analysis containing:
+                overview (str): High-level summary of the collection or the raw AI text if parsing failed.
+                key_themes (List[str]): Extracted major research themes or topics.
+                research_trends (str): Notable trends observed across the papers.
+                clinical_implications (str): Practical or clinical significance derived from the papers.
+                recommendations (List[str]): Suggested future directions or action items.
+                papers_analyzed (int): Number of papers actually analyzed (capped by `max_papers`).
+                total_papers (int): Total number of papers provided in `papers`.
+                tokens_used (int): Token usage reported by the AI response (when available).
+                error (str, optional): Error message when synthesis could not be produced or AI client is unavailable.
         """
         if not self.client:
             return {
@@ -193,7 +213,17 @@ class PaperSummarizationService:
         abstract: str,
         language: str
     ) -> str:
-        """Build prompt for single paper summarization"""
+        """
+        Constructs a language-specific prompt instructing the AI to analyze and summarize a single medical research paper.
+        
+        Parameters:
+            title (str): Paper title to include in the prompt.
+            abstract (str): Paper abstract to include in the prompt.
+            language (str): Language code; if "ko", returns a Korean prompt, otherwise returns an English prompt.
+        
+        Returns:
+            prompt (str): A formatted instruction prompt containing the title, abstract, and required response sections (summary, key findings, clinical significance).
+        """
         if language == "ko":
             return f"""다음 의학 논문을 분석하고 요약해주세요:
 
@@ -244,7 +274,18 @@ Please respond in this format:
         language: str,
         total_count: int
     ) -> str:
-        """Build prompt for multiple papers analysis"""
+        """
+        Construct a language-aware prompt that instructs the AI to analyze multiple papers and produce a structured multi-section summary.
+        
+        Parameters:
+            query (str): The research query or topic to frame the analysis.
+            paper_summaries (List[str]): Short text entries for each paper (title, brief abstract, date) to include in the prompt.
+            language (str): Language code ("ko" for Korean) that selects the prompt language and section headings.
+            total_count (int): Total number of candidate papers (used for context in the prompt header).
+        
+        Returns:
+            str: A single prompt string containing the concatenated paper summaries and explicit instructions for the AI to return sections such as an overview, key research themes, research trends, clinical implications, and future research directions.
+        """
         papers_text = "\n\n".join(paper_summaries)
 
         if language == "ko":
@@ -301,7 +342,18 @@ Please provide a comprehensive analysis in this format:
 """
 
     def _parse_summary_response(self, text: str) -> Dict:
-        """Parse single paper summary response"""
+        """
+        Extract structured fields from a single-paper AI response text.
+        
+        Parameters:
+            text (str): Raw text produced by the AI for a single-paper summary.
+        
+        Returns:
+            result (Dict): Dictionary with parsed fields:
+                summary (str): The main summary text; if no explicit summary section is found, the original `text` is used.
+                key_findings (List[str]): List of individual finding bullet points extracted from the findings section.
+                clinical_significance (str): Text describing the clinical significance, if present.
+        """
         result = {
             "summary": "",
             "key_findings": [],
@@ -342,7 +394,20 @@ Please provide a comprehensive analysis in this format:
         return result
 
     def _parse_multiple_summary_response(self, text: str) -> Dict:
-        """Parse multiple papers summary response"""
+        """
+        Extracts structured fields from an AI-generated multi-paper analysis text.
+        
+        Parameters:
+            text (str): Raw AI response containing sectioned analysis (Korean or English).
+        
+        Returns:
+            Dict: Parsed fields:
+                - overview (str): Overall summary of the provided papers (fallback to full text if parsing fails).
+                - key_themes (List[str]): List of identified key research themes.
+                - research_trends (str): Described research trends.
+                - clinical_implications (str): Extracted clinical implications.
+                - recommendations (List[str]): List of suggested future research directions.
+        """
         result = {
             "overview": "",
             "key_themes": [],

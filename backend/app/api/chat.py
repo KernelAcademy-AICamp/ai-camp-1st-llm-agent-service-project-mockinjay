@@ -22,7 +22,11 @@ client = httpx.AsyncClient(timeout=30.0)
 
 
 async def close_parlant_server():
-    """Close the HTTP client on shutdown"""
+    """
+    Close the shared HTTP client used to proxy requests to the Parlant server.
+    
+    This is intended to be called on application shutdown to gracefully close the module-level AsyncClient and release network resources.
+    """
     await client.aclose()
     logger.info("Parlant proxy client closed")
 
@@ -30,7 +34,13 @@ async def close_parlant_server():
 @router.get("/info")
 async def chat_info():
     """
-    Get chat service information
+    Provide service metadata for the chat proxy.
+    
+    Returns:
+        info (dict): Mapping with keys:
+            - "service": human-readable service name,
+            - "parlant_server": Parlant base URL,
+            - "status": current proxy status ("proxying").
     """
     return {
         "service": "Chat API (Parlant Proxy)",
@@ -42,13 +52,9 @@ async def chat_info():
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_to_parlant(path: str, request: Request):
     """
-    Proxy all requests to the Parlant server
-
-    This forwards:
-    - Headers (except host)
-    - Query parameters
-    - Request body
-    - HTTP method
+    Proxy incoming requests under /api/chat to the configured Parlant server.
+    
+    Forwards the incoming request's method, query parameters, body, and headers (excluding Host and Content-Length) to the Parlant server and returns the server's response as a JSONResponse. Raises HTTPException with status 503 if the Parlant server is unreachable, 504 on timeout, or 500 for other proxy errors.
     """
     try:
         # Build target URL

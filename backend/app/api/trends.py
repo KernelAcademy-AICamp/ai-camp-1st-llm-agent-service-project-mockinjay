@@ -85,13 +85,10 @@ class SummarizeRequest(BaseModel):
 @router.post("/temporal")
 async def analyze_temporal_trends(request: TemporalTrendsRequest) -> Dict[str, Any]:
     """
-    Analyze publication trends over time
-
+    Analyze publication trends for a query across a year range.
+    
     Returns:
-        - Chart configuration for line chart
-        - Trend explanation
-        - Recent papers
-        - Metadata (peak year, total papers, etc.)
+        dict: Analysis result containing a line chart configuration, a textual trend explanation, a list of recent relevant papers, and metadata (e.g., peak year, total papers).
     """
     try:
         logger.info(f"Temporal trends request: {request.query} ({request.start_year}-{request.end_year})")
@@ -120,13 +117,14 @@ async def analyze_temporal_trends(request: TemporalTrendsRequest) -> Dict[str, A
 @router.post("/geographic")
 async def analyze_geographic_distribution(request: GeographicDistributionRequest) -> Dict[str, Any]:
     """
-    Analyze geographic distribution of research
-
+    Analyze geographic distribution for a research query and return visualization data and supporting results.
+    
     Returns:
-        - Chart configuration for horizontal bar chart
-        - Geographic distribution explanation
-        - Sample papers
-        - Metadata (top country, total results, etc.)
+        dict: Result object containing:
+            - `chart_config`: configuration for a horizontal bar chart of country-level counts.
+            - `explanation`: textual summary describing the geographic distribution.
+            - `papers`: list of sample paper metadata relevant to the query.
+            - `metadata`: additional information such as top country, total results, and other summary metrics.
     """
     try:
         logger.info(f"Geographic distribution request: {request.query}")
@@ -153,13 +151,14 @@ async def analyze_geographic_distribution(request: GeographicDistributionRequest
 @router.post("/mesh")
 async def analyze_mesh_categories(request: MeshCategoryRequest) -> Dict[str, Any]:
     """
-    Analyze MeSH category and subheading distribution
-
+    Analyze MeSH category and subheading distribution for the given query.
+    
     Returns:
-        - Chart configurations (doughnut for categories, bar for subheadings)
-        - MeSH analysis explanation
-        - Sample papers
-        - Metadata (top category, top subheading, etc.)
+        dict: Analysis result containing:
+            charts (dict): Chart configurations (e.g., 'categories' doughnut chart and 'subheadings' bar chart).
+            explanation (str): Natural-language explanation of the MeSH analysis.
+            papers (List[dict]): Sample papers returned for the query.
+            metadata (dict): Additional metadata such as 'top_category', 'top_subheading', and other summary statistics.
     """
     try:
         logger.info(f"MeSH category request: {request.query}")
@@ -185,13 +184,14 @@ async def analyze_mesh_categories(request: MeshCategoryRequest) -> Dict[str, Any
 @router.post("/compare")
 async def compare_keywords(request: CompareKeywordsRequest) -> Dict[str, Any]:
     """
-    Compare trends across multiple keywords
-
+    Compare trends across the provided keywords and return a structured comparison result.
+    
     Returns:
-        - Chart configuration for multi-line comparison
-        - Comparison explanation
-        - Papers for first keyword
-        - Metadata (keywords compared, analysis period, etc.)
+        dict: A result mapping with the following keys:
+            - `chart`: chart configuration for a multi-line comparison of trends.
+            - `explanation`: textual summary or interpretation of the comparison.
+            - `papers`: list of paper records returned for the first keyword.
+            - `metadata`: dictionary containing details such as `keywords` (compared), `start_year`, `end_year`, and `language`.
     """
     try:
         logger.info(f"Keyword comparison request: {request.keywords}")
@@ -220,11 +220,14 @@ async def compare_keywords(request: CompareKeywordsRequest) -> Dict[str, Any]:
 @router.post("/papers")
 async def search_papers(request: PapersRequest) -> Dict[str, Any]:
     """
-    Search for research papers
-
+    Search for research papers matching the request and return the results with summary metadata.
+    
     Returns:
-        - List of papers with metadata (title, abstract, authors, etc.)
-        - Total count
+        dict: A dictionary with keys:
+            - papers: list of paper metadata dictionaries (e.g., title, abstract, authors, identifiers).
+            - total: int number of papers returned.
+            - query: str the original search query.
+            - status: str set to "success" when the search completes successfully.
     """
     try:
         logger.info(f"Paper search request: {request.query} (max: {request.max_results})")
@@ -250,12 +253,16 @@ async def search_papers(request: PapersRequest) -> Dict[str, Any]:
 @router.post("/summarize")
 async def summarize_papers(request: SummarizeRequest) -> Dict[str, Any]:
     """
-    Generate AI-powered summaries of research papers
-
+    Produce an AI-generated summary for the provided papers.
+    
+    Parameters:
+        request (SummarizeRequest): Request containing papers to summarize, a query, language, and `summary_type` ("single" to summarize the first paper, otherwise summarizes all provided papers).
+    
     Returns:
-        - Comprehensive summary (overview, themes, trends, implications, recommendations)
-        - Tokens used
-        - Papers analyzed count
+        dict: A dictionary containing the summarization output produced by the summarization service augmented with a `'status': 'success'` entry.
+    
+    Raises:
+        HTTPException: If an error occurs during summarization, an HTTP 500 exception is raised with the error detail.
     """
     try:
         logger.info(f"Summarization request: {len(request.papers)} papers, type: {request.summary_type}")
@@ -288,7 +295,15 @@ async def summarize_papers(request: SummarizeRequest) -> Dict[str, Any]:
 
 @router.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """
+    Get current health status of the trends API and its components.
+    
+    Returns:
+        health (dict): Dictionary containing:
+            - "status" (str): Overall service health (e.g., "healthy").
+            - "service" (str): Service identifier (e.g., "trends_api").
+            - "components" (dict): Mapping of component names to readiness strings (e.g., {"trend_agent": "ready", "summarization_service": "ready", "pubmed_client": "ready"}).
+    """
     return {
         "status": "healthy",
         "service": "trends_api",
@@ -304,7 +319,11 @@ async def health_check():
 
 @router.on_event("shutdown")
 async def shutdown_event():
-    """Cleanup on shutdown"""
+    """
+    Close and release external resources used by the Trends API during application shutdown.
+    
+    Attempts to close the global TrendVisualizationAgent and PubMed client and logs success or any errors encountered.
+    """
     try:
         await trend_agent.close()
         pubmed_client.close()
