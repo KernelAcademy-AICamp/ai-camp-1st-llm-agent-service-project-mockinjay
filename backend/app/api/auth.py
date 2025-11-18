@@ -18,6 +18,7 @@ async def signup(user: UserCreate):
         "password": hash_password(user.password),
         "name": user.name,
         "profile": user.profile,
+        "role": user.role,  # "user" or "admin"
         "created_at": datetime.utcnow()
     }
     result = users_collection.insert_one(user_doc)
@@ -41,6 +42,7 @@ async def login(email: str, password: str):
             "id": str(user["_id"]),
             "email": user["email"],
             "name": user["name"],
-            "profile": user["profile"]
+            "profile": user["profile"],
+            "role": user.get("role", "user")  # 기존 사용자를 위한 기본값
         }
     }
