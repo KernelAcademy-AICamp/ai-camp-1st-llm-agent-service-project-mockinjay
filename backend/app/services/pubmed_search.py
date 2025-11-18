@@ -315,17 +315,32 @@ class OptimizedPubMedSearch:
         )
 
         async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-            response = await client.get(f"{PUBMED_BASE_URL}/esearch.fcgi", params=params)
-            response.raise_for_status()
-            data = response.json()
+            # Retry logic for rate limiting
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = await client.get(f"{PUBMED_BASE_URL}/esearch.fcgi", params=params)
+                    response.raise_for_status()
+                    data = response.json()
 
-            count = int(data.get("esearchresult", {}).get("count", 0))
+                    count = int(data.get("esearchresult", {}).get("count", 0))
 
-            # Cache the result
-            with self._count_lock:
-                self._count_cache[query] = count
+                    # Cache the result
+                    with self._count_lock:
+                        self._count_cache[query] = count
 
-            return count
+                    return count
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 429:  # Too Many Requests
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 2  # Exponential backoff: 2s, 4s, 6s
+                            logger.warning(f"Rate limit hit, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            logger.error(f"Rate limit exceeded after {max_retries} attempts for query: {query}")
+                            return 0  # Return 0 instead of crashing
+                    else:
+                        raise  # Re-raise other HTTP errors
 
     async def get_related_articles(self, pmid: str, max_results: int = 10) -> List[Dict]:
         """Get related articles using elink API (optimized)"""
