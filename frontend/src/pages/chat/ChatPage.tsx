@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ParlantClient,
-  ParlantEvent,
   Profile,
   SessionState
 } from './parlantClient'
@@ -15,7 +14,7 @@ import {
 } from './utils'
 import { sleep } from './sleep'
 
-const BASE_URL = import.meta.env.VITE_PARLANT_SERVER || 'http://localhost:8800'
+const BASE_URL = import.meta.env.VITE_PARLANT_SERVER || 'http://localhost:8000/api/chat'
 const DEFAULT_PROFILE: Profile =
   (import.meta.env.VITE_CARE_GUIDE_DEFAULT_PROFILE as Profile) || 'general'
 
@@ -90,7 +89,6 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [stopRequested, setStopRequested] = useState(false)
   const stopRequestedRef = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
@@ -144,7 +142,6 @@ export default function ChatPage() {
       return
     }
     stopRequestedRef.current = false
-    setStopRequested(false)
     const text = input.trim()
     setInput('')
     setIsSending(true)
@@ -224,7 +221,6 @@ export default function ChatPage() {
           if (hasDisclaimer) {
             console.log('[ChatPage] disclaimer detected - stopping poll')
             stopRequestedRef.current = true
-            setStopRequested(true)
           }
         }
 
@@ -358,7 +354,6 @@ export default function ChatPage() {
               <button
                 onClick={() => {
                   stopRequestedRef.current = true
-                  setStopRequested(true)
                   console.log('[ChatPage] stop requested by user')
                 }}
                 disabled={!isSending}
