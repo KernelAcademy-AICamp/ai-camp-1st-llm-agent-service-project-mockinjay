@@ -372,3 +372,5 @@ yarn-error.log*
 *.tsbuildinfo
 frontend/.npm-cache
 .claude/
+.serena/
+frontend
