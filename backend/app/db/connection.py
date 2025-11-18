@@ -1,40 +1,36 @@
 """
-Database Connection Utilities
-Provides connection checking and health status for MongoDB
+MongoDB 연결 및 컬렉션 관리
 """
-from app.db.mongodb_manager import OptimizedMongoDBManager
-import logging
+from pymongo import MongoClient
+from pymongo.collection import Collection
+import os
+from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+load_dotenv()
+
+# MongoDB 연결 설정
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+DB_NAME = "careguide"
+
+# MongoDB 클라이언트 초기화
+client = MongoClient(MONGODB_URI)
+db = client[DB_NAME]
+
+# 컬렉션 정의
+users_collection: Collection = db["users"]
 
 
-async def check_connection():
-    """
-    Check MongoDB connection status
-
-    Returns:
-        dict: Connection status information including database name and collection count
-    """
+def check_connection():
+    """MongoDB 연결 상태 확인"""
     try:
-        manager = OptimizedMongoDBManager()
-        await manager.connect()
-
-        # Get collection names as a connection test
-        collections = await manager.db.list_collection_names()
-
-        await manager.close()
-
+        # ping 명령으로 연결 확인
+        client.admin.command('ping')
         return {
-            "status": "connected",
-            "database": "careguide",
-            "collections": len(collections),
-            "collection_names": collections,
-            "message": "MongoDB connection successful"
+            "status": "success",
+            "message": "MongoDB 연결 성공"
         }
     except Exception as e:
-        logger.error(f"MongoDB connection check failed: {e}", exc_info=True)
         return {
-            "status": "disconnected",
-            "error": str(e),
-            "message": "MongoDB connection failed"
+            "status": "error",
+            "message": f"MongoDB 연결 실패: {str(e)}"
         }
