@@ -339,8 +339,10 @@ embedding_cache/
 
 
 
+# Frontend - exclude entire directory (team members working individually)
+frontend/
+
 # dependencies
-frontend/node_modules
 node_modules/
 .pnp
 .pnp.js
@@ -377,3 +379,5 @@ processed/*.jsonl
 *.xlsx
 *.pdf
 data/raw/healthcareproviders/
+.serena/
+frontend
