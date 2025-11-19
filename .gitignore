@@ -381,3 +381,4 @@ processed/*.jsonl
 data/raw/healthcareproviders/
 .serena/
 frontend
+docs
