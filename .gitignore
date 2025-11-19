@@ -339,8 +339,8 @@ embedding_cache/
 
 
 
-# Frontend - exclude entire directory (team members working individually)
-frontend/
+# Frontend - include src code, exclude node_modules and build
+# frontend/  # REMOVED: Now including frontend in the repository
 
 # dependencies
 node_modules/
@@ -373,4 +373,4 @@ yarn-error.log*
 frontend/.npm-cache
 .claude/
 .serena/
-frontend
+# frontend  # REMOVED: Now including frontend in the repository
