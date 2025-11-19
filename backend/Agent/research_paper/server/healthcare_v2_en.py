@@ -2181,6 +2181,273 @@ Have a productive research day! 🔬📚""",
     return journey
 
 
+# ==================== Journey 7: Welfare Support Journey ====================
+
+async def create_welfare_journey(agent: p.Agent) -> p.Journey:
+    """복지 지원 Journey (Journey 1 패턴 100% 적용)
+
+    Journey 1 (Medical Information Journey) 구조 참고:
+    - Multi-step conversation flow
+    - Tool execution (search_welfare_programs, search_hospitals)
+    - State transitions with conditions
+    - Fork-based user choices
+    - Profile-aware responses
+    - Journey-level guidelines
+
+    **Steps**:
+    0. Welcome and introduce welfare categories
+    1. Execute welfare search (tool)
+    2. Present results and offer follow-up
+    3. (Optional) Find nearby hospitals (tool)
+    4. End or loop back
+
+    **Tools Used**:
+    - search_welfare_programs: 복지 프로그램 검색
+    - search_hospitals: 신청 가능 병원 검색
+
+    **Profile Behavior**:
+    - researcher: 10 results, detailed info
+    - patient: 5 results, practical advice
+    - general: 3 results, simple explanation
+    """
+    journey = await agent.create_journey(
+        title="Welfare Support Journey",
+        description="Guide for welfare programs, insurance support, and medical cost reduction for CKD patients",
+        conditions=[
+            "User asks about welfare programs (복지, 지원, 혜택)",
+            "User wants to know about 산정특례 or copay reduction",
+            "User needs information about disability registration (장애인 등록)",
+            "User asks about medical cost support or insurance benefits (의료비, 본인부담금)",
+            "User mentions 교통비 지원 or transport support",
+            "User asks how to apply for benefits (신청 방법)",
+            "User needs financial assistance information"
+        ]
+    )
+
+    # ========================================
+    # Step 0: Welcome & Category Introduction
+    # ========================================
+    t0 = await journey.initial_state.transition_to(
+        chat_state="""안녕하세요! 복지 지원 상담에 오신 것을 환영합니다. 🎗️
+
+만성콩팥병 환자를 위한 다양한 복지 혜택을 안내해드립니다.
+모든 정보는 **2024-2025년 정부 공식 데이터**를 기반으로 검증되었습니다.
+
+**주요 복지 프로그램**:
+
+1. 💳 **산정특례** - 본인부담금 90% 감면
+   - CKD 3기 이상: 본인부담금 10%
+   - 혈액투석/복막투석: 본인부담금 10%
+   - 유효기간: 5년 (투석은 계속)
+
+2. 🦽 **장애인 등록** - 장애인 복지 혜택
+   - 투석 3개월 이상: 심한 장애 (구 2급)
+   - 신장이식 후: 심하지 않은 장애 (구 5급)
+   - 장애인연금 최대 월 43만원 (2025년)
+   - 전기요금, 교통비, 문화시설 할인
+
+3. 💰 **의료비 지원** - 저소득층 의료비
+   - 재난적 의료비: 최대 2,000만원
+   - 긴급 의료비: 최대 300만원
+   - 희귀질환 의료비: 간병비 월 30만원 포함
+
+4. 🏥 **신장이식 지원** - 수술비 및 면역억제제
+   - KAMCO-밀알복지재단: 최대 500만원
+   - 사랑의장기기증운동본부: 저소득층 지원
+
+5. 🚗 **교통비 지원** - 투석 환자 교통비
+   - 지자체별 월 10-15만원
+   - 활동지원 서비스: 병원 동행 가능
+
+---
+
+어떤 복지 혜택에 대해 궁금하신가요?
+구체적으로 말씀해주시면 자세히 안내해드리겠습니다.
+
+**예시**:
+- "산정특례 신청 방법 알려주세요"
+- "장애인 등록하려면 어떻게 하나요?"
+- "의료비 지원 받을 수 있나요?"
+- "신장이식 수술비 지원은?"
+"""
+    )
+
+    # ========================================
+    # Step 1: Execute Welfare Search (Tool)
+    # ========================================
+    t1 = await t0.target.transition_to(
+        tool_state=search_welfare_programs,
+        condition="User specifies welfare program interest or asks specific question about benefits"
+    )
+
+    # ========================================
+    # Step 2: Present Results
+    # ========================================
+    t2 = await t1.target.transition_to(
+        chat_state="""검색된 복지 프로그램 정보를 바탕으로 상세히 안내해드립니다.
+
+{synthesis_prompt에서 생성된 LLM 응답이 여기에 표시됩니다}
+
+---
+
+**추가로 도움이 필요하신가요?**
+
+다음 옵션 중 선택해주세요:
+- 🔍 **다른 복지 프로그램 알아보기** (다른 카테고리나 키워드로 검색)
+- 🏥 **근처 신청 가능한 병원 찾기** (산정특례 신청, 장애진단서 발급 등)
+- ✅ **상담 종료** (충분한 정보를 얻으셨다면)
+
+원하시는 옵션을 말씀해주세요."""
+    )
+
+    # ========================================
+    # Step 3: Follow-up Options (Fork)
+    # ========================================
+
+    # Option A: Search more programs (loop back to Step 1)
+    await t2.target.transition_to(
+        state=t1.target,
+        condition="User wants to know about other welfare programs or different category"
+    )
+
+    # Option B: Find nearby hospitals (new tool execution)
+    t3_hospital = await t2.target.transition_to(
+        tool_state=search_hospitals,
+        condition="User wants to find nearby hospitals or application centers or dialysis centers"
+    )
+
+    # ========================================
+    # Step 4: Present Hospital Results
+    # ========================================
+    t4 = await t3_hospital.target.transition_to(
+        chat_state="""근처 병원 정보를 안내해드립니다.
+
+{hospital search synthesis_prompt 응답이 여기에 표시됩니다}
+
+---
+
+**다음 단계**:
+복지 프로그램 신청은 위 병원에서 가능합니다.
+- **산정특례**: 병원 원무과 방문하여 신청서 제출
+- **장애진단서**: 신장내과 진료 예약 필요
+- **투석 상담**: 투석실에 연락하여 상담
+
+**추가 도움**:
+- 다른 지역 병원 찾기
+- 다른 복지 프로그램 알아보기
+- 상담 종료"""
+    )
+
+    # Loop back options from hospital results
+    await t4.target.transition_to(
+        state=t1.target,
+        condition="User wants to explore more welfare programs"
+    )
+
+    await t4.target.transition_to(
+        state=t3_hospital.target,
+        condition="User wants to search hospitals in different region"
+    )
+
+    # Option C: End journey
+    await t2.target.transition_to(
+        state=p.END_JOURNEY,
+        condition="User is satisfied or wants to end the conversation or says goodbye"
+    )
+
+    await t4.target.transition_to(
+        state=p.END_JOURNEY,
+        condition="User is satisfied or wants to end"
+    )
+
+    # ========================================
+    # Journey-level Guidelines
+    # ========================================
+
+    # Guideline 1: Eligibility disclaimer
+    await journey.create_guideline(
+        condition="User asks about specific eligibility requirements or whether they qualify",
+        action="""Always remind the user that:
+
+1. You are providing GENERAL guidelines based on typical requirements from government data
+2. FINAL ELIGIBILITY is determined by the relevant authorities (국민건강보험공단, 주민센터, KONOS, etc.)
+3. Personal circumstances may affect eligibility
+4. They should contact the program directly for personalized eligibility assessment
+
+**Example Response Format**:
+"일반적으로 [자격 요건]에 해당하는 경우 신청 가능합니다.
+하지만 최종 자격 여부는 [담당 기관]에서 개별적으로 판단합니다.
+정확한 상담을 위해 [전화번호]로 직접 문의하시는 것을 권장드립니다."
+
+**Tone**: Helpful but cautious, avoiding definitive yes/no answers about eligibility
+"""
+    )
+
+    # Guideline 2: Empathetic support
+    await journey.create_guideline(
+        condition="User expresses financial difficulty, desperation, or emotional distress about medical costs",
+        action="""Respond with empathy and comprehensive support:
+
+1. **Acknowledge** their situation with compassion
+   - "의료비 부담이 크시겠어요. 여러 지원 제도가 있으니 함께 알아보겠습니다."
+
+2. **Emphasize** that multiple support programs are available
+   - List all relevant programs (산정특례, 의료비 지원, 장애인 복지)
+
+3. **Provide** the most relevant programs for their situation
+   - Prioritize by impact (산정특례 90% reduction first)
+   - Mention urgent options (긴급 의료비 3-7일 처리)
+
+4. **Encourage** them to apply and seek help
+   - "포기하지 마시고 꼭 신청하세요"
+   - "담당자와 상담하시면 도움받으실 수 있습니다"
+
+5. **Emergency contact** if needed
+   - 보건복지콜센터: 국번없이 129
+   - 긴급 복지 지원: 주민센터
+   - 재난적 의료비: 1577-1000
+
+**Tone**: Warm, supportive, encouraging, non-judgmental
+**Avoid**: Minimizing their concerns, making promises about approval, being overly optimistic
+"""
+    )
+
+    # Guideline 3: Application process clarity
+    await journey.create_guideline(
+        condition="User asks about application process or required documents",
+        action="""Provide CLEAR, STEP-BY-STEP application instructions:
+
+1. **List steps** in numbered format
+   - Step 1: [First action - e.g., "병원에서 진단서 받기"]
+   - Step 2: [Second action - e.g., "서류 준비하기"]
+   - Step 3: [Third action - e.g., "신청 기관 방문"]
+   - ...
+
+2. **Required documents**:
+   - Use bullet points
+   - Be specific (e.g., "의사 진단서 (희귀난치성질환 등록 신청용)")
+   - Mention where to get each document if not obvious
+
+3. **Where to apply**:
+   - Provide exact location (e.g., "국민건강보험공단 지사 또는 병원 원무과")
+   - Suggest calling ahead to confirm office hours and requirements
+
+4. **Processing time**:
+   - Set realistic expectations (e.g., "7-14일 소요")
+   - Mention follow-up options if delayed
+
+5. **Contact for questions**:
+   - Always provide phone number and organization
+   - Encourage calling for clarification before visiting
+
+**Format**: Use numbered lists, bullet points, and emojis for visual clarity
+**Language**: Korean (한국어)
+"""
+    )
+
+    return journey
+
+
 # ==================== Main Function ====================
 
 async def main() -> None:
@@ -2256,14 +2523,34 @@ Always respond in Korean unless specifically requested otherwise.""",
         print("  🗺️ Creating Research Paper Journey...")
         research_journey = await create_research_paper_journey(agent)
 
+        print("  🗺️ Creating Welfare Support Journey...")
+        welfare_journey = await create_welfare_journey(agent)
+
         # Journey Disambiguation
         print("  🔀 Setting up Journey disambiguation...")
+
+        # Medical vs Research
         paper_inquiry = await agent.create_observation(
             "User asks about research papers, scientific studies, or wants advanced paper analysis, "
             "but it's not clear whether they need basic information or in-depth research analysis"
         )
         await paper_inquiry.disambiguate([journey, research_journey])
-        print("     ✅ Journey disambiguation configured")
+
+        # Medical vs Welfare
+        welfare_inquiry = await agent.create_observation(
+            "User asks about medical costs, insurance benefits, copay reduction, financial support, or welfare programs, "
+            "but it's not clear whether they need medical information or welfare program guidance"
+        )
+        await welfare_inquiry.disambiguate([journey, welfare_journey])
+
+        # Research vs Welfare
+        research_welfare_inquiry = await agent.create_observation(
+            "User asks about programs, support systems, or policies, "
+            "but it's not clear whether they want research papers about programs or actual welfare benefit information"
+        )
+        await research_welfare_inquiry.disambiguate([research_journey, welfare_journey])
+
+        print("     ✅ Journey disambiguation configured (3 journeys)")
 
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
@@ -2285,6 +2572,7 @@ Always respond in Korean unless specifically requested otherwise.""",
         print(f"  • Customer ID: {customer.id}")
         print(f"  • Medical Journey ID: {journey.id}")
         print(f"  • Research Journey ID: {research_journey.id}")
+        print(f"  • Welfare Journey ID: {welfare_journey.id}")
 
         print(f"\n👤 **User Profile**:")
         profile_display = {
@@ -2309,6 +2597,8 @@ Always respond in Korean unless specifically requested otherwise.""",
         print(f"  • get_kidney_stage_info - CKD stage information")
         print(f"  • get_symptom_info - Symptom info and emergency detection")
         print(f"  • check_emergency_keywords - Emergency keyword detection")
+        print(f"  • search_welfare_programs - Welfare program search (13 verified programs)")
+        print(f"  • search_hospitals - Hospital/dialysis center search (104,836 facilities)")
 
         print(f"\n⚠️ **Safety Features**:")
         print(f"  • Automatic emergency detection (911 guidance)")
