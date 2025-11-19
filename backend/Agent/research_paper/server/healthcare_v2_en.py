@@ -92,20 +92,53 @@ async def get_profile(context: ToolContext) -> str:
             print(f"✅ Profile from plugin_data: {profile}")
             return profile
 
-    # 2. Extract profile from customer tags (fallback method)
-    if hasattr(context, 'customer_id'):
-        # Access customer object if available
-        customer = getattr(context, 'customer', None)
-        if customer and hasattr(customer, 'tags'):
-            tags = customer.tags
-            # Tags can be strings or objects with 'name' attribute
-            for tag in tags:
-                tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else None)
-                if tag_name and tag_name.startswith('profile:'):
-                    profile = tag_name.split(':', 1)[1]
-                    if profile in ["researcher", "patient", "general"]:
-                        print(f"✅ Profile extracted from customer tags: {profile}")
-                        return profile
+    # 2. Fetch customer from Container using customer_id
+    if hasattr(context, 'customer_id') and hasattr(context, 'plugin_data'):
+        customer_id = context.customer_id
+        container = context.plugin_data.get('container')
+
+        if container and customer_id:
+            try:
+                # Import CustomerStore from Parlant core
+                from parlant.core.customers import CustomerStore
+
+                # Get customer from store
+                customer_store = container[CustomerStore]
+                customer = await customer_store.read_customer(customer_id)
+
+                if customer and hasattr(customer, 'tags'):
+                    print(f"🔍 Fetched customer with {len(customer.tags)} tags")
+                    # Tags can be strings or TagId objects
+                    for tag in customer.tags:
+                        # Handle both string tags and TagId objects
+                        if isinstance(tag, str):
+                            tag_name = tag
+                        elif hasattr(tag, 'name'):
+                            tag_name = tag.name
+                        elif hasattr(tag, '__str__'):
+                            tag_name = str(tag)
+                        else:
+                            continue
+
+                        if tag_name and tag_name.startswith('profile:'):
+                            profile = tag_name.split(':', 1)[1]
+                            if profile in ["researcher", "patient", "general"]:
+                                print(f"✅ Profile extracted from customer tags: {profile}")
+                                return profile
+            except Exception as e:
+                print(f"⚠️  Failed to fetch customer from store: {e}")
+
+    # 3. Check customer object if directly available
+    customer = getattr(context, 'customer', None)
+    if customer and hasattr(customer, 'tags'):
+        tags = customer.tags
+        for tag in tags:
+            tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else None)
+            if tag_name and tag_name.startswith('profile:'):
+                profile = tag_name.split(':', 1)[1]
+                if profile in ["researcher", "patient", "general"]:
+                    print(f"✅ Profile extracted from customer object: {profile}")
+                    return profile
 
     # Note: We don't fetch from REST API here to avoid deadlock
     # The Parlant server is busy executing this tool, so HTTP requests
