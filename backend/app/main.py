@@ -6,6 +6,7 @@ from app.db.connection import check_connection
 from app.api.trends import router as trends_router
 from app.api.chat import router as chat_router, close_parlant_server
 from app.api.community import router as community_router
+from app.api.welfare import router as welfare_router
 import logging
 from app.api import auth, user
 
@@ -44,6 +45,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(trends_router)
 app.include_router(community_router, prefix="/api/community", tags=["community"])
+app.include_router(welfare_router, prefix="/api/welfare", tags=["welfare"])
 
 
 @app.get("/")
