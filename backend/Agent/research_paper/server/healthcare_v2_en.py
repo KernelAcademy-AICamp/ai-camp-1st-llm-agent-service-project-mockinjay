@@ -30,6 +30,10 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 # ==================== Optimized Imports ====================
 from app.services.hybrid_search import OptimizedHybridSearchEngine
+from app.db.welfare_manager import WelfareManager
+from app.db.hospital_manager import HospitalManager
+import json
+import logging
 
 # Optional: Cache Manager (requires Redis)
 try:
@@ -62,6 +66,8 @@ CACHE_MANAGER = None
 QUERY_ROUTER = None
 PERFORMANCE_MONITOR = None
 RERANKER = None
+WELFARE_MANAGER: Optional[WelfareManager] = None
+HOSPITAL_MANAGER: Optional[HospitalManager] = None
 
 
 # ==================== Helper Functions ====================
@@ -1154,6 +1160,422 @@ The following emergency keywords were detected:
             "message": "No emergency situation detected."
         }
     )
+
+
+# ==================== Welfare & Hospital Tools ====================
+
+logger = logging.getLogger(__name__)
+
+
+async def initialize_welfare_manager():
+    """Initialize WelfareManager singleton
+
+    SEARCH_ENGINE 초기화 패턴 적용
+    """
+    global WELFARE_MANAGER
+    if WELFARE_MANAGER is None:
+        WELFARE_MANAGER = WelfareManager()
+        await WELFARE_MANAGER.connect()
+        logger.info("✅ WelfareManager initialized for Parlant Tool")
+
+
+async def initialize_hospital_manager():
+    """Initialize HospitalManager singleton"""
+    global HOSPITAL_MANAGER
+    if HOSPITAL_MANAGER is None:
+        HOSPITAL_MANAGER = HospitalManager()
+        await HOSPITAL_MANAGER.connect()
+        logger.info("✅ HospitalManager initialized for Parlant Tool")
+
+
+@p.tool
+async def search_welfare_programs(
+    context: ToolContext,
+    query: str,
+    category: Optional[str] = None,
+    disease: Optional[str] = None,
+    ckd_stage: Optional[int] = None
+) -> ToolResult:
+    """Search welfare programs for CKD patients
+
+    이 도구는 만성콩팥병 환자를 위한 복지 프로그램을 검색합니다.
+    산정특례, 장애인 복지, 의료비 지원, 신장이식 지원, 교통비 지원 등을 찾을 수 있습니다.
+
+    **데이터 출처**:
+    - 국민건강보험공단 (NHIS)
+    - 보건복지부 (MOHW)
+    - 질병관리청 (KDCA)
+    - 공공데이터포털 (data.go.kr)
+    - 2024-2025년 검증된 정부 프로그램
+
+    **주요 카테고리**:
+    - sangjung_special: 산정특례 제도 (본인부담금 감면 10%)
+    - disability: 장애인 복지 혜택 (장애인연금, 공공요금 감면 등)
+    - medical_aid: 저소득층 의료비 지원 (재난적 의료비, 긴급 의료비)
+    - transplant: 신장이식 지원 (KAMCO-밀알복지재단, 사랑의장기기증)
+    - transport: 투석 환자 교통비 및 활동 지원
+
+    **사용 예시**:
+    - search_welfare_programs(query="산정특례")
+    - search_welfare_programs(query="의료비", category="medical_aid")
+    - search_welfare_programs(query="지원", ckd_stage=4)
+
+    Args:
+        context: Tool execution context (automatic)
+        query: 검색어 (e.g., "산정특례", "장애인 등록", "의료비 지원")
+        category: 카테고리 필터 (optional)
+        disease: 질병 필터 (e.g., "CKD", "ESRD", "dialysis") (optional)
+        ckd_stage: CKD 단계 필터 1-5 (optional)
+
+    Returns:
+        ToolResult containing:
+        - results: 검색된 프로그램 리스트
+        - synthesis_prompt: LLM이 사용할 합성 프롬프트
+        - metadata: 검색 메타데이터 (count, response_time)
+    """
+    start_time = time.time()
+
+    try:
+        # Initialize WelfareManager (singleton)
+        await initialize_welfare_manager()
+
+        # Get profile for result limiting
+        profile = await get_profile(context)
+        max_results = PROFILE_LIMITS[profile]["max_results"]
+
+        logger.info(f"[WELFARE TOOL] Search started: query='{query}', profile='{profile}', max={max_results}")
+
+        # Build filters
+        filters = {}
+        if category:
+            filters["category"] = category
+            logger.info(f"[WELFARE TOOL] Filter: category={category}")
+
+        if disease:
+            filters["target_disease"] = {"$in": [disease]}
+            logger.info(f"[WELFARE TOOL] Filter: disease={disease}")
+
+        if ckd_stage:
+            filters["eligibility.ckd_stage"] = {"$in": [ckd_stage]}
+            logger.info(f"[WELFARE TOOL] Filter: ckd_stage={ckd_stage}")
+
+        # Execute search
+        results = await WELFARE_MANAGER.search_by_text(
+            query=query,
+            limit=max_results,
+            filters=filters if filters else None
+        )
+
+        logger.info(f"[WELFARE TOOL] Search completed: {len(results)} results in {time.time()-start_time:.3f}s")
+
+        # Format results for LLM
+        formatted_results = []
+        for prog in results:
+            formatted_results.append({
+                "programId": prog.get("programId"),
+                "title": prog.get("title"),
+                "category": prog.get("category"),
+                "description": prog.get("description"),
+                "benefits": prog.get("benefits", {}),
+                "application": prog.get("application", {}),
+                "contact": prog.get("contact", {}),
+                "keywords": prog.get("keywords", []),
+                "year": prog.get("year"),
+                "fact_check_verified": prog.get("fact_check_verified", False),
+                "score": prog.get("score", 0)
+            })
+
+        # Generate LLM synthesis prompt
+        synthesis_prompt = f"""You are CareGuide, an AI assistant helping CKD patients find welfare programs.
+
+**User Query**: "{query}"
+**User Profile**: {profile}
+  - researcher: Provide detailed, academic-level information with sources
+  - patient: Provide practical, step-by-step guidance with empathy
+  - general: Provide simple, easy-to-understand explanation
+
+**Search Results**: {len(formatted_results)} welfare programs found
+
+**Programs**:
+{json.dumps(formatted_results, ensure_ascii=False, indent=2)}
+
+**Your Task**:
+Synthesize the above welfare program information into a comprehensive, helpful response.
+
+**Required Content**:
+1. **Brief Summary** (1-2 sentences):
+   - Overview of available programs matching the query
+
+2. **Program Details** (for each program):
+   - 💳 Program name and category
+   - 📋 Eligibility requirements (who can apply)
+   - ✨ Benefits (copay reduction, financial support, specific amounts)
+   - 📝 Application process (step-by-step)
+   - 📄 Required documents (bulleted list)
+   - 📍 Where to apply
+   - ⏱️ Processing time and validity period
+   - 📞 Contact information (phone number, website)
+
+3. **Important Notes**:
+   - Clarify that final eligibility is determined by authorities
+   - Provide specific contact numbers for personalized guidance
+   - Encourage users to contact programs directly for accurate info
+   - Mention fact-check verification if available
+
+4. **Next Steps**:
+   - Suggest related programs if applicable
+   - Offer to find nearby hospitals/application centers
+   - Suggest other helpful actions
+
+**Response Style**:
+{'Academic and detailed with references' if profile == 'researcher' else 'Practical and supportive with examples' if profile == 'patient' else 'Simple and encouraging'}
+
+**Language**: Use Korean (한국어) for all responses.
+
+**Format**:
+- Use markdown formatting
+- Use emojis for visual clarity (💳, 📋, ✨, etc.)
+- Bold important information
+- Use bullet points and numbered lists
+- Include phone numbers and websites as clickable links where possible
+
+**Disclaimer**:
+Always remind users that this is general information based on 2024-2025 government data and they should contact the relevant authorities for personalized eligibility assessment.
+"""
+
+        elapsed = time.time() - start_time
+
+        return ToolResult(
+            data={
+                "query": query,
+                "category": category,
+                "disease": disease,
+                "ckd_stage": ckd_stage,
+                "profile": profile,
+                "results": formatted_results,
+                "synthesis_prompt": synthesis_prompt,
+                "metadata": {
+                    "count": len(formatted_results),
+                    "response_time": f"{elapsed:.3f}s",
+                    "max_results": max_results,
+                    "filters_applied": bool(filters),
+                    "data_source": "공공데이터포털 2024-2025 검증 완료"
+                }
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[WELFARE TOOL] Error: {e}", exc_info=True)
+        return ToolResult(
+            data={
+                "error": str(e),
+                "query": query,
+                "results": [],
+                "synthesis_prompt": f"복지 프로그램 검색 중 오류가 발생했습니다: {e}. 죄송합니다. 국민건강보험공단(1577-1000) 또는 보건복지콜센터(129)로 직접 문의하시기 바랍니다."
+            }
+        )
+
+
+@p.tool
+async def search_hospitals(
+    context: ToolContext,
+    query: Optional[str] = None,
+    region: Optional[str] = None,
+    has_dialysis: Optional[bool] = None,
+    night_dialysis: Optional[bool] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    max_distance_km: Optional[float] = 10.0
+) -> ToolResult:
+    """Search hospitals, pharmacies, and dialysis centers
+
+    이 도구는 병원, 약국, 투석센터를 검색합니다.
+    특히 복지 프로그램 신청이 가능한 병원이나 투석 가능한 병원을 찾을 수 있습니다.
+
+    **104,836개** 병원/약국 데이터베이스에서 검색합니다.
+
+    **검색 방법**:
+    1. Text search: query parameter (e.g., "서울대병원")
+    2. Regional search: region parameter (e.g., "서울", "부산")
+    3. Nearby search: latitude + longitude (e.g., 37.5826, 127.0001)
+
+    **사용 예시**:
+    - search_hospitals(region="서울", has_dialysis=True)
+    - search_hospitals(query="서울대병원")
+    - search_hospitals(latitude=37.5826, longitude=127.0001, max_distance_km=5.0)
+
+    Args:
+        context: Tool execution context (automatic)
+        query: 병원명 또는 검색어 (optional)
+        region: 지역 (e.g., "서울", "부산", "대구") (optional)
+        has_dialysis: 투석 가능 병원만 (optional)
+        night_dialysis: 야간 투석 가능 병원만 (optional)
+        latitude: 사용자 위도 (nearby search용) (optional)
+        longitude: 사용자 경도 (nearby search용) (optional)
+        max_distance_km: 최대 거리 (km) (default: 10.0)
+
+    Returns:
+        ToolResult containing:
+        - results: 병원 리스트
+        - synthesis_prompt: LLM이 사용할 프롬프트
+        - metadata: 검색 메타데이터
+    """
+    start_time = time.time()
+
+    try:
+        # Initialize HospitalManager
+        await initialize_hospital_manager()
+
+        # Get profile for result limiting
+        profile = await get_profile(context)
+        max_results = PROFILE_LIMITS[profile]["max_results"] * 2  # 병원은 더 많이 표시
+
+        logger.info(f"[HOSPITAL TOOL] Search started: query='{query}', region='{region}', dialysis={has_dialysis}")
+
+        # Determine search method
+        results = []
+
+        if latitude is not None and longitude is not None:
+            # Nearby search (geospatial)
+            logger.info(f"[HOSPITAL TOOL] Using nearby search: lat={latitude}, lng={longitude}, distance={max_distance_km}km")
+            results = await HOSPITAL_MANAGER.search_nearby(
+                latitude=latitude,
+                longitude=longitude,
+                max_distance_km=max_distance_km,
+                has_dialysis=has_dialysis,
+                limit=max_results
+            )
+
+        elif region:
+            # Regional search
+            logger.info(f"[HOSPITAL TOOL] Using regional search: region={region}")
+            results = await HOSPITAL_MANAGER.search_by_region(
+                region=region,
+                has_dialysis=has_dialysis,
+                night_dialysis=night_dialysis,
+                limit=max_results
+            )
+
+        elif query:
+            # Text search
+            logger.info(f"[HOSPITAL TOOL] Using text search: query={query}")
+            filters = {}
+            if has_dialysis:
+                filters["has_dialysis_unit"] = True
+            if night_dialysis:
+                filters["night_dialysis"] = True
+
+            results = await HOSPITAL_MANAGER.search_by_text(
+                query=query,
+                limit=max_results,
+                filters=filters if filters else None
+            )
+
+        else:
+            # Default: Get dialysis centers
+            logger.info(f"[HOSPITAL TOOL] Using default: get dialysis centers")
+            results = await HOSPITAL_MANAGER.get_dialysis_centers(
+                region=region,
+                night_only=night_dialysis or False,
+                limit=max_results
+            )
+
+        logger.info(f"[HOSPITAL TOOL] Search completed: {len(results)} results")
+
+        # Format results
+        formatted_results = []
+        for hospital in results:
+            formatted_results.append({
+                "name": hospital.get("name"),
+                "address": hospital.get("address"),
+                "phone": hospital.get("phone"),
+                "region": hospital.get("region"),
+                "type": hospital.get("type"),
+                "has_dialysis": hospital.get("has_dialysis_unit", False),
+                "dialysis_machines": hospital.get("dialysis_machines", 0),
+                "night_dialysis": hospital.get("night_dialysis", False),
+                "dialysis_days": hospital.get("dialysis_days", []),
+                "naver_map": hospital.get("naver_map_url"),
+                "kakao_map": hospital.get("kakao_map_url"),
+                "distance": hospital.get("distance")  # For nearby search
+            })
+
+        # Generate LLM synthesis prompt
+        synthesis_prompt = f"""You are CareGuide, helping users find hospitals and dialysis centers.
+
+**Search Parameters**:
+- Query: {query or 'N/A'}
+- Region: {region or 'N/A'}
+- Dialysis capability: {has_dialysis or 'N/A'}
+- Night dialysis: {night_dialysis or 'N/A'}
+- Location: {f'({latitude}, {longitude})' if latitude else 'N/A'}
+
+**Hospitals Found**: {len(formatted_results)}
+
+**Hospital Data**:
+{json.dumps(formatted_results, ensure_ascii=False, indent=2)}
+
+**Your Task**:
+Synthesize hospital information into a helpful response.
+
+**Required Content**:
+1. **Summary**: Brief overview of hospitals found
+2. **Hospital List**: For each hospital:
+   - 🏥 Hospital name
+   - 📍 Address
+   - 📞 Phone number
+   - 💉 Dialysis capability (if applicable)
+     - Number of machines
+     - Night dialysis availability
+     - Available days
+   - 🗺️ Map links (Naver/Kakao)
+   - 📏 Distance (if nearby search)
+
+3. **Recommendations**:
+   - Best options based on user needs
+   - Tips for visiting or contacting
+   - Which hospital to visit for welfare program application
+
+4. **Additional Info**:
+   - For welfare program application (산정특례, 장애진단서 etc.)
+   - Suggest calling ahead to confirm services
+
+**Language**: Use Korean (한국어).
+
+**Format**:
+- Use markdown
+- Use emojis for clarity
+- Bold hospital names
+- Provide clickable map links if available
+"""
+
+        elapsed = time.time() - start_time
+
+        return ToolResult(
+            data={
+                "query": query,
+                "region": region,
+                "has_dialysis": has_dialysis,
+                "night_dialysis": night_dialysis,
+                "results": formatted_results,
+                "synthesis_prompt": synthesis_prompt,
+                "metadata": {
+                    "count": len(formatted_results),
+                    "response_time": f"{elapsed:.3f}s",
+                    "search_method": "nearby" if latitude else ("region" if region else ("text" if query else "default"))
+                }
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[HOSPITAL TOOL] Error: {e}", exc_info=True)
+        return ToolResult(
+            data={
+                "error": str(e),
+                "results": [],
+                "synthesis_prompt": f"병원 검색 중 오류가 발생했습니다: {e}"
+            }
+        )
 
 
 # ==================== Guidelines ====================
