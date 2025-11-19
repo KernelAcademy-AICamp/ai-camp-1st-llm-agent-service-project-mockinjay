@@ -337,10 +337,7 @@ backend/app/api/chat/parlant/parlant-data/
 parlant-data/
 embedding_cache/
 
-
-
-# Frontend - include src code, exclude node_modules and build
-# frontend/  # REMOVED: Now including frontend in the repository
+frontend/  
 
 # dependencies
 node_modules/
@@ -380,4 +377,9 @@ processed/*.jsonl
 *.pdf
 data/raw/healthcareproviders/
 .serena/
-frontend
+docs
+
+# Backup files
+*.backup
+*.bak
+*~
