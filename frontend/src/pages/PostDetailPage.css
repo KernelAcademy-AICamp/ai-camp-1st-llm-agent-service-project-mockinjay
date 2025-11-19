@@ -1,0 +1,30 @@
+/* PostDetailPage Layout Styles */
+
+.post-detail-container {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .post-detail-container {
+    max-width: 900px;
+    padding: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .post-detail-container {
+    max-width: 100%;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .post-detail-container {
+    padding: 8px;
+  }
+}
