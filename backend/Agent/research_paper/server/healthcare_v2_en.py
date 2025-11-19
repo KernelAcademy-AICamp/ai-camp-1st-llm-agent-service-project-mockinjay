@@ -67,7 +67,7 @@ RERANKER = None
 # ==================== Helper Functions ====================
 
 async def get_profile(context: ToolContext) -> str:
-    """Determine profile based on plugin_data or customer context
+    """Determine profile based on plugin_data or customer tags
 
     IMPORTANT: Profile-specific behavior is controlled by Parlant guidelines.
     The LLM receives different instructions based on customer tags:
@@ -84,20 +84,32 @@ async def get_profile(context: ToolContext) -> str:
     Returns:
         Profile type for result limiting
     """
-    # Check if profile is in plugin_data (preferred method)
+    # 1. Check if profile is in plugin_data (preferred method)
     if hasattr(context, 'plugin_data') and context.plugin_data:
-        profile = context.plugin_data.get('profile')
+        # Support both 'profile' and 'careguide_profile' keys
+        profile = context.plugin_data.get('profile') or context.plugin_data.get('careguide_profile')
         if profile and profile in ["researcher", "patient", "general"]:
             print(f"✅ Profile from plugin_data: {profile}")
             return profile
 
+    # 2. Extract profile from customer tags (fallback method)
+    if hasattr(context, 'customer_id'):
+        # Access customer object if available
+        customer = getattr(context, 'customer', None)
+        if customer and hasattr(customer, 'tags'):
+            tags = customer.tags
+            # Tags can be strings or objects with 'name' attribute
+            for tag in tags:
+                tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else None)
+                if tag_name and tag_name.startswith('profile:'):
+                    profile = tag_name.split(':', 1)[1]
+                    if profile in ["researcher", "patient", "general"]:
+                        print(f"✅ Profile extracted from customer tags: {profile}")
+                        return profile
+
     # Note: We don't fetch from REST API here to avoid deadlock
     # The Parlant server is busy executing this tool, so HTTP requests
     # to the same server will timeout or block.
-
-    # Instead, we rely on:
-    # 1. LLM guidelines (controlled by customer tags) for tone/style
-    # 2. Default result limits (can be adjusted by guidelines)
 
     # Default profile for result limiting
     # The actual response style is controlled by Parlant guidelines
