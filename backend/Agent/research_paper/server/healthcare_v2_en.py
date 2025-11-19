@@ -1779,6 +1779,15 @@ Always respond in Korean unless specifically requested otherwise.""",
         print("  🗺️ Creating Research Paper Journey...")
         research_journey = await create_research_paper_journey(agent)
 
+        # Journey Disambiguation
+        print("  🔀 Setting up Journey disambiguation...")
+        paper_inquiry = await agent.create_observation(
+            "User asks about research papers, scientific studies, or wants advanced paper analysis, "
+            "but it's not clear whether they need basic information or in-depth research analysis"
+        )
+        await paper_inquiry.disambiguate([journey, research_journey])
+        print("     ✅ Journey disambiguation configured")
+
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
 
