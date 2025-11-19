@@ -370,3 +370,10 @@ yarn-error.log*
 *.tsbuildinfo
 frontend/.npm-cache
 .claude/
+
+# Hospital/Pharmacy Data Pipeline
+processed/*.csv
+processed/*.jsonl
+*.xlsx
+*.pdf
+data/raw/healthcareproviders/
