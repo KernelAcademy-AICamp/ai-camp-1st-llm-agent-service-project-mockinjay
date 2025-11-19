@@ -75,11 +75,11 @@ async def get_profile(context: ToolContext) -> str:
     - "profile:patient" → Practical advice, max 5 results
     - "profile:general" → Simple language, max 3 results
 
-    This function attempts to read profile from context but defaults to
-    standard limits. The actual tone/style is controlled by LLM guidelines.
+    This function reads customer tags from Parlant's internal stores to
+    determine the correct profile for result limiting.
 
     Args:
-        context: ToolContext with optional plugin_data
+        context: ToolContext with customer_id and plugin_data
 
     Returns:
         Profile type for result limiting
@@ -92,48 +92,58 @@ async def get_profile(context: ToolContext) -> str:
             print(f"✅ Profile from plugin_data: {profile}")
             return profile
 
-    # 2. Fetch customer from Container using customer_id
+    # 2. Fetch customer and tags from Container using customer_id
     if hasattr(context, 'customer_id') and hasattr(context, 'plugin_data'):
         customer_id = context.customer_id
         container = context.plugin_data.get('container')
 
         if container and customer_id:
             try:
-                # Import CustomerStore from Parlant core
+                # Import stores from Parlant core
                 from parlant.core.customers import CustomerStore
+                from parlant.core.tags import TagStore
 
                 # Get customer from store
                 customer_store = container[CustomerStore]
                 customer = await customer_store.read_customer(customer_id)
 
-                if customer and hasattr(customer, 'tags'):
-                    print(f"🔍 Fetched customer with {len(customer.tags)} tags")
-                    # Tags can be strings or TagId objects
-                    for tag in customer.tags:
-                        # Handle both string tags and TagId objects
-                        if isinstance(tag, str):
-                            tag_name = tag
-                        elif hasattr(tag, 'name'):
+                if customer and customer.tags:
+                    print(f"🔍 Fetched customer with {len(customer.tags)} tag IDs: {customer.tags}")
+
+                    # customer.tags is a list of TagId (strings)
+                    # We need to fetch the actual Tag objects to get tag names
+                    tag_store = container[TagStore]
+
+                    for tag_id in customer.tags:
+                        try:
+                            # Fetch Tag object from TagStore
+                            tag = await tag_store.read_tag(tag_id)
                             tag_name = tag.name
-                        elif hasattr(tag, '__str__'):
-                            tag_name = str(tag)
-                        else:
+
+                            print(f"🔍 Tag ID '{tag_id}' → name '{tag_name}'")
+
+                            # Check if this is a profile tag
+                            if tag_name and tag_name.startswith('profile:'):
+                                profile = tag_name.split(':', 1)[1]
+                                if profile in ["researcher", "patient", "general"]:
+                                    print(f"✅ Profile extracted from customer tags: {profile}")
+                                    return profile
+                        except Exception as tag_error:
+                            print(f"⚠️  Failed to read tag {tag_id}: {tag_error}")
                             continue
 
-                        if tag_name and tag_name.startswith('profile:'):
-                            profile = tag_name.split(':', 1)[1]
-                            if profile in ["researcher", "patient", "general"]:
-                                print(f"✅ Profile extracted from customer tags: {profile}")
-                                return profile
             except Exception as e:
                 print(f"⚠️  Failed to fetch customer from store: {e}")
+                import traceback
+                traceback.print_exc()
 
-    # 3. Check customer object if directly available
+    # 3. Check customer object if directly available (unlikely but kept as fallback)
     customer = getattr(context, 'customer', None)
     if customer and hasattr(customer, 'tags'):
-        tags = customer.tags
-        for tag in tags:
-            tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else None)
+        print(f"🔍 Customer object available directly with tags: {customer.tags}")
+        # In this case, tags might already be Tag objects or TagIds
+        for tag in customer.tags:
+            tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else str(tag))
             if tag_name and tag_name.startswith('profile:'):
                 profile = tag_name.split(':', 1)[1]
                 if profile in ["researcher", "patient", "general"]:
