@@ -1448,6 +1448,262 @@ async def create_medical_info_journey(agent: p.Agent) -> p.Journey:
     return journey
 
 
+async def create_research_paper_journey(agent: p.Agent) -> p.Journey:
+    """연구자 전용 논문 검색 및 분석 Journey
+
+    이 Journey는 연구자에게 다음 기능을 제공합니다:
+    - 고급 PubMed 검색 (최대 20개 결과)
+    - 다중 논문 비교 분석
+    - 메타분석 요약
+    - 논문 북마크 (선택)
+
+    Medical Information Journey와 차별점:
+    - 연구자 프로필 전용
+    - 더 많은 검색 결과 (10-20개 vs 3-5개)
+    - 전문적인 분석 도구
+    - 학술적 언어 사용
+    """
+    journey = await agent.create_journey(
+        title="Research Paper Deep Dive",
+        description="Advanced PubMed search and multi-paper comparison for researchers",
+        conditions=[
+            "User is a researcher",
+            "User wants advanced paper search and analysis",
+            "User needs to compare multiple research papers"
+        ]
+    )
+
+    # Step 1: Welcome & Query Input
+    t0 = await journey.initial_state.transition_to(
+        chat_state="""Welcome to **Research Paper Deep Dive** - Advanced mode for researchers!
+
+This journey provides:
+✓ Extended PubMed search (up to 20 papers)
+✓ Multi-paper comparative analysis
+✓ Meta-analysis summarization
+✓ Academic-level explanations
+
+**Search Options**:
+1. **Keyword search**: "CKD biomarker 2024"
+2. **PMID search**: "PMID: 12345678, 87654321"
+3. **Author search**: "Smith J [Author]"
+4. **Journal search**: "New England Journal of Medicine [Journal]"
+
+Please enter your search query in Korean or English:"""
+    )
+
+    # Step 2: Execute Search
+    t1 = await t0.target.transition_to(
+        tool_state=search_medical_qa,
+        tool_instruction="""🔍 Executing PubMed search in researcher mode...
+
+**Researcher Mode Settings**:
+- Max results: 20 papers
+- Include: Guidelines, Papers, PubMed API
+- Exclude: Basic QA (research focus)
+
+Searching across multiple academic sources..."""
+    )
+
+    # Step 3: Present Results and Ask for Next Action
+    t2 = await t1.target.transition_to(
+        chat_state="""📊 **Search Results**
+
+Present the found papers clearly with key details (title, authors, journal, year, PMID).
+
+**What would you like to do next?**
+1. Analyze a specific paper in detail
+2. Compare multiple papers
+3. Summarize meta-analysis findings
+4. Bookmark interesting papers
+5. Refine your search query
+6. Start a new search
+7. End session
+
+Please tell me your choice."""
+    )
+
+    # Step 4: Single Paper Analysis (conditional)
+    t3 = await t2.target.transition_to(
+        chat_state="""📑 **Detailed Paper Analysis**
+
+I'll provide an in-depth academic analysis covering:
+
+**1. Study Design & Methodology**
+   - Research type, sample size, study duration
+   - Inclusion/exclusion criteria
+   - Methodological quality
+
+**2. Key Findings**
+   - Primary and secondary outcomes
+   - Statistical significance (p-values, confidence intervals)
+   - Effect sizes
+
+**3. Results Interpretation**
+   - Clinical implications
+   - Practical applications
+   - Relevant patient subgroups
+
+**4. Limitations & Bias Assessment**
+   - Study limitations
+   - Potential biases (selection, measurement, reporting)
+   - Confounding factors
+
+**5. Evidence Quality (GRADE)**
+   - Risk of bias level
+   - Consistency of results
+   - Generalizability
+
+**6. Clinical Recommendations**
+   - Practice implications
+   - Areas for further research
+
+Would you like to analyze another paper, compare papers, or perform a different action?""",
+        condition="User requests detailed analysis of a specific paper"
+    )
+
+    # Step 4-alt: Multi-Paper Comparison (conditional)
+    t4 = await t2.target.transition_to(
+        chat_state="""📊 **Comparative Analysis of Multiple Papers**
+
+I'll systematically compare the selected papers:
+
+**Comparison Matrix**:
+| Aspect | Paper A | Paper B | Paper C |
+|--------|---------|---------|---------|
+| Design | ... | ... | ... |
+| Sample Size | ... | ... | ... |
+| Primary Outcome | ... | ... | ... |
+| Effect Size | ... | ... | ... |
+| P-value | ... | ... | ... |
+| Evidence Level | ... | ... | ... |
+
+**Consensus Findings**:
+- Common trends across studies
+- Magnitude and direction of effects
+- Consistency across populations
+
+**Discrepancies & Heterogeneity**:
+- Methodological differences
+- Variations in outcomes
+- Sources of heterogeneity (I², τ²)
+
+**Integrated Conclusion**:
+Based on the synthesized evidence, here are the key clinical recommendations...
+
+Would you like to explore specific aspects, add more papers, or take another action?""",
+        condition="User wants to compare multiple research papers"
+    )
+
+    # Step 4-alt2: Meta-Analysis Summary (conditional)
+    t5 = await t2.target.transition_to(
+        chat_state="""🔬 **Meta-Analysis Summary**
+
+Comprehensive meta-analysis breakdown:
+
+**Study Characteristics**:
+- Number of included studies: N
+- Total participants: N
+- Publication years: YYYY-YYYY
+
+**Pooled Effect Size**:
+- Effect measure: [OR/RR/HR/MD]
+- Pooled estimate: X.XX (95% CI: X.XX to X.XX)
+- Z-score and p-value
+
+**Heterogeneity Assessment**:
+- I² statistic: X% [interpretation]
+- Cochran's Q: X (p = X.XX)
+- τ² (tau-squared): X.XX
+
+**Publication Bias**:
+- Funnel plot symmetry: [assessment]
+- Egger's test: p = X.XX
+- Trim-and-fill analysis: [findings]
+
+**Subgroup Analyses** (if available):
+- By study design
+- By geographic region
+- By patient characteristics
+
+**Sensitivity Analysis**:
+- Leave-one-out results
+- Fixed vs random effects comparison
+
+**GRADE Evidence Quality**:
+- Risk of bias: [rating]
+- Inconsistency: [rating]
+- Indirectness: [rating]
+- Imprecision: [rating]
+- Overall quality: [High/Moderate/Low/Very Low]
+
+**Clinical Implications & Recommendations**
+
+What would you like to do next?""",
+        condition="User selected a meta-analysis paper for summary"
+    )
+
+    # Merge paths back
+    await t3.target.transition_to(state=t2.target, condition="User wants to perform another analysis")
+    await t4.target.transition_to(state=t2.target, condition="User wants to perform another analysis")
+    await t5.target.transition_to(state=t2.target, condition="User wants to perform another analysis")
+
+    # Step 5: Refine Search (loop back)
+    t6 = await t2.target.transition_to(
+        chat_state="""🔧 **Refine Your Search**
+
+Current query can be refined using:
+
+**Filters**:
+- Publication year (e.g., 2020-2024)
+- Study type (RCT, meta-analysis, cohort, case-control)
+- Language
+
+**Advanced Search Techniques**:
+- MeSH terms for precise subject matching
+- Boolean operators (AND, OR, NOT)
+- Field-specific search: [Author], [Journal], [Title], [PMID]
+
+**Examples**:
+- \"CKD AND biomarker AND 2023[PDAT]\"
+- \"Smith J[Author] AND kidney disease\"
+- \"New England Journal of Medicine[Journal]\"
+
+Please enter your refined search query:""",
+        condition="User wants to refine the current search"
+    )
+
+    # Loop refined search back to search execution
+    await t6.target.transition_to(state=t1.target)
+
+    # Step 6: New Search (loop to beginning)
+    await t2.target.transition_to(
+        state=t0.target,
+        condition="User wants to start a completely new search"
+    )
+
+    # Step 7: End Journey
+    t7 = await t2.target.transition_to(
+        chat_state="""Thank you for using **Research Paper Deep Dive**!
+
+**Session Summary**:
+- Multiple research papers explored
+- Advanced analysis tools utilized
+- Academic insights generated
+
+💡 **Tip**: You can access your bookmarked papers anytime in My Page → Bookmarks.
+
+The research journey continues - feel free to return anytime for more in-depth literature analysis!
+
+Have a productive research day! 🔬📚""",
+        condition="User indicates they want to end the session or says goodbye"
+    )
+
+    await t7.target.transition_to(state=p.END_JOURNEY)
+
+    return journey
+
+
 # ==================== Main Function ====================
 
 async def main() -> None:
@@ -1516,9 +1772,12 @@ Always respond in Korean unless specifically requested otherwise.""",
         print("  🔧 Adding blocking guidelines...")
         await add_blocking_guidelines(agent, disclaimer_guideline)
 
-        # Create journey
+        # Create journeys
         print("  🗺️ Creating Medical Information Journey...")
         journey = await create_medical_info_journey(agent)
+
+        print("  🗺️ Creating Research Paper Journey...")
+        research_journey = await create_research_paper_journey(agent)
 
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
@@ -1538,7 +1797,8 @@ Always respond in Korean unless specifically requested otherwise.""",
         print(f"\n📋 **Server Information**:")
         print(f"  • Agent ID: {agent.id}")
         print(f"  • Customer ID: {customer.id}")
-        print(f"  • Journey ID: {journey.id}")
+        print(f"  • Medical Journey ID: {journey.id}")
+        print(f"  • Research Journey ID: {research_journey.id}")
 
         print(f"\n👤 **User Profile**:")
         profile_display = {
