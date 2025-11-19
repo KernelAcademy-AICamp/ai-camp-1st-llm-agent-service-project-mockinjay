@@ -371,13 +371,15 @@ frontend/.npm-cache
 .claude/
 
 # Hospital/Pharmacy Data Pipeline
-processed/*.csv
-processed/*.jsonl
+processed
 *.xlsx
 *.pdf
 data/raw/healthcareproviders/
 .serena/
 docs
+
+# Welfare data (external sources)
+data/welfare/*.json
 
 # Backup files
 *.backup
