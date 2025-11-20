@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 async def start_server():
     """Start the Parlant healthcare server"""
     try:
-        logger.info("=� Starting Parlant Healthcare Server...")
+        logger.info("=🚀 Starting Parlant Healthcare Server...")
 
         # Import and run the healthcare server
         # Try multiple import paths for flexibility
@@ -56,7 +56,7 @@ if __name__ == "__main__":
         python backend/Agent/research_paper/run_server.py
     """
     print("\n" + "="*70)
-    print("<� Research Paper Agent - Parlant Server")
+    print("Research Paper Agent - Parlant Server")
     print("="*70)
 
     try:

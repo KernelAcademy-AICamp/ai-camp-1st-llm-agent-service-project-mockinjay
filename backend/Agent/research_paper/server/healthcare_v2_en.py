@@ -2466,8 +2466,9 @@ async def main() -> None:
     profile = get_default_profile()
 
     print(f"\n[3/3] Setting up Parlant Server...")
-
-    async with p.Server() as server:
+    # Use custom cost-effective HealthcareNLPService (GPT-4o-mini + text-embedding-3-small)
+    from parlant_nlp_adapter import create_healthcare_nlp_service
+    async with p.Server(nlp_service=create_healthcare_nlp_service) as server:
         # Create Agent
         agent = await server.create_agent(
             name="CareGuide_v2",
@@ -2614,4 +2615,4 @@ Always respond in Korean unless specifically requested otherwise.""",
 
 
 if __name__ == "__main__":
-        asyncio.run(main())
+    asyncio.run(main())

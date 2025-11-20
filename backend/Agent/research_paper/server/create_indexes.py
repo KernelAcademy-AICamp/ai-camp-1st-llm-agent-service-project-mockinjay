@@ -347,9 +347,9 @@ class IndexManager:
         start_time = time.time()
 
         # Create indexes for each collection
-        await self.create_qa_indexes()
-        await self.create_paper_indexes()
-        await self.create_medical_indexes()
+        # await self.create_qa_indexes()
+        # await self.create_paper_indexes()
+        # await self.create_medical_indexes()
         await self.create_guidelines_indexes()
 
         elapsed = time.time() - start_time
