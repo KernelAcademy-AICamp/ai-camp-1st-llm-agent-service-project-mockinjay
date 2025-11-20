@@ -316,20 +316,165 @@ def submit_quiz_answer(request: QuizAnswerSubmit):
 
     Returns:
         QuizAnswerResponse: Answer feedback with correctness, explanation, and points
-
-    TODO:
-        - Validate sessionId and questionId
-        - Check if question already answered in this session
-        - Verify correct answer from database
-        - Calculate points (base + bonus for streak)
-        - Update question statistics (totalAttempts, correctAttempts)
-        - Create QuizAttempt record
-        - Update session progress
-        - Calculate user choice percentage
-        - Return detailed feedback
     """
-    # TODO: Implement answer submission logic
-    pass
+    try:
+        sessions_collection = db["quiz_sessions"]
+        attempts_collection = db["quiz_attempts"]
+        questions_collection = db["quiz_questions"]
+
+        # 1. 세션 찾기
+        try:
+            session = sessions_collection.find_one({"_id": ObjectId(request.sessionId)})
+        except:
+            raise HTTPException(status_code=400, detail="Invalid session ID format")
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        if session.get("status") == "completed":
+            raise HTTPException(status_code=400, detail="Session already completed")
+
+        # 2. 현재 문제 찾기
+        current_index = session.get("currentQuestionIndex", 0)
+        questions = session.get("questions", [])
+
+        if current_index >= len(questions):
+            raise HTTPException(status_code=400, detail="No more questions in this session")
+
+        current_question = questions[current_index]
+
+        # questionId 검증
+        if current_question["questionId"] != request.questionId:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question ID mismatch. Expected {current_question['questionId']}, got {request.questionId}"
+            )
+
+        # 이미 답변했는지 확인
+        if current_question.get("userAnswer") is not None:
+            raise HTTPException(status_code=400, detail="Question already answered")
+
+        # 3. 정답 체크
+        correct_answer = current_question["correctAnswer"]
+        is_correct = (request.userAnswer == correct_answer)
+        points_earned = 10 if is_correct else 0
+
+        # 보너스 포인트 (연속 정답 등 - 간단히 구현)
+        bonus_points = 0
+        if is_correct and session.get("score", {}).get("correct", 0) >= 3:
+            bonus_points = 5  # 3문제 이상 맞추면 보너스
+
+        total_points = points_earned + bonus_points
+
+        # 4. 세션 업데이트
+        # 문제에 답안 기록
+        questions[current_index]["userAnswer"] = request.userAnswer
+        questions[current_index]["isCorrect"] = is_correct
+        questions[current_index]["timeSpent"] = None  # 추후 프론트엔드에서 전달
+
+        # 점수 업데이트
+        new_correct = session.get("score", {}).get("correct", 0) + (1 if is_correct else 0)
+        new_total = current_index + 1
+        new_percentage = (new_correct / new_total * 100) if new_total > 0 else 0
+
+        # 다음 문제 인덱스
+        next_index = current_index + 1
+
+        # MongoDB 업데이트
+        sessions_collection.update_one(
+            {"_id": ObjectId(request.sessionId)},
+            {
+                "$set": {
+                    "questions": questions,
+                    "currentQuestionIndex": next_index,
+                    "score": {
+                        "correct": new_correct,
+                        "total": new_total,
+                        "percentage": new_percentage
+                    },
+                    "pointsEarned": session.get("pointsEarned", 0) + total_points
+                }
+            }
+        )
+
+        # 5. quiz_attempts 컬렉션에 기록
+        attempts_collection.insert_one({
+            "userId": session["userId"],
+            "sessionId": request.sessionId,
+            "questionId": current_question["questionId"],
+            "userAnswer": request.userAnswer,
+            "isCorrect": is_correct,
+            "timeSpent": None,
+            "attemptedAt": datetime.utcnow()
+        })
+
+        # 6. quiz_questions 컬렉션의 통계 업데이트 (문제 텍스트로 찾기)
+        question_text = current_question["question"]
+        question_doc = questions_collection.find_one({"question": question_text})
+
+        if question_doc:
+            # 기존 문제 통계 업데이트
+            new_total_attempts = question_doc.get("totalAttempts", 0) + 1
+            new_correct_attempts = question_doc.get("correctAttempts", 0) + (1 if is_correct else 0)
+
+            questions_collection.update_one(
+                {"_id": question_doc["_id"]},
+                {
+                    "$set": {
+                        "totalAttempts": new_total_attempts,
+                        "correctAttempts": new_correct_attempts
+                    }
+                }
+            )
+        else:
+            # 새 문제로 저장
+            questions_collection.insert_one({
+                "question": question_text,
+                "answer": correct_answer,
+                "explanation": current_question["explanation"],
+                "category": "unknown",
+                "difficulty": "unknown",
+                "totalAttempts": 1,
+                "correctAttempts": 1 if is_correct else 0,
+                "createdAt": datetime.utcnow(),
+                "isActive": True
+            })
+
+        # 7. 통계 조회 (O/X 선택 비율)
+        # 모든 시도에서 이 문제에 대한 통계 계산
+        all_attempts = list(attempts_collection.find({
+            "questionId": current_question["questionId"]
+        }))
+
+        total_user_attempts = len(all_attempts)
+        true_count = sum(1 for a in all_attempts if a.get("userAnswer") == True)
+        false_count = sum(1 for a in all_attempts if a.get("userAnswer") == False)
+
+        # 사용자가 선택한 답의 비율
+        if request.userAnswer == True:
+            user_choice_percentage = (true_count / total_user_attempts * 100) if total_user_attempts > 0 else 0
+        else:
+            user_choice_percentage = (false_count / total_user_attempts * 100) if total_user_attempts > 0 else 0
+
+        # 8. 응답 생성
+        response = QuizAnswerResponse(
+            isCorrect=is_correct,
+            correctAnswer=correct_answer,
+            explanation=current_question["explanation"],
+            userChoicePercentage=user_choice_percentage,
+            pointsEarned=points_earned,
+            bonusPoints=bonus_points
+        )
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"답안 제출 실패: {str(e)}"
+        )
 
 
 @router.post("/session/complete", status_code=200)
@@ -345,17 +490,182 @@ def complete_quiz_session(sessionId: str):
 
     Returns:
         dict: Session summary with total score, correct count, and bonus info
-
-    TODO:
-        - Validate sessionId
-        - Mark session as completed
-        - Calculate total score and correct answers
-        - Update UserQuizStats (totalQuizzes, totalCorrect, totalPoints)
-        - Update streak (check if quiz done today, increment/reset accordingly)
-        - Return session summary with statistics
     """
-    # TODO: Implement session completion logic
-    pass
+    try:
+        sessions_collection = db["quiz_sessions"]
+        stats_collection = db["user_quiz_stats"]
+
+        # 1. 세션 찾기
+        try:
+            session = sessions_collection.find_one({"_id": ObjectId(sessionId)})
+        except:
+            raise HTTPException(status_code=400, detail="Invalid session ID format")
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        if session.get("status") == "completed":
+            raise HTTPException(status_code=400, detail="Session already completed")
+
+        # 2. 모든 문제가 답변되었는지 확인
+        questions = session.get("questions", [])
+        all_answered = all(
+            q.get("userAnswer") is not None
+            for q in questions
+        )
+
+        if not all_answered:
+            raise HTTPException(
+                status_code=400,
+                detail="All questions must be answered before completing the session"
+            )
+
+        # 3. 세션 상태 업데이트
+        now = datetime.utcnow()
+        sessions_collection.update_one(
+            {"_id": ObjectId(sessionId)},
+            {
+                "$set": {
+                    "status": "completed",
+                    "completedAt": now
+                }
+            }
+        )
+
+        # 세션 정보 추출
+        userId = session["userId"]
+        sessionType = session["sessionType"]
+        score = session.get("score", {})
+        pointsEarned = session.get("pointsEarned", 0)
+        totalQuestions = len(questions)
+        correctCount = score.get("correct", 0)
+        percentage = score.get("percentage", 0)
+
+        # 4. 사용자 통계 조회 또는 생성
+        user_stats = stats_collection.find_one({"userId": userId})
+
+        if user_stats:
+            # 기존 통계 업데이트
+            new_total_sessions = user_stats.get("totalQuizzes", 0) + 1
+            new_total_correct = user_stats.get("totalCorrect", 0) + correctCount
+            new_total_points = user_stats.get("totalPoints", 0) + pointsEarned
+
+            # 5. 연속 참여 확인 (daily_quiz인 경우)
+            current_streak = user_stats.get("currentStreak", 0)
+            max_streak = user_stats.get("maxStreak", 0)
+            last_quiz_date = user_stats.get("lastQuizDate")
+
+            if sessionType == "daily_quiz":
+                # 마지막 퀴즈 날짜 확인
+                if last_quiz_date:
+                    days_diff = (now.date() - last_quiz_date.date()).days
+
+                    if days_diff == 1:
+                        # 연속 참여
+                        current_streak += 1
+                    elif days_diff == 0:
+                        # 같은 날 (연속 유지)
+                        pass
+                    else:
+                        # 연속 끊김
+                        current_streak = 1
+                else:
+                    # 첫 퀴즈
+                    current_streak = 1
+
+                # 최대 연속 기록 업데이트
+                max_streak = max(max_streak, current_streak)
+
+            # 통계 업데이트
+            stats_collection.update_one(
+                {"userId": userId},
+                {
+                    "$set": {
+                        "totalQuizzes": new_total_sessions,
+                        "totalCorrect": new_total_correct,
+                        "totalPoints": new_total_points,
+                        "currentStreak": current_streak,
+                        "maxStreak": max_streak,
+                        "lastQuizDate": now,
+                        "updatedAt": now
+                    }
+                }
+            )
+
+        else:
+            # 새 사용자 통계 생성
+            current_streak = 1 if sessionType == "daily_quiz" else 0
+            max_streak = current_streak
+
+            stats_collection.insert_one({
+                "userId": userId,
+                "totalQuizzes": 1,
+                "totalCorrect": correctCount,
+                "totalPoints": pointsEarned,
+                "currentStreak": current_streak,
+                "maxStreak": max_streak,
+                "lastQuizDate": now,
+                "updatedAt": now
+            })
+
+        # 6. 레벨 판정 (level_test인 경우)
+        level = None
+        if sessionType == "level_test":
+            if percentage >= 80:
+                level = "advanced"
+            elif percentage >= 50:
+                level = "intermediate"
+            else:
+                level = "beginner"
+
+        # 7. 카테고리별 요약 생성
+        category_summary = {}
+        for q in questions:
+            category = q.get("category", "unknown")
+            if category not in category_summary:
+                category_summary[category] = {
+                    "total": 0,
+                    "correct": 0
+                }
+
+            category_summary[category]["total"] += 1
+            if q.get("isCorrect"):
+                category_summary[category]["correct"] += 1
+
+        # 카테고리별 정답률 계산
+        for category, stats in category_summary.items():
+            stats["percentage"] = (stats["correct"] / stats["total"] * 100) if stats["total"] > 0 else 0
+
+        # 8. 응답 반환
+        response = {
+            "sessionId": sessionId,
+            "sessionType": sessionType,
+            "status": "completed",
+            "summary": {
+                "totalQuestions": totalQuestions,
+                "correctCount": correctCount,
+                "incorrectCount": totalQuestions - correctCount,
+                "percentage": round(percentage, 1),
+                "pointsEarned": pointsEarned
+            },
+            "categorySummary": category_summary,
+            "level": level,  # level_test인 경우만 값이 있음
+            "streak": {
+                "current": current_streak,
+                "max": max_streak
+            } if sessionType == "daily_quiz" else None,
+            "completedAt": now.isoformat()
+        }
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"세션 완료 처리 실패: {str(e)}"
+        )
 
 
 # ============================================================================
@@ -374,16 +684,58 @@ def get_user_quiz_stats(userId: str):
         userId (str): User ID to get statistics for
 
     Returns:
-        UserQuizStats: User's quiz statistics
-
-    TODO:
-        - Fetch UserQuizStats from MongoDB
-        - Calculate accuracy rate (totalCorrect / totalQuizzes)
-        - Include streak information
-        - Return statistics or create new record if user has no stats yet
+        dict: User's quiz statistics
     """
-    # TODO: Implement stats retrieval logic
-    pass
+    try:
+        stats_collection = db["user_quiz_stats"]
+
+        # 사용자 통계 조회
+        user_stats = stats_collection.find_one({"userId": userId})
+
+        if user_stats:
+            # 정확도 계산
+            total_quizzes = user_stats.get("totalQuizzes", 0)
+            total_correct = user_stats.get("totalCorrect", 0)
+            accuracy_rate = (total_correct / (total_quizzes * 5) * 100) if total_quizzes > 0 else 0
+            # 5는 세션당 평균 문제 수
+
+            # datetime을 ISO string으로 변환
+            last_quiz_date = user_stats.get("lastQuizDate")
+            if last_quiz_date and isinstance(last_quiz_date, datetime):
+                last_quiz_date = last_quiz_date.isoformat()
+
+            response = {
+                "userId": userId,
+                "totalQuizzes": total_quizzes,
+                "totalCorrect": total_correct,
+                "totalPoints": user_stats.get("totalPoints", 0),
+                "accuracyRate": round(accuracy_rate, 1),
+                "currentStreak": user_stats.get("currentStreak", 0),
+                "maxStreak": user_stats.get("maxStreak", 0),
+                "lastQuizDate": last_quiz_date,
+                "updatedAt": user_stats.get("updatedAt").isoformat() if user_stats.get("updatedAt") else None
+            }
+        else:
+            # 통계가 없으면 기본값 반환
+            response = {
+                "userId": userId,
+                "totalQuizzes": 0,
+                "totalCorrect": 0,
+                "totalPoints": 0,
+                "accuracyRate": 0,
+                "currentStreak": 0,
+                "maxStreak": 0,
+                "lastQuizDate": None,
+                "updatedAt": None
+            }
+
+        return response
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"통계 조회 실패: {str(e)}"
+        )
 
 
 @router.get("/history", status_code=200)
@@ -405,14 +757,86 @@ def get_quiz_history(
 
     Returns:
         dict: Contains sessions list and pagination info
-
-    TODO:
-        - Validate limit (max 50)
-        - Fetch completed QuizSession documents for userId
-        - Sort by completedAt descending (most recent first)
-        - Apply pagination (skip/limit)
-        - Include session details (type, questions, correct count, score)
-        - Return paginated list with total count
     """
-    # TODO: Implement history retrieval logic
-    pass
+    try:
+        sessions_collection = db["quiz_sessions"]
+
+        # limit 검증 (최대 50)
+        if limit > 50:
+            limit = 50
+        if limit < 1:
+            limit = 10
+
+        # offset 검증
+        if offset < 0:
+            offset = 0
+
+        # 완료된 세션만 조회
+        query = {
+            "userId": userId,
+            "status": "completed"
+        }
+
+        # 전체 개수 조회
+        total_count = sessions_collection.count_documents(query)
+
+        # 세션 조회 (최신순 정렬, 페이지네이션 적용)
+        sessions = list(
+            sessions_collection.find(query)
+            .sort("completedAt", -1)  # 내림차순 (최신순)
+            .skip(offset)
+            .limit(limit)
+        )
+
+        # 세션 데이터 가공
+        session_list = []
+        for session in sessions:
+            questions = session.get("questions", [])
+            score = session.get("score", {})
+
+            # datetime을 ISO string으로 변환
+            created_at = session.get("createdAt")
+            completed_at = session.get("completedAt")
+
+            if created_at and isinstance(created_at, datetime):
+                created_at = created_at.isoformat()
+            if completed_at and isinstance(completed_at, datetime):
+                completed_at = completed_at.isoformat()
+
+            session_summary = {
+                "sessionId": str(session["_id"]),
+                "sessionType": session.get("sessionType"),
+                "status": session.get("status"),
+                "score": {
+                    "correct": score.get("correct", 0),
+                    "total": score.get("total", 0),
+                    "percentage": round(score.get("percentage", 0), 1)
+                },
+                "pointsEarned": session.get("pointsEarned", 0),
+                "questionCount": len(questions),
+                "createdAt": created_at,
+                "completedAt": completed_at
+            }
+
+            session_list.append(session_summary)
+
+        # 페이지네이션 정보
+        has_more = (offset + limit) < total_count
+
+        response = {
+            "sessions": session_list,
+            "pagination": {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "hasMore": has_more
+            }
+        }
+
+        return response
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"이력 조회 실패: {str(e)}"
+        )
