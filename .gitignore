@@ -385,3 +385,4 @@ data/welfare/*.json
 *.backup
 *.bak
 *~
+backend/Agent/research_paper/nlp_cache
