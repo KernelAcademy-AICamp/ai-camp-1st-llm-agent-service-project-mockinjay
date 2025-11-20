@@ -163,8 +163,10 @@ async def update_notification_settings(
     update_dict = settings_update.model_dump(exclude_none=True)
     
     success = notification_service.update_notification_settings(user_id, update_dict)
-    
+
     return {
-        "success": True,
+        "success": success,
         "message": "알림 설정이 업데이트되었습니다"
+        if success
+        else "변경된 설정이 없습니다",
     }
