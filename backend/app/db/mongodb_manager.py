@@ -57,10 +57,10 @@ class OptimizedMongoDBManager:
                 maxPoolSize=self.max_pool_size,
                 minPoolSize=self.min_pool_size,
                 maxIdleTimeMS=30000,  # 30 seconds
-                waitQueueTimeoutMS=5000,  # 5 seconds
-                serverSelectionTimeoutMS=5000,  # 5 seconds
-                connectTimeoutMS=2000,  # 2 seconds
-                socketTimeoutMS=10000  # 10 seconds
+                waitQueueTimeoutMS=10000,  # 10 seconds
+                serverSelectionTimeoutMS=30000,  # 30 seconds (increased for network latency)
+                connectTimeoutMS=10000,  # 10 seconds (increased from 2s)
+                socketTimeoutMS=30000  # 30 seconds (increased from 10s)
             )
             self.db = self.client[self.db_name]
 
