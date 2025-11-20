@@ -17,9 +17,10 @@ from typing import List, Dict, Any
 # 프로젝트 루트를 sys.path에 추가
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "backend"))
 
-from parlant.database.mongodb_manager import MongoDBManager
-from parlant.database.vector_manager import VectorDBManager
+from app.db.mongodb_manager import OptimizedMongoDBManager
+from app.db.vector_manager import VectorDBManager
 from dotenv import load_dotenv
 
 # 환경 변수 로드
@@ -43,9 +44,9 @@ async def embed_kidney_data_to_pinecone():
         print("   .env 파일에 PINECONE_API_KEY를 추가하세요.")
         return
 
-    # Manager 초기화
+    # Manager 초기화 (OptimizedMongoDBManager 사용)
     # VectorDBManager는 환경 변수에서 직접 PINECONE_API_KEY를 읽습니다
-    mongodb_manager = MongoDBManager(mongodb_uri, db_name="careguide")
+    mongodb_manager = OptimizedMongoDBManager(uri=mongodb_uri, db_name="careguide")
     vector_manager = VectorDBManager(index_name="kidney-medical-embeddings")
 
     try:

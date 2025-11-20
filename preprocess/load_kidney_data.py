@@ -16,8 +16,9 @@ from datetime import datetime
 # 프로젝트 루트를 sys.path에 추가
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "backend"))
 
-from parlant.database.mongodb_manager import MongoDBManager
+from app.db.mongodb_manager import OptimizedMongoDBManager
 from dotenv import load_dotenv
 
 # 환경 변수 로드
@@ -32,9 +33,9 @@ async def load_kidney_data_to_mongodb():
     print("=" * 80)
     print(f"시작 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-    # MongoDB Manager 초기화
+    # MongoDB Manager 초기화 (OptimizedMongoDBManager 사용)
     mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-    manager = MongoDBManager(mongodb_uri, db_name="careguide")
+    manager = OptimizedMongoDBManager(uri=mongodb_uri, db_name="careguide")
 
     try:
         # 연결 확인

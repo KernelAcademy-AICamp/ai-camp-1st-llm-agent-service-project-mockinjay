@@ -62,15 +62,18 @@ async def verify_setup():
     print("✅ STEP 3: 설정 검증")
     print("=" * 80 + "\n")
 
-    from parlant.database.mongodb_manager import MongoDBManager
-    from parlant.database.vector_manager import VectorDBManager
+    # 프로젝트 루트를 sys.path에 추가 (verify_setup에서도 필요)
+    sys.path.insert(0, str(project_root / "backend"))
+
+    from app.db.mongodb_manager import OptimizedMongoDBManager
+    from app.db.vector_manager import VectorDBManager
 
     mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
     pinecone_api_key = os.getenv("PINECONE_API_KEY")
 
     # MongoDB 검증
     print("🔍 MongoDB 데이터 검증 중...")
-    mongodb_manager = MongoDBManager(mongodb_uri, db_name="careguide")
+    mongodb_manager = OptimizedMongoDBManager(uri=mongodb_uri, db_name="careguide")
 
     try:
         await mongodb_manager.connect()
