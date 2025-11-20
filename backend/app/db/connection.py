@@ -18,6 +18,8 @@ db = client[DB_NAME]
 
 # 컬렉션 정의
 users_collection: Collection = db["users"]
+notifications_collection: Collection = db["notifications"]
+notification_settings_collection: Collection = db["notification_settings"]
 
 
 def check_connection():

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Literal
+from typing import Literal, Optional
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -14,3 +14,5 @@ class UserResponse(BaseModel):
     name: str
     profile: str
     role: str  # "user" or "admin"
+    nickname: Optional[str] = None  # 사용자 닉네임 (없으면 name 사용)
+    profile_image: Optional[str] = None  # 프로필 이미지 URL
