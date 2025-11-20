@@ -69,12 +69,11 @@ def generate_quiz_with_ai(
     Returns:
         List[Dict]: 생성된 퀴즈 문제 리스트
 
-    TODO:
-        1. RAG로 관련 문서 검색 (일단 skip, 추후 구현)
-        2. 프롬프트 작성
-        3. OpenAI API 호출
-        4. JSON 파싱
-        5. 검증
+    Raises:
+        HTTPException: AI 응답 파싱 실패 또는 퀴즈 생성 실패
+
+    Note:
+        향후 RAG(Retrieval-Augmented Generation)로 관련 문서 검색 후 퀴즈 생성 예정
     """
     # 카테고리별 한글 이름
     category_names = {
@@ -188,7 +187,7 @@ def start_quiz_session(request: QuizSessionStart):
     try:
         sessions_collection = db["quiz_sessions"]
 
-        # 임시 userId (TODO: JWT에서 추출)
+        # TODO: JWT 토큰에서 userId 추출 (현재는 임시 하드코딩)
         userId = "temp_user_123"
 
         # 세션 타입별 설정
