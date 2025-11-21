@@ -1,0 +1,830 @@
+# Community API endpoints (posts and comments)
+from fastapi import APIRouter, HTTPException, Query, File, UploadFile
+from typing import Optional, List
+from datetime import datetime
+from bson import ObjectId
+import shutil
+from pathlib import Path
+import os
+
+from app.models.community import Post, PostCreate, PostUpdate, PostType, Comment, CommentCreate, CommentUpdate
+from app.db.connection import db
+
+router = APIRouter()
+
+# ============================================================================
+# Test Authorization Configuration (Safe Testing Mode)
+# ============================================================================
+# Control test authorization with environment variable
+# Set TEST_AUTH_ENABLED=true to enable authorization checks
+# Set TEST_AUTH_ENABLED=false (or unset) to disable for local testing
+TEST_AUTH_ENABLED = os.getenv("TEST_AUTH_ENABLED", "false").lower() == "true"
+
+print(f"🔐 Authorization Testing Mode: {'ENABLED' if TEST_AUTH_ENABLED else 'DISABLED (local testing mode)'}")
+
+
+def check_author_permission(user_id: str, author_id: str, operation: str = "modify"):
+    """
+    Check if user is authorized to modify/delete a resource.
+
+    In test mode (TEST_AUTH_ENABLED=false), always allows any operation.
+    In production mode (TEST_AUTH_ENABLED=true), checks user matches author.
+
+    Args:
+        user_id (str): Current user's ID
+        author_id (str): Resource author's ID
+        operation (str): Operation type for error message (modify, delete, etc.)
+
+    Raises:
+        HTTPException: 403 if authorization fails (only in TEST_AUTH_ENABLED=true mode)
+    """
+    if TEST_AUTH_ENABLED and user_id != author_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"권한이 없습니다. {operation} 권한이 있는 사용자만 가능합니다."
+        )
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def serialize_post(post: dict) -> dict:
+    """
+    Convert MongoDB document to JSON-serializable dictionary.
+
+    Converts ObjectId to string and datetime objects to ISO format strings.
+
+    Args:
+        post (dict): MongoDB post document
+
+    Returns:
+        dict: Serialized post document ready for JSON response
+    """
+    if post:
+        post["id"] = str(post.pop("_id"))
+        # Convert datetime to ISO string format
+        for field in ["createdAt", "updatedAt", "lastActivityAt"]:
+            if field in post and isinstance(post[field], datetime):
+                post[field] = post[field].isoformat()
+    return post
+
+
+# ============================================================================
+# POST Endpoints
+# ============================================================================
+
+@router.get("/posts")
+def get_posts(
+    limit: int = Query(20, ge=1, le=50, description="Number of posts to fetch"),
+    cursor: Optional[str] = Query(None, description="Cursor for pagination (last post ID)"),
+    postType: Optional[PostType] = Query(None, description="Filter by post type"),
+    sortBy: str = Query("lastActivityAt", description="Sort field: createdAt, likes, lastActivityAt")
+):
+    """
+    Get posts with infinite scroll pagination.
+
+    Fetches posts with cursor-based pagination for efficient infinite scrolling.
+    Can filter by post type and sort by different fields.
+    Excludes pinned posts AND top popular posts to avoid duplication with /posts/featured endpoint.
+
+    Args:
+        limit (int): Number of posts to fetch (1-50, default: 20)
+        cursor (Optional[str]): Last post ID from previous request for pagination
+        postType (Optional[PostType]): Filter by BOARD, CHALLENGE, or SURVEY
+        sortBy (str): Sort field (createdAt, likes, or lastActivityAt)
+
+    Returns:
+        dict: Contains posts list, nextCursor for pagination, and hasMore flag
+
+    Raises:
+        HTTPException: 400 if cursor is invalid format
+    """
+    collection = db["posts"]
+
+    # First, get featured posts to exclude them from regular list
+    featured_posts = list(collection.find(
+        {"isPinned": True, "isDeleted": False}
+    ).sort("createdAt", -1).limit(3))
+
+    # Get popular posts if needed to fill featured list
+    featured_ids = [post["_id"] for post in featured_posts]
+    if len(featured_posts) < 3:
+        remaining = 3 - len(featured_posts)
+        popular_posts = list(collection.aggregate([
+            {
+                "$match": {
+                    "isDeleted": False,
+                    "_id": {"$nin": featured_ids}
+                }
+            },
+            {
+                "$addFields": {
+                    "popularity": {
+                        "$add": [
+                            {"$ifNull": ["$viewCount", 0]},
+                            {"$ifNull": ["$likes", 0]},
+                            {"$ifNull": ["$commentCount", 0]}
+                        ]
+                    }
+                }
+            },
+            {"$sort": {"popularity": -1}},
+            {"$limit": remaining}
+        ]))
+        featured_ids.extend([post["_id"] for post in popular_posts])
+
+    # Build query filter - exclude deleted posts AND featured posts
+    query = {"isDeleted": False, "_id": {"$nin": featured_ids}}
+
+    # Add post type filter if specified
+    if postType:
+        query["postType"] = postType
+
+    # Cursor-based pagination - fetch posts before the cursor
+    if cursor:
+        try:
+            query["_id"] = {"$lt": ObjectId(cursor)}
+        except:
+            raise HTTPException(status_code=400, detail="Invalid cursor")
+
+    # Validate sort field
+    sort_field = sortBy if sortBy in ["createdAt", "likes", "lastActivityAt"] else "lastActivityAt"
+
+    # Fetch posts from database
+    cursor_obj = collection.find(query).sort(sort_field, -1).limit(limit)
+    posts = list(cursor_obj)
+
+    # Serialize posts for JSON response
+    serialized_posts = [serialize_post(post) for post in posts]
+
+    # Generate next cursor for pagination
+    next_cursor = serialized_posts[-1]["id"] if serialized_posts else None
+
+    return {
+        "posts": serialized_posts,
+        "nextCursor": next_cursor,
+        "hasMore": len(serialized_posts) == limit
+    }
+
+
+@router.get("/posts/featured")
+def get_featured_posts():
+    """
+    Get top 3 featured posts (COM-015).
+
+    Returns featured posts with priority order:
+    1. Pinned posts (isPinned=true, sorted by createdAt DESC)
+    2. Popular posts (sorted by popularity score: viewCount + likes + commentCount)
+
+    Returns:
+        dict: Contains:
+            - featuredPosts: List of up to 3 featured posts
+
+    Example:
+        GET /api/community/posts/featured
+        Returns: {
+            "featuredPosts": [post1, post2, post3]
+        }
+    """
+    collection = db["posts"]
+
+    # Fetch pinned posts first (most recent first)
+    pinned_posts = list(collection.find(
+        {"isPinned": True, "isDeleted": False}
+    ).sort("createdAt", -1).limit(3))
+
+    # If less than 3 pinned posts, fill with popular posts
+    if len(pinned_posts) < 3:
+        remaining = 3 - len(pinned_posts)
+        pinned_ids = [post["_id"] for post in pinned_posts]
+
+        # Fetch popular posts using aggregation pipeline with popularity score
+        # Popularity = viewCount + likes + commentCount
+        popular_posts = list(collection.aggregate([
+            {
+                "$match": {
+                    "isDeleted": False,
+                    "_id": {"$nin": pinned_ids}
+                }
+            },
+            {
+                "$addFields": {
+                    "popularity": {
+                        "$add": [
+                            {"$ifNull": ["$viewCount", 0]},
+                            {"$ifNull": ["$likes", 0]},
+                            {"$ifNull": ["$commentCount", 0]}
+                        ]
+                    }
+                }
+            },
+            {"$sort": {"popularity": -1}},
+            {"$limit": remaining}
+        ]))
+
+        pinned_posts.extend(popular_posts)
+
+    return {
+        "featuredPosts": [serialize_post(post) for post in pinned_posts]
+    }
+
+
+@router.get("/posts/{postId}")
+def get_post(postId: str):
+    """
+    Get a single post by ID with detail view (COM-007).
+
+    Retrieves a specific post document from the database and increments viewCount.
+    Excludes deleted posts. Also fetches all associated comments.
+    Supports both authenticated and non-authenticated users.
+
+    Args:
+        postId (str): MongoDB ObjectId of the post
+
+    Returns:
+        dict: Contains:
+            - post: Post document with viewCount incremented
+            - comments: List of comments associated with the post
+            - If authenticated: post includes likedByMe field
+            - If non-authenticated: likedByMe is false
+
+    Raises:
+        HTTPException: 400 if postId format is invalid
+        HTTPException: 404 if post not found or is deleted
+    """
+    posts_collection = db["posts"]
+    comments_collection = db["comments"]
+
+    # Fetch post by ID
+    try:
+        post = posts_collection.find_one({"_id": ObjectId(postId), "isDeleted": False})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Increment viewCount atomically (thread-safe)
+    posts_collection.update_one(
+        {"_id": ObjectId(postId)},
+        {"$inc": {"viewCount": 1}}
+    )
+
+    # Update the post object with incremented viewCount
+    post["viewCount"] = post.get("viewCount", 0) + 1
+
+    # Fetch all non-deleted comments for this post, sorted by creation date
+    comments = list(comments_collection.find(
+        {"postId": postId, "isDeleted": False}
+    ).sort("createdAt", -1))
+
+    # Serialize post and comments for JSON response
+    serialized_post = serialize_post(post)
+    serialized_comments = [serialize_comment(comment) for comment in comments]
+
+    # Transform post to match PostDetail interface
+    # Map userId and authorName to author object
+    post_detail = {
+        **serialized_post,
+        "author": {
+            "id": serialized_post.get("userId", ""),
+            "name": serialized_post.get("authorName", ""),
+            "profileImage": None  # TODO: Add profile image field when user profiles are implemented
+        },
+        "authorId": serialized_post.get("userId", ""),
+        "likedByMe": False,  # TODO: Implement actual like tracking when auth is implemented
+        "viewCount": serialized_post.get("viewCount", 0)
+    }
+
+    # Return post detail with comments
+    return {
+        "post": post_detail,
+        "comments": serialized_comments
+    }
+
+
+@router.post("/posts", status_code=201)
+def create_post(post_data: PostCreate):
+    """
+    Create a new post.
+
+    Creates a new community post with provided title, content, and type.
+    Automatically sets timestamps and initializes counters.
+
+    Args:
+        post_data (PostCreate): Post creation data including title, content, type
+
+    Returns:
+        dict: Created post document with generated ID
+
+    Note:
+        TODO: Add JWT authentication to get real userId and authorName
+        Currently uses temporary placeholder values
+    """
+    collection = db["posts"]
+
+    # Get current UTC timestamp
+    now = datetime.utcnow()
+
+    # Create post document
+    post_doc = {
+        "userId": "temp_user_123",  # TODO: Extract from JWT token
+        "authorName": "Temporary User",  # TODO: Get from authenticated user profile
+        "title": post_data.title,
+        "content": post_data.content,
+        "postType": post_data.postType,
+        "imageUrls": post_data.imageUrls,
+        "thumbnailUrl": post_data.imageUrls[0] if post_data.imageUrls else None,
+        "likes": 0,
+        "commentCount": 0,
+        "viewCount": 0,  # Initialize viewCount
+        "createdAt": now,
+        "updatedAt": now,
+        "lastActivityAt": now,
+        "isPinned": False,
+        "isDeleted": False
+    }
+
+    # Insert document to MongoDB
+    result = collection.insert_one(post_doc)
+
+    # Fetch and return created post
+    created_post = collection.find_one({"_id": result.inserted_id})
+
+    return serialize_post(created_post)
+
+
+@router.put("/posts/{postId}")
+def update_post(postId: str, post_data: PostUpdate):
+    """
+    Update an existing post.
+
+    Updates post fields (title, content, images) and refreshes the updatedAt timestamp.
+    Only updates fields that are provided in the request.
+
+    Requires:
+        In production mode (TEST_AUTH_ENABLED=true): Only post author can update
+        In test mode (TEST_AUTH_ENABLED=false): Any user can update (for local testing)
+
+    Args:
+        postId (str): MongoDB ObjectId of the post to update
+        post_data (PostUpdate): Update data with optional fields
+
+    Returns:
+        dict: Updated post document
+
+    Raises:
+        HTTPException: 400 if postId format is invalid
+        HTTPException: 403 if not authorized (TEST_AUTH_ENABLED=true only)
+        HTTPException: 404 if post not found
+    """
+    collection = db["posts"]
+
+    # Fetch post to check author
+    try:
+        post = collection.find_one({"_id": ObjectId(postId), "isDeleted": False})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Check authorization - uses temp_user_123 from both frontend and backend
+    current_user_id = "temp_user_123"  # TODO: Extract from JWT token in production
+    check_author_permission(current_user_id, post["userId"], "update")
+
+    # Build update document with only provided fields
+    now = datetime.utcnow()
+    update_doc = {
+        "updatedAt": now.isoformat() + "Z",
+        "lastActivityAt": now.isoformat() + "Z"
+    }
+
+    if post_data.title:
+        update_doc["title"] = post_data.title
+    if post_data.content:
+        update_doc["content"] = post_data.content
+    if post_data.imageUrls is not None:
+        update_doc["imageUrls"] = post_data.imageUrls
+        update_doc["thumbnailUrl"] = post_data.imageUrls[0] if post_data.imageUrls else None
+
+    # Update document in MongoDB
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(postId), "isDeleted": False},
+            {"$set": update_doc}
+        )
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Fetch and return updated post
+    updated_post = collection.find_one({"_id": ObjectId(postId)})
+
+    return serialize_post(updated_post)
+
+
+@router.delete("/posts/{postId}", status_code=204)
+def delete_post(postId: str):
+    """
+    Delete a post (soft delete).
+
+    Marks a post as deleted without physically removing it from the database.
+    Deleted posts won't appear in listings but can be recovered if needed.
+
+    Requires:
+        In production mode (TEST_AUTH_ENABLED=true): Only post author can delete
+        In test mode (TEST_AUTH_ENABLED=false): Any user can delete (for local testing)
+
+    Args:
+        postId (str): MongoDB ObjectId of the post to delete
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 400 if postId format is invalid
+        HTTPException: 403 if not authorized (TEST_AUTH_ENABLED=true only)
+        HTTPException: 404 if post not found
+    """
+    collection = db["posts"]
+
+    # Fetch post to check author
+    try:
+        post = collection.find_one({"_id": ObjectId(postId)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Check authorization - uses temp_user_123 from both frontend and backend
+    current_user_id = "temp_user_123"  # TODO: Extract from JWT token in production
+    check_author_permission(current_user_id, post["userId"], "delete")
+
+    # Soft delete - mark as deleted instead of removing document
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(postId)},
+            {"$set": {"isDeleted": True, "updatedAt": datetime.utcnow()}}
+        )
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    return None
+
+
+# ============================================================================
+# COMMENTS API
+# ============================================================================
+
+def serialize_comment(comment: dict) -> dict:
+    """
+    Convert MongoDB comment document to JSON-serializable dictionary.
+
+    Converts ObjectId to string and datetime objects to ISO format strings.
+    Adds author object for frontend compatibility.
+
+    Args:
+        comment (dict): MongoDB comment document
+
+    Returns:
+        dict: Serialized comment document ready for JSON response with author info
+    """
+    if comment:
+        comment["id"] = str(comment.pop("_id"))
+        # Convert datetime to ISO string format
+        for field in ["createdAt", "updatedAt"]:
+            if field in comment and isinstance(comment[field], datetime):
+                comment[field] = comment[field].isoformat()
+
+        # Add author object for frontend (extract from userId and authorName)
+        comment["author"] = {
+            "id": comment.get("userId", ""),
+            "name": comment.get("authorName", ""),
+            "profileImage": None  # TODO: Add profile image when user profiles are implemented
+        }
+
+        # Add authorId field for isAuthor comparison
+        comment["authorId"] = comment.get("userId", "")
+    return comment
+
+
+@router.post("/comments", status_code=201)
+def create_comment(comment_data: CommentCreate):
+    """
+    Create a new comment on a post.
+
+    Creates a comment linked to an existing post.
+    Automatically increments the post's commentCount and updates lastActivityAt.
+
+    Args:
+        comment_data (CommentCreate): Comment data including postId and content
+
+    Returns:
+        dict: Created comment document with generated ID
+
+    Raises:
+        HTTPException: 400 if postId format is invalid
+        HTTPException: 404 if post not found or is deleted
+
+    Note:
+        TODO: Add JWT authentication to get real userId and authorName
+        Currently uses temporary placeholder values
+    """
+    comments_collection = db["comments"]
+    posts_collection = db["posts"]
+
+    # Verify that the post exists and is not deleted
+    try:
+        post = posts_collection.find_one({"_id": ObjectId(comment_data.postId), "isDeleted": False})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Get current UTC timestamp
+    now = datetime.utcnow()
+
+    # Create comment document
+    comment_doc = {
+        "postId": comment_data.postId,
+        "userId": "temp_user_123",  # TODO: Extract from JWT token
+        "authorName": "Temporary User",  # TODO: Get from authenticated user profile
+        "content": comment_data.content,
+        "createdAt": now,
+        "updatedAt": now,
+        "isDeleted": False
+    }
+
+    # Insert comment to database
+    result = comments_collection.insert_one(comment_doc)
+
+    # Update post: increment commentCount and update lastActivityAt timestamp
+    posts_collection.update_one(
+        {"_id": ObjectId(comment_data.postId)},
+        {
+            "$inc": {"commentCount": 1},
+            "$set": {"lastActivityAt": now}
+        }
+    )
+
+    # Fetch and return created comment
+    created_comment = comments_collection.find_one({"_id": result.inserted_id})
+
+    return serialize_comment(created_comment)
+
+
+@router.put("/comments/{commentId}")
+def update_comment(commentId: str, comment_data: CommentUpdate):
+    """
+    Update an existing comment.
+
+    Updates the comment content and refreshes the updatedAt timestamp.
+
+    Requires:
+        In production mode (TEST_AUTH_ENABLED=true): Only comment author can update
+        In test mode (TEST_AUTH_ENABLED=false): Any user can update (for local testing)
+
+    Args:
+        commentId (str): MongoDB ObjectId of the comment to update
+        comment_data (CommentUpdate): Update data with new content
+
+    Returns:
+        dict: Updated comment document
+
+    Raises:
+        HTTPException: 400 if commentId format is invalid
+        HTTPException: 403 if not authorized (TEST_AUTH_ENABLED=true only)
+        HTTPException: 404 if comment not found
+    """
+    collection = db["comments"]
+
+    # Fetch comment to check author
+    try:
+        comment = collection.find_one({"_id": ObjectId(commentId), "isDeleted": False})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid comment ID")
+
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    # Check authorization - uses temp_user_123 from both frontend and backend
+    current_user_id = "temp_user_123"  # TODO: Extract from JWT token in production
+    check_author_permission(current_user_id, comment["userId"], "update")
+
+    # Update comment in database
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(commentId), "isDeleted": False},
+            {"$set": {"content": comment_data.content, "updatedAt": datetime.utcnow()}}
+        )
+    except:
+        raise HTTPException(status_code=400, detail="Invalid comment ID")
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    # Fetch and return updated comment
+    updated_comment = collection.find_one({"_id": ObjectId(commentId)})
+
+    return serialize_comment(updated_comment)
+
+
+@router.delete("/comments/{commentId}", status_code=204)
+def delete_comment(commentId: str):
+    """
+    Delete a comment (soft delete).
+
+    Marks a comment as deleted and decrements the associated post's commentCount.
+
+    Requires:
+        In production mode (TEST_AUTH_ENABLED=true): Only comment author can delete
+        In test mode (TEST_AUTH_ENABLED=false): Any user can delete (for local testing)
+
+    Args:
+        commentId (str): MongoDB ObjectId of the comment to delete
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 400 if commentId format is invalid
+        HTTPException: 403 if not authorized (TEST_AUTH_ENABLED=true only)
+        HTTPException: 404 if comment not found
+    """
+    comments_collection = db["comments"]
+    posts_collection = db["posts"]
+
+    # Find comment to get postId and check author
+    try:
+        comment = comments_collection.find_one({"_id": ObjectId(commentId), "isDeleted": False})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid comment ID")
+
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    # Check authorization - uses temp_user_123 from both frontend and backend
+    current_user_id = "temp_user_123"  # TODO: Extract from JWT token in production
+    check_author_permission(current_user_id, comment["userId"], "delete")
+
+    # Soft delete comment - mark as deleted instead of removing
+    comments_collection.update_one(
+        {"_id": ObjectId(commentId)},
+        {"$set": {"isDeleted": True, "updatedAt": datetime.utcnow()}}
+    )
+
+    # Decrement the associated post's commentCount
+    posts_collection.update_one(
+        {"_id": ObjectId(comment["postId"])},
+        {"$inc": {"commentCount": -1}}
+    )
+
+    return None
+
+
+# ============================================================================
+# LIKES API
+# ============================================================================
+
+@router.post("/posts/{postId}/like", status_code=200)
+def like_post(postId: str):
+    """
+    Like a post.
+
+    Increments the post's likes count by 1.
+
+    Args:
+        postId (str): MongoDB ObjectId of the post to like
+
+    Returns:
+        dict: Success message
+
+    Raises:
+        HTTPException: 400 if postId format is invalid
+        HTTPException: 404 if post not found or is deleted
+
+    Note:
+        TODO: Implement user tracking to prevent duplicate likes
+        Currently allows multiple likes from same user
+    """
+    collection = db["posts"]
+
+    # Increment like count for the post
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(postId), "isDeleted": False},
+            {"$inc": {"likes": 1}}
+        )
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    return {"message": "Post liked successfully"}
+
+
+@router.delete("/posts/{postId}/like", status_code=200)
+def unlike_post(postId: str):
+    """
+    Unlike a post.
+
+    Decrements the post's likes count by 1.
+
+    Args:
+        postId (str): MongoDB ObjectId of the post to unlike
+
+    Returns:
+        dict: Success message
+
+    Raises:
+        HTTPException: 400 if postId format is invalid
+        HTTPException: 404 if post not found or is deleted
+
+    Note:
+        TODO: Implement user tracking to verify user actually liked the post before
+        Currently allows unliking without prior like
+    """
+    collection = db["posts"]
+
+    # Decrement like count for the post
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(postId), "isDeleted": False},
+            {"$inc": {"likes": -1}}
+        )
+    except:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    return {"message": "Post unliked successfully"}
+
+
+# ============================================================================
+# IMAGE UPLOAD API
+# ============================================================================
+
+@router.post("/uploads", status_code=201)
+def upload_image(file: UploadFile = File(...)):
+    """
+    Upload an image file.
+
+    Saves the uploaded file to the uploads/ directory with a timestamped filename.
+    Validates file type before saving.
+
+    Args:
+        file (UploadFile): Image file to upload
+
+    Returns:
+        dict: Contains the image URL and filename
+
+    Raises:
+        HTTPException: 400 if file type is not allowed
+        HTTPException: 500 if file save operation fails
+
+    Allowed file types:
+        - .jpg, .jpeg, .png, .gif, .webp
+
+    Example:
+        POST /api/community/uploads
+        Returns: {"url": "/uploads/20231215_143022_image.jpg", "filename": "20231215_143022_image.jpg"}
+    """
+    # Define allowed image file extensions
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    file_extension = Path(file.filename).suffix.lower()
+
+    # Validate file type
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
+        )
+
+    # Generate unique filename using timestamp
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    unique_filename = f"{timestamp}_{file.filename}"
+    file_path = Path("uploads") / unique_filename
+
+    # Save file to disk
+    try:
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+
+    # Return image URL and filename
+    return {
+        "url": f"/uploads/{unique_filename}",
+        "filename": unique_filename
+    }

@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 import logging
 from dotenv import load_dotenv
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Load environment variables from .env file
 load_dotenv()
@@ -20,6 +22,15 @@ from app.api.trends import router as trends_router
 from app.api.chat import router as chat_router, close_parlant_server
 from app.api.community import router as community_router
 from app.api.welfare import router as welfare_router
+from app.api.quiz import router as quiz_router
+from app.api.header import router as header_router
+from app.api.footer import router as footer_router
+from app.api.notification import router as notification_router
+from app.api.error_handlers import (
+    not_found_handler,
+    internal_server_error_handler,
+    validation_error_handler
+)
 import logging
 from app.api import auth, user
 
@@ -71,8 +82,17 @@ app.include_router(chat_router)
 app.include_router(trends_router)
 app.include_router(community_router, prefix="/api/community", tags=["community"])
 app.include_router(welfare_router, prefix="/api/welfare", tags=["welfare"])
+app.include_router(quiz_router, prefix="/api/quiz", tags=["quiz"])
 app.include_router(auth.router)
 app.include_router(user.router)
+app.include_router(header_router)
+app.include_router(footer_router)
+app.include_router(notification_router)
+
+# Error handlers (UTI-005)
+app.add_exception_handler(StarletteHTTPException, not_found_handler)
+app.add_exception_handler(Exception, internal_server_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 
 @app.get("/")
