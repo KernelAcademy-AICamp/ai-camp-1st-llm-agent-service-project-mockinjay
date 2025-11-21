@@ -1,5 +1,32 @@
 import { ParlantEvent, Profile } from './parlantClient'
 
+export interface DishCandidate {
+  dish_name: string
+  confidence: number
+  dish_data: any
+}
+
+export interface RecommendedDish {
+  dishName: string
+  description: string
+  estimatedNutrients: {
+    sodium: number
+    potassium: number
+    phosphorus: number
+    protein: number
+  }
+}
+
+export interface IngredientCandidate {
+  name: string
+  nutrients: {
+    sodium: number
+    potassium: number
+    phosphorus: number
+    protein: number
+  }
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -7,6 +34,13 @@ export interface ChatMessage {
   status?: string
   correlationId?: string
   createdAt: number
+  type?: 'nutrition_analysis' | 'profile_question' | 'general' | 'dish_selection' | 'ingredient_single' | 'ingredient_multiple' | 'error'
+  nutritionData?: any
+  imageUrl?: string
+  dishCandidates?: DishCandidate[]
+  recommendedDishes?: RecommendedDish[]
+  ingredientCandidates?: IngredientCandidate[]
+  analysisType?: string
 }
 
 export interface PaperResult {
@@ -20,9 +54,9 @@ export interface PaperResult {
 }
 
 export const PROFILE_LABELS: Record<Profile, string> = {
-  researcher: 'Researcher / Expert',
-  patient: 'Patient',
-  general: 'General'
+  researcher: '연구자',
+  patient: '환우',
+  general: '일반인'
 }
 
 export const PROFILE_MAX_RESULTS: Record<Profile, number> = {
