@@ -22,37 +22,25 @@ class OpenAIClient:
         embedding_model: str = "text-embedding-3-small"
     ):
         """
-        Initialize OpenAI client (supports OpenAI and Upstage Solar)
+        Initialize OpenAI client
 
         Args:
-            api_key: API key (OpenAI or Upstage)
-            base_url: API base URL (default: OpenAI, or https://api.upstage.ai/v1 for Upstage)
-            model: Model to use (gpt-4o-mini, solar-pro2, solar-mini, etc.)
+            api_key: OpenAI API key
+            base_url: API base URL (optional)
+            model: Model to use (default: gpt-4o-mini)
             embedding_model: Embedding model to use
         """
-        # Determine API provider
-        upstage_key = os.getenv('UPSTAGE_API_KEY')
-        openai_key = os.getenv('OPENAI_API_KEY')
+        openai_key = api_key or os.getenv('OPENAI_API_KEY')
 
-        # Priority: UPSTAGE_API_KEY > provided api_key > OPENAI_API_KEY
-        final_api_key = api_key or upstage_key or openai_key
-
-        # Auto-detect Upstage and set defaults
-        if upstage_key and not base_url:
-            base_url = "https://api.upstage.ai/v1"
-            if model == "gpt-4o-mini":  # Default OpenAI model
-                model = "solar-pro2"  # Switch to Upstage default
-            if embedding_model == "text-embedding-3-small":
-                embedding_model = "embedding-query"  # Upstage embedding
-            logger.info(f"Using Upstage Solar API with model: {model}")
+        if not openai_key:
+            raise ValueError("OPENAI_API_KEY environment variable or api_key parameter is required")
 
         self.client = AsyncOpenAI(
-            api_key=final_api_key,
+            api_key=openai_key,
             base_url=base_url
         )
         self.model = model
         self.embedding_model = embedding_model
-        self.is_upstage = base_url and "upstage" in base_url
 
         # Tokenizer for token counting
         try:
