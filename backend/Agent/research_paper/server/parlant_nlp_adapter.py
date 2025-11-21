@@ -121,13 +121,19 @@ Respond ONLY with valid JSON, no additional text or explanations."""
                 content = content[:-3]
             content = content.strip()
 
+            # Remove control characters that can break JSON parsing
+            # Keep newline (\n), carriage return (\r), and tab (\t)
+            # This fixes "Invalid control character" errors
+            import re
+            content = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]', '', content)
+
             # Parse JSON and create Pydantic model
             parsed_json = json.loads(content)
             pydantic_obj = self.schema.model_validate(parsed_json)
 
         except (json.JSONDecodeError, Exception) as e:
-            self._logger.error(f"Failed to parse JSON response: {e}")
-            self._logger.error(f"Raw response: {result.content}")
+            logger.error(f"Failed to parse JSON response: {e}")
+            logger.error(f"Raw response: {result.content}")
             raise ValueError(f"Failed to generate valid {schema_name}: {e}")
 
         # Build generation info - convert healthcare UsageInfo to Parlant UsageInfo
