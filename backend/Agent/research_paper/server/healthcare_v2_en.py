@@ -2513,17 +2513,14 @@ Always respond in Korean unless specifically requested otherwise.""",
         print("  🔧 Adding blocking guidelines...")
         await add_blocking_guidelines(agent, disclaimer_guideline)
 
-        # Create journeys
+        # Create journeys for CareGuide_v2 (medical + research only)
         print("  🗺️ Creating Medical Information Journey...")
         journey = await create_medical_info_journey(agent)
 
         print("  🗺️ Creating Research Paper Journey...")
         research_journey = await create_research_paper_journey(agent)
 
-        print("  🗺️ Creating Welfare Support Journey...")
-        welfare_journey = await create_welfare_journey(agent)
-
-        # Journey Disambiguation
+        # Journey Disambiguation for CareGuide_v2
         print("  🔀 Setting up Journey disambiguation...")
 
         # Medical vs Research
@@ -2533,21 +2530,7 @@ Always respond in Korean unless specifically requested otherwise.""",
         )
         await paper_inquiry.disambiguate([journey, research_journey])
 
-        # Medical vs Welfare
-        welfare_inquiry = await agent.create_observation(
-            "User asks about medical costs, insurance benefits, copay reduction, financial support, or welfare programs, "
-            "but it's not clear whether they need medical information or welfare program guidance"
-        )
-        await welfare_inquiry.disambiguate([journey, welfare_journey])
-
-        # Research vs Welfare
-        research_welfare_inquiry = await agent.create_observation(
-            "User asks about programs, support systems, or policies, "
-            "but it's not clear whether they want research papers about programs or actual welfare benefit information"
-        )
-        await research_welfare_inquiry.disambiguate([research_journey, welfare_journey])
-
-        print("     ✅ Journey disambiguation configured (3 journeys)")
+        print("     ✅ Journey disambiguation configured (2 journeys for CareGuide_v2)")
 
         # ==================== WelfareGuide Agent (Simpler Q&A Pattern) ====================
         print("\n  🆕 Creating WelfareGuide agent (simple Q&A, no journeys)...")
@@ -2594,7 +2577,17 @@ Always respond in Korean unless specifically requested otherwise.""",
 
         print(f"     ✅ WelfareGuide agent created (ID: {welfare_agent.id})")
 
-        # Add welfare-only guidelines (agent-level, no journey)
+        # Add safety guidelines to WelfareGuide (same as CareGuide_v2)
+        print("     🔧 Adding safety guidelines to WelfareGuide...")
+        welfare_disclaimer = await add_safety_guidelines(welfare_agent)
+
+        print("     🔧 Adding profile guidelines to WelfareGuide...")
+        await add_profile_guidelines(welfare_agent, welfare_disclaimer)
+
+        print("     🔧 Adding blocking guidelines to WelfareGuide...")
+        await add_blocking_guidelines(welfare_agent, welfare_disclaimer)
+
+        # Add welfare-only guidelines (agent-level)
         print("     🔧 Adding welfare-specific guidelines...")
 
         # Guideline 1: Block medical questions
@@ -2728,6 +2721,11 @@ Check customer tags for profile (profile:researcher, profile:patient, profile:ge
 
         print("     ✅ Welfare guidelines added (5 total)")
 
+        # Add Welfare Support Journey to WelfareGuide agent
+        print("     🗺️ Creating Welfare Support Journey for WelfareGuide...")
+        welfare_journey = await create_welfare_journey(welfare_agent)
+        print("     ✅ Welfare Journey added to WelfareGuide agent")
+
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
 
@@ -2739,57 +2737,57 @@ Check customer tags for profile (profile:researcher, profile:patient, profile:ge
         )
 
 
-        # Display server information
-        print("="*70)
-        print("🎉 CareGuide v2.0 + WelfareGuide Server Successfully Started!")
-        print("="*70)
-        print(f"\n📋 **Server Information**:")
-        print(f"  • CareGuide Agent ID: {agent.id}")
-        print(f"  • WelfareGuide Agent ID: {welfare_agent.id}")
-        print(f"  • Customer ID: {customer.id}")
-        print(f"  • Medical Journey ID: {journey.id}")
-        print(f"  • Research Journey ID: {research_journey.id}")
-        print(f"  • Welfare Journey ID (CareGuide): {welfare_journey.id}")
+        # # Display server information
+        # print("="*70)
+        # print("🎉 CareGuide v2.0 + WelfareGuide Server Successfully Started!")
+        # print("="*70)
+        # print(f"\n📋 **Server Information**:")
+        # print(f"  • CareGuide Agent ID: {agent.id}")
+        # print(f"  • WelfareGuide Agent ID: {welfare_agent.id}")
+        # print(f"  • Customer ID: {customer.id}")
+        # print(f"  • Medical Journey ID: {journey.id}")
+        # print(f"  • Research Journey ID: {research_journey.id}")
+        # print(f"  • Welfare Journey ID (CareGuide): {welfare_journey.id}")
 
-        print(f"\n👤 **User Profile**:")
-        profile_display = {
-            "researcher": "Researcher/Expert",
-            "patient": "Patient/Experience Holder",
-            "general": "General Public/Novice"
-        }
-        print(f"  • Selected Profile: {profile_display[profile]}")
-        print(f"  • Max Results: {PROFILE_LIMITS[profile]['max_results']} per source")
-        print(f"  • Detail Level: {PROFILE_LIMITS[profile]['detail_level']}")
+        # print(f"\n👤 **User Profile**:")
+        # profile_display = {
+        #     "researcher": "Researcher/Expert",
+        #     "patient": "Patient/Experience Holder",
+        #     "general": "General Public/Novice"
+        # }
+        # print(f"  • Selected Profile: {profile_display[profile]}")
+        # print(f"  • Max Results: {PROFILE_LIMITS[profile]['max_results']} per source")
+        # print(f"  • Detail Level: {PROFILE_LIMITS[profile]['detail_level']}")
 
-        print(f"\n🔍 **Search System**:")
-        print(f"  • Search Method: Hybrid (Keyword 40% + Semantic 60%)")
-        print(f"  • Data Sources:")
-        print(f"    1. MongoDB - Structured data (text indexing)")
-        print(f"    2. Pinecone - Vector database (semantic search)")
-        print(f"    3. Local Papers - Rich metadata")
-        print(f"    4. PubMed API - Real-time (abstracts, authors, DOI, MeSH)")
+        # print(f"\n🔍 **Search System**:")
+        # print(f"  • Search Method: Hybrid (Keyword 40% + Semantic 60%)")
+        # print(f"  • Data Sources:")
+        # print(f"    1. MongoDB - Structured data (text indexing)")
+        # print(f"    2. Pinecone - Vector database (semantic search)")
+        # print(f"    3. Local Papers - Rich metadata")
+        # print(f"    4. PubMed API - Real-time (abstracts, authors, DOI, MeSH)")
 
-        print(f"\n🛠️ **Registered Tools**:")
-        print(f"  CareGuide Tools:")
-        print(f"    • search_medical_qa - Hybrid integrated search")
-        print(f"    • get_kidney_stage_info - CKD stage information")
-        print(f"    • get_symptom_info - Symptom info and emergency detection")
-        print(f"    • check_emergency_keywords - Emergency keyword detection")
-        print(f"    • search_welfare_programs - Welfare program search (13 programs)")
-        print(f"    • search_hospitals - Hospital/dialysis center search (104,836 facilities)")
-        print(f"  WelfareGuide Tools:")
-        print(f"    • search_welfare_programs - Welfare-only search (13 programs)")
+        # print(f"\n🛠️ **Registered Tools**:")
+        # print(f"  CareGuide Tools:")
+        # print(f"    • search_medical_qa - Hybrid integrated search")
+        # print(f"    • get_kidney_stage_info - CKD stage information")
+        # print(f"    • get_symptom_info - Symptom info and emergency detection")
+        # print(f"    • check_emergency_keywords - Emergency keyword detection")
+        # print(f"    • search_welfare_programs - Welfare program search (13 programs)")
+        # print(f"    • search_hospitals - Hospital/dialysis center search (104,836 facilities)")
+        # print(f"  WelfareGuide Tools:")
+        # print(f"    • search_welfare_programs - Welfare-only search (13 programs)")
 
-        print(f"\n⚠️ **Safety Features**:")
-        print(f"  • Automatic emergency detection (911 guidance)")
-        print(f"  • Diagnosis/prescription blocking")
-        print(f"  • Automatic medical disclaimer")
-        print(f"  • Inappropriate request blocking")
+        # print(f"\n⚠️ **Safety Features**:")
+        # print(f"  • Automatic emergency detection (911 guidance)")
+        # print(f"  • Diagnosis/prescription blocking")
+        # print(f"  • Automatic medical disclaimer")
+        # print(f"  • Inappropriate request blocking")
 
-        print("\n" + "="*70)
-        print("🟢 Server is running.")
-        print("   Press Ctrl+C to exit.")
-        print("="*70 + "\n")
+        # print("\n" + "="*70)
+        # print("🟢 Server is running.")
+        # print("   Press Ctrl+C to exit.")
+        # print("="*70 + "\n")
 
 
 
