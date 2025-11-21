@@ -8,6 +8,7 @@ from app.db.connection import check_connection
 from app.api.trends import router as trends_router
 from app.api.chat import router as chat_router, close_parlant_server
 from app.api.community import router as community_router
+from app.api.quiz import router as quiz_router
 from app.api.header import router as header_router
 from app.api.footer import router as footer_router
 from app.api.notification import router as notification_router
@@ -54,6 +55,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(trends_router)
 app.include_router(community_router, prefix="/api/community", tags=["community"])
+app.include_router(quiz_router, prefix="/api/quiz", tags=["quiz"])
 app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(header_router)

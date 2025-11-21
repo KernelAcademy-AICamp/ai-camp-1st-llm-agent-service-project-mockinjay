@@ -11,6 +11,7 @@ from .medical_welfare.agent import MedicalWelfareAgent
 from .nutrition.agent import NutritionAgent
 from .research_paper.agent import ResearchPaperAgent
 from .trend_visualization.agent import TrendVisualizationAgent
+from .quiz.agent import QuizAgent
 
 
 class AgentManager:
@@ -26,6 +27,7 @@ class AgentManager:
             "nutrition": NutritionAgent(),
             "research_paper": ResearchPaperAgent(),
             "trend_visualization": TrendVisualizationAgent(),
+            "quiz": QuizAgent(),
         }
 
     async def route_request(
