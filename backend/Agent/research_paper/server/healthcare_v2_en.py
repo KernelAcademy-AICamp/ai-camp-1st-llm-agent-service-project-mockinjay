@@ -2500,7 +2500,7 @@ async def main() -> None:
 - Maintain medical accuracy at all times
 
 Always respond in Korean unless specifically requested otherwise.""",
-            composition_mode=p.CompositionMode.STRICT
+            composition_mode=p.CompositionMode.COMPOSITED
         )
 
         print("  ✅ Agent created")
