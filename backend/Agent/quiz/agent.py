@@ -62,7 +62,7 @@ class QuizAgent(BaseAgent):
         if not context:
             return {
                 "success": False,
-                "error": "Context required for quiz agent"
+                "error": "퀴즈 에이전트에 컨텍스트가 필요합니다"
             }
 
         action = context.get("action")
@@ -81,7 +81,7 @@ class QuizAgent(BaseAgent):
             else:
                 return {
                     "success": False,
-                    "error": f"Unknown action: {action}",
+                    "error": f"알 수 없는 작업입니다: {action}",
                     "available_actions": [
                         "generate_quiz",
                         "submit_answer",
@@ -92,7 +92,7 @@ class QuizAgent(BaseAgent):
                 }
 
         except Exception as e:
-            logger.error(f"Quiz agent error: {e}", exc_info=True)
+            logger.error(f"퀴즈 에이전트 오류: {e}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e),
@@ -144,8 +144,10 @@ class QuizAgent(BaseAgent):
         sessions_collection = db["quiz_sessions"]
         quiz_questions_collection = db["quiz_questions"]
 
-        # 문제 저장
+        # 문제 저장 (카테고리/난이도 포함)
         question_ids = []
+        questions_metadata = []  # 세션에 저장할 메타데이터
+
         for q in all_questions:
             q_doc = {
                 "category": q["category"],
@@ -158,16 +160,26 @@ class QuizAgent(BaseAgent):
                 "createdAt": datetime.utcnow()
             }
             result = quiz_questions_collection.insert_one(q_doc)
-            question_ids.append(str(result.inserted_id))
+            q_id = str(result.inserted_id)
+            question_ids.append(q_id)
 
-        # 세션 저장
+            # 세션에서 빠르게 접근할 수 있도록 메타데이터 저장
+            questions_metadata.append({
+                "questionId": q_id,
+                "category": q["category"],
+                "difficulty": q["difficulty"]
+            })
+
+        # 세션 저장 (consecutiveCorrect 필드 추가)
         session_doc = {
             "userId": user_id,
             "sessionType": session_type,
             "questionIds": question_ids,
+            "questionsMetadata": questions_metadata,  # 메타데이터 저장
             "currentQuestionIndex": 0,
             "answers": [],
             "score": 0,
+            "consecutiveCorrect": 0,  # 연속 정답 카운터 추가
             "status": "in_progress",
             "startedAt": datetime.utcnow(),
             "completedAt": None
@@ -180,11 +192,11 @@ class QuizAgent(BaseAgent):
             {"_id": ObjectId(question_ids[0])}
         )
 
-        # 클라이언트에게 답안/해설 숨기기
+        # 클라이언트에게 답안/해설 숨기고 실제 카테고리/난이도 반환
         response_question = {
             "id": question_ids[0],
-            "category": first_question["category"],
-            "difficulty": first_question["difficulty"],
+            "category": first_question["category"],  # 실제 카테고리
+            "difficulty": first_question["difficulty"],  # 실제 난이도
             "question": first_question["question"],
             "answer": True,  # 더미값
             "explanation": ""  # 숨김
@@ -269,9 +281,9 @@ class QuizAgent(BaseAgent):
         try:
             questions = json.loads(result["text"])
             if not isinstance(questions, list):
-                raise ValueError("Expected list of questions")
+                raise ValueError("퀴즈 문제 목록 형식이 올바르지 않습니다")
 
-            # 카테고리/난이도 메타데이터 추가
+            # 카테고리/난이도 메타데이터 추가 (모든 문제에)
             for q in questions:
                 q["category"] = category
                 q["difficulty"] = difficulty
@@ -279,9 +291,9 @@ class QuizAgent(BaseAgent):
             return questions
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse quiz JSON: {e}")
-            logger.error(f"Response: {result['text']}")
-            raise ValueError("Failed to generate quiz questions")
+            logger.error(f"퀴즈 JSON 파싱 실패: {e}")
+            logger.error(f"응답: {result['text']}")
+            raise ValueError("퀴즈 문제 생성에 실패했습니다")
 
     def _build_rag_context(
         self,
@@ -349,7 +361,7 @@ class QuizAgent(BaseAgent):
         elif session_type == "learning_mission":
             # 특정 카테고리/난이도 집중 (5문제)
             if not category or not difficulty:
-                raise ValueError("learning_mission requires category and difficulty")
+                raise ValueError("학습 미션에는 카테고리와 난이도가 필요합니다")
             return [{"category": category, "difficulty": difficulty, "count": 5}]
 
         elif session_type == "daily_quiz":
@@ -362,14 +374,23 @@ class QuizAgent(BaseAgent):
             ]
 
         else:
-            raise ValueError(f"Unknown session type: {session_type}")
+            raise ValueError(f"알 수 없는 세션 타입입니다: {session_type}")
 
     async def _submit_answer(
         self,
         context: Dict[str, Any],
         session_id: str
     ) -> Dict[str, Any]:
-        """답안 제출 처리"""
+        """
+        답안 제출 처리
+
+        Returns:
+            QuizAnswerResponse 형식:
+            - isCorrect, correctAnswer, explanation
+            - pointsEarned, currentScore, consecutiveCorrect
+            - questionStats (totalAttempts, correctAttempts, userChoicePercentage)
+            - nextQuestion (QuizQuestion 형식, 답안/해설 숨김)
+        """
         quiz_session_id = context.get("sessionId")
         user_id = context.get("userId")
         question_id = context.get("questionId")
@@ -395,19 +416,23 @@ class QuizAgent(BaseAgent):
         # 정답 확인
         is_correct = (user_answer == question["answer"])
 
-        # 점수 계산
+        # 연속 정답 카운터 가져오기
+        current_consecutive = session.get("consecutiveCorrect", 0)
+
+        # 점수 계산 (연속 정답 보너스 로직)
         points_earned = 0
-        consecutive_correct = 0
+        new_consecutive = 0
 
         if is_correct:
             points_earned = 10
-            # 연속 정답 확인
-            answers = session.get("answers", [])
-            consecutive_correct = sum(1 for a in answers[-2:] if a.get("isCorrect", False)) + 1
+            new_consecutive = current_consecutive + 1
 
-            # 보너스 점수 (3개 이상 연속 정답)
-            if consecutive_correct >= 3:
+            # 연속 정답 보너스 (3개 이상 연속 정답 시 +5점)
+            if new_consecutive >= 3:
                 points_earned += 5
+        else:
+            # 틀리면 연속 카운터 리셋
+            new_consecutive = 0
 
         # 세션 업데이트
         current_score = session.get("score", 0) + points_earned
@@ -426,10 +451,8 @@ class QuizAgent(BaseAgent):
                 },
                 "$set": {
                     "score": current_score,
-                    "currentQuestionIndex": current_index + 1
-                },
-                "$inc": {
-                    "consecutiveCorrect": 1 if is_correct else -consecutive_correct
+                    "currentQuestionIndex": current_index + 1,
+                    "consecutiveCorrect": new_consecutive  # 연속 정답 카운터 업데이트
                 }
             }
         )
@@ -455,16 +478,21 @@ class QuizAgent(BaseAgent):
             }
         )
 
-        # 사용자 선택 비율 계산
+        # 업데이트된 문제 통계 가져오기
         updated_question = questions_collection.find_one({"_id": ObjectId(question_id)})
         total_attempts = updated_question["totalAttempts"]
         correct_attempts = updated_question["correctAttempts"]
-        user_choice_percentage = (correct_attempts / total_attempts * 100) if user_answer else \
-                                  ((total_attempts - correct_attempts) / total_attempts * 100)
 
-        # 다음 문제 가져오기
+        # 사용자 선택 비율 계산 (사용자가 선택한 답변의 비율)
+        if user_answer:  # True를 선택한 경우
+            user_choice_percentage = (correct_attempts / total_attempts * 100)
+        else:  # False를 선택한 경우
+            user_choice_percentage = ((total_attempts - correct_attempts) / total_attempts * 100)
+
+        # 다음 문제 가져오기 (nextQuestion 필드)
         question_ids = session["questionIds"]
         next_question = None
+
         if current_index + 1 < len(question_ids):
             next_q = questions_collection.find_one({"_id": ObjectId(question_ids[current_index + 1])})
             next_question = {
@@ -472,10 +500,11 @@ class QuizAgent(BaseAgent):
                 "category": next_q["category"],
                 "difficulty": next_q["difficulty"],
                 "question": next_q["question"],
-                "answer": True,  # 더미
+                "answer": True,  # 더미값 (숨김)
                 "explanation": ""  # 숨김
             }
 
+        # QuizAnswerResponse 형식으로 반환
         return {
             "success": True,
             "isCorrect": is_correct,
@@ -483,14 +512,14 @@ class QuizAgent(BaseAgent):
             "explanation": question["explanation"],
             "pointsEarned": points_earned,
             "currentScore": current_score,
-            "consecutiveCorrect": consecutive_correct if is_correct else 0,
+            "consecutiveCorrect": new_consecutive,  # 현재 연속 정답 수
             "questionStats": {
                 "totalAttempts": total_attempts,
                 "correctAttempts": correct_attempts,
                 "userChoicePercentage": round(user_choice_percentage, 2)
             },
-            "nextQuestion": next_question,
-            "tokens_used": 100,  # 최소 토큰
+            "nextQuestion": next_question,  # 다음 문제 (없으면 null)
+            "tokens_used": 100,
             "metadata": {
                 "agent_type": self.agent_type,
                 "session_id": session_id
@@ -502,7 +531,17 @@ class QuizAgent(BaseAgent):
         context: Dict[str, Any],
         session_id: str
     ) -> Dict[str, Any]:
-        """세션 완료 처리"""
+        """
+        세션 완료 처리
+
+        Returns:
+            QuizSessionCompleteResponse 형식:
+            - sessionId, userId, sessionType
+            - totalQuestions, correctAnswers, finalScore, accuracyRate
+            - completedAt (ISO string)
+            - streak (daily_quiz만)
+            - categoryPerformance (array of {category, correct, total, rate})
+        """
         quiz_session_id = context.get("sessionId")
 
         sessions_collection = db["quiz_sessions"]
@@ -524,13 +563,16 @@ class QuizAgent(BaseAgent):
         correct_answers = sum(1 for a in session["answers"] if a["isCorrect"])
         accuracy_rate = (correct_answers / total_questions) * 100
 
+        # 완료 시간
+        completed_at = datetime.utcnow()
+
         # 세션 완료 처리
         sessions_collection.update_one(
             {"_id": ObjectId(quiz_session_id)},
             {
                 "$set": {
                     "status": "completed",
-                    "completedAt": datetime.utcnow()
+                    "completedAt": completed_at
                 }
             }
         )
@@ -540,6 +582,9 @@ class QuizAgent(BaseAgent):
         session_type = session["sessionType"]
 
         existing_stats = stats_collection.find_one({"userId": user_id})
+
+        current_streak = 1
+        best_streak = 1
 
         if existing_stats:
             # 기존 통계 업데이트
@@ -551,7 +596,7 @@ class QuizAgent(BaseAgent):
                     "totalScore": session["score"]
                 },
                 "$set": {
-                    "lastSessionDate": datetime.utcnow()
+                    "lastSessionDate": completed_at
                 }
             }
 
@@ -559,15 +604,30 @@ class QuizAgent(BaseAgent):
             if session_type == "daily_quiz":
                 last_date = existing_stats.get("lastSessionDate")
                 if last_date:
-                    days_diff = (datetime.utcnow() - last_date).days
+                    days_diff = (completed_at - last_date).days
                     if days_diff == 1:
-                        updates["$inc"]["currentStreak"] = 1
-                        updates["$max"] = {"bestStreak": existing_stats.get("currentStreak", 0) + 1}
+                        # 연속 달성
+                        current_streak = existing_stats.get("currentStreak", 0) + 1
+                        updates["$set"]["currentStreak"] = current_streak
+                        # 최고 스트릭 업데이트
+                        if current_streak > existing_stats.get("bestStreak", 0):
+                            updates["$set"]["bestStreak"] = current_streak
+                        best_streak = max(current_streak, existing_stats.get("bestStreak", 0))
                     elif days_diff > 1:
+                        # 스트릭 끊김
                         updates["$set"]["currentStreak"] = 1
+                        current_streak = 1
+                        best_streak = existing_stats.get("bestStreak", 1)
+                    else:
+                        # 같은 날 (스트릭 유지)
+                        current_streak = existing_stats.get("currentStreak", 1)
+                        best_streak = existing_stats.get("bestStreak", 1)
                 else:
                     updates["$set"]["currentStreak"] = 1
                     updates["$set"]["bestStreak"] = 1
+            else:
+                current_streak = existing_stats.get("currentStreak", 0)
+                best_streak = existing_stats.get("bestStreak", 0)
 
             # 레벨 판정 (level_test만)
             if session_type == "level_test":
@@ -581,7 +641,7 @@ class QuizAgent(BaseAgent):
             stats_collection.update_one({"userId": user_id}, updates)
         else:
             # 새 통계 생성
-            stats_collection.insert_one({
+            new_stats = {
                 "userId": user_id,
                 "totalSessions": 1,
                 "totalQuestions": total_questions,
@@ -590,12 +650,24 @@ class QuizAgent(BaseAgent):
                 "currentStreak": 1 if session_type == "daily_quiz" else 0,
                 "bestStreak": 1 if session_type == "daily_quiz" else 0,
                 "level": "intermediate",
-                "lastSessionDate": datetime.utcnow()
-            })
+                "lastSessionDate": completed_at
+            }
 
-        # 카테고리별 성과
+            # 레벨 판정
+            if session_type == "level_test":
+                if accuracy_rate >= 80:
+                    new_stats["level"] = "advanced"
+                elif accuracy_rate >= 50:
+                    new_stats["level"] = "intermediate"
+                else:
+                    new_stats["level"] = "beginner"
+
+            stats_collection.insert_one(new_stats)
+
+        # 카테고리별 성과 계산
         category_performance = self._calculate_category_performance(session)
 
+        # QuizSessionCompleteResponse 형식으로 반환
         return {
             "success": True,
             "sessionId": quiz_session_id,
@@ -605,8 +677,8 @@ class QuizAgent(BaseAgent):
             "correctAnswers": correct_answers,
             "finalScore": session["score"],
             "accuracyRate": round(accuracy_rate, 2),
-            "completedAt": datetime.utcnow().isoformat(),
-            "streak": existing_stats.get("currentStreak", 1) if existing_stats else 1,
+            "completedAt": completed_at.isoformat(),
+            "streak": current_streak if session_type == "daily_quiz" else None,
             "categoryPerformance": category_performance,
             "tokens_used": 50,
             "metadata": {
@@ -616,7 +688,12 @@ class QuizAgent(BaseAgent):
         }
 
     def _calculate_category_performance(self, session: Dict) -> List[Dict]:
-        """카테고리별 성과 계산"""
+        """
+        카테고리별 성과 계산
+
+        Returns:
+            List[Dict]: [{category, correct, total, rate}, ...]
+        """
         questions_collection = db["quiz_questions"]
 
         category_stats = {}
@@ -647,7 +724,17 @@ class QuizAgent(BaseAgent):
         context: Dict[str, Any],
         session_id: str
     ) -> Dict[str, Any]:
-        """사용자 통계 조회"""
+        """
+        사용자 통계 조회
+
+        Returns:
+            UserQuizStatsResponse 형식:
+            - totalSessions (not totalQuizzes)
+            - totalQuestions, correctAnswers, totalScore, accuracyRate
+            - currentStreak, bestStreak
+            - level (beginner/intermediate/advanced)
+            - lastSessionDate (ISO string or null)
+        """
         user_id = context.get("userId")
 
         stats_collection = db["user_quiz_stats"]
@@ -678,7 +765,7 @@ class QuizAgent(BaseAgent):
         return {
             "success": True,
             "userId": user_id,
-            "totalSessions": stats.get("totalSessions", 0),
+            "totalSessions": stats.get("totalSessions", 0),  # totalSessions (not totalQuizzes)
             "totalQuestions": stats.get("totalQuestions", 0),
             "correctAnswers": stats.get("correctAnswers", 0),
             "totalScore": stats.get("totalScore", 0),
@@ -699,7 +786,14 @@ class QuizAgent(BaseAgent):
         context: Dict[str, Any],
         session_id: str
     ) -> Dict[str, Any]:
-        """퀴즈 이력 조회"""
+        """
+        퀴즈 이력 조회
+
+        Returns:
+            QuizHistoryResponse 형식:
+            - sessions (array of QuizHistorySession)
+            - total, limit, offset, hasMore (flat structure)
+        """
         user_id = context.get("userId")
         limit = min(context.get("limit", 10), 50)
         offset = context.get("offset", 0)
@@ -732,6 +826,7 @@ class QuizAgent(BaseAgent):
             {"userId": user_id, "status": "completed"}
         )
 
+        # QuizHistoryResponse 형식 (flat structure)
         return {
             "success": True,
             "sessions": sessions,

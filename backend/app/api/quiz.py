@@ -4,7 +4,6 @@ Quiz API endpoints (Agent-based)
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import Optional
 import sys
 from pathlib import Path
 
@@ -18,7 +17,10 @@ from app.models.quiz import (
     QuizSessionStart,
     QuizAnswerSubmit,
     QuizSessionResponse,
-    QuizAnswerResponse
+    QuizAnswerResponse,
+    QuizSessionCompleteResponse,
+    UserQuizStatsResponse,
+    QuizHistoryResponse
 )
 
 router = APIRouter()
@@ -27,7 +29,7 @@ router = APIRouter()
 agent_manager = AgentManager()
 
 
-@router.post("/session/start", status_code=201)
+@router.post("/session/start", status_code=201, response_model=QuizSessionResponse)
 async def start_quiz_session(request: QuizSessionStart):
     """
     퀴즈 세션 시작
@@ -50,9 +52,9 @@ async def start_quiz_session(request: QuizSessionStart):
     context = {
         "action": "generate_quiz",
         "userId": request.userId,
-        "sessionType": request.sessionType,
-        "category": request.category,
-        "difficulty": request.difficulty
+        "sessionType": request.sessionType.value,
+        "category": request.category.value if request.category else None,
+        "difficulty": request.difficulty.value if request.difficulty else None
     }
 
     result = await agent_manager.route_request(
@@ -68,19 +70,10 @@ async def start_quiz_session(request: QuizSessionStart):
 
     agent_result = result.get("result", {})
 
-    return QuizSessionResponse(
-        sessionId=agent_result["sessionId"],
-        userId=agent_result["userId"],
-        sessionType=agent_result["sessionType"],
-        totalQuestions=agent_result["totalQuestions"],
-        currentQuestionNumber=agent_result["currentQuestionNumber"],
-        score=agent_result["score"],
-        status=agent_result["status"],
-        currentQuestion=agent_result["currentQuestion"]
-    )
+    return QuizSessionResponse(**agent_result)
 
 
-@router.post("/session/submit-answer", status_code=200)
+@router.post("/session/submit-answer", status_code=200, response_model=QuizAnswerResponse)
 async def submit_quiz_answer(request: QuizAnswerSubmit):
     """
     퀴즈 답안 제출
@@ -96,7 +89,6 @@ async def submit_quiz_answer(request: QuizAnswerSubmit):
     Raises:
         HTTPException: 세션/문제 없음, Agent 처리 실패
     """
-    # 임시 세션 생성 (실제로는 기존 세션 재사용 필요)
     session_id = agent_manager.create_user_session(request.userId)
 
     context = {
@@ -116,23 +108,15 @@ async def submit_quiz_answer(request: QuizAnswerSubmit):
 
     if not result.get("success"):
         error_msg = result.get("error", "Unknown error")
-        raise HTTPException(status_code=404 if "찾을 수 없습니다" in error_msg else 400, detail=error_msg)
+        status_code = 404 if "찾을 수 없습니다" in error_msg else 400
+        raise HTTPException(status_code=status_code, detail=error_msg)
 
     agent_result = result.get("result", {})
 
-    return QuizAnswerResponse(
-        isCorrect=agent_result["isCorrect"],
-        correctAnswer=agent_result["correctAnswer"],
-        explanation=agent_result["explanation"],
-        pointsEarned=agent_result["pointsEarned"],
-        currentScore=agent_result["currentScore"],
-        consecutiveCorrect=agent_result["consecutiveCorrect"],
-        questionStats=agent_result["questionStats"],
-        nextQuestion=agent_result.get("nextQuestion")
-    )
+    return QuizAnswerResponse(**agent_result)
 
 
-@router.post("/session/complete", status_code=200)
+@router.post("/session/complete", status_code=200, response_model=QuizSessionCompleteResponse)
 async def complete_quiz_session(sessionId: str):
     """
     퀴즈 세션 완료
@@ -143,12 +127,11 @@ async def complete_quiz_session(sessionId: str):
         sessionId: 세션 ID
 
     Returns:
-        dict: 세션 완료 정보 (총점, 정답률, 스트릭 등)
+        QuizSessionCompleteResponse: 세션 완료 정보
 
     Raises:
         HTTPException: 세션 없음, 미완료 문제 존재
     """
-    # 임시 세션 생성
     temp_session_id = agent_manager.create_user_session("temp_user")
 
     context = {
@@ -165,15 +148,15 @@ async def complete_quiz_session(sessionId: str):
 
     if not result.get("success"):
         error_msg = result.get("error", "Unknown error")
-        raise HTTPException(
-            status_code=404 if "찾을 수 없습니다" in error_msg else 400,
-            detail=error_msg
-        )
+        status_code = 404 if "찾을 수 없습니다" in error_msg else 400
+        raise HTTPException(status_code=status_code, detail=error_msg)
 
-    return result.get("result", {})
+    agent_result = result.get("result", {})
+
+    return QuizSessionCompleteResponse(**agent_result)
 
 
-@router.get("/stats", status_code=200)
+@router.get("/stats", status_code=200, response_model=UserQuizStatsResponse)
 async def get_user_quiz_stats(userId: str):
     """
     사용자 퀴즈 통계 조회
@@ -184,7 +167,7 @@ async def get_user_quiz_stats(userId: str):
         userId: 사용자 ID
 
     Returns:
-        dict: 사용자 통계 (총 세션 수, 정답률, 레벨 등)
+        UserQuizStatsResponse: 사용자 통계
     """
     session_id = agent_manager.create_user_session(userId)
 
@@ -203,10 +186,12 @@ async def get_user_quiz_stats(userId: str):
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
 
-    return result.get("result", {})
+    agent_result = result.get("result", {})
+
+    return UserQuizStatsResponse(**agent_result)
 
 
-@router.get("/history", status_code=200)
+@router.get("/history", status_code=200, response_model=QuizHistoryResponse)
 async def get_quiz_history(userId: str, limit: int = 10, offset: int = 0):
     """
     퀴즈 이력 조회
@@ -219,7 +204,7 @@ async def get_quiz_history(userId: str, limit: int = 10, offset: int = 0):
         offset: 오프셋
 
     Returns:
-        dict: 세션 이력 목록
+        QuizHistoryResponse: 세션 이력 목록
 
     Raises:
         HTTPException: limit 초과
@@ -246,4 +231,6 @@ async def get_quiz_history(userId: str, limit: int = 10, offset: int = 0):
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
 
-    return result.get("result", {})
+    agent_result = result.get("result", {})
+
+    return QuizHistoryResponse(**agent_result)

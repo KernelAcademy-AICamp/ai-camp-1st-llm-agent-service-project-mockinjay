@@ -31,169 +31,122 @@ class SessionType(str, Enum):
 
 
 # ============================================================================
-# 퀴즈 문제 모델
-# ============================================================================
-
-class QuizQuestion(BaseModel):
-    """Quiz question model for storing quiz questions"""
-    id: Optional[str] = Field(None, description="Question ID (MongoDB ObjectId converted to string)")
-    category: QuizCategory = Field(..., description="Question category (nutrition, treatment, lifestyle)")
-    difficulty: DifficultyLevel = Field(..., description="Difficulty level (easy, medium, hard)")
-    question: str = Field(..., min_length=1, description="Question text (O/X format)")
-    answer: bool = Field(..., description="Correct answer (True=O, False=X)")
-    explanation: str = Field(..., min_length=1, description="Explanation for the answer")
-
-    # 통계 데이터
-    totalAttempts: int = Field(default=0, description="Total number of attempts")
-    correctAttempts: int = Field(default=0, description="Number of correct attempts")
-
-    createdAt: datetime = Field(default_factory=datetime.utcnow, description="Question creation timestamp")
-    isActive: bool = Field(default=True, description="Whether question is active")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "category": "nutrition",
-                "difficulty": "easy",
-                "question": "만성콩팥병 환자는 저염식이 필요하다.",
-                "answer": True,
-                "explanation": "만성콩팥병 환자는 신장 기능 보호를 위해 나트륨 섭취를 제한해야 합니다."
-            }
-        }
-
-
-# ============================================================================
-# 퀴즈 세션 모델
-# ============================================================================
-
-class QuizSession(BaseModel):
-    """Quiz session model for tracking user quiz sessions"""
-    id: Optional[str] = Field(None, description="Session ID (MongoDB ObjectId converted to string)")
-    userId: str = Field(..., description="User ID")
-    sessionType: SessionType = Field(..., description="Type of quiz session")
-
-    # 세션 정보
-    questionIds: List[str] = Field(..., description="List of question IDs in this session")
-    currentQuestionIndex: int = Field(default=0, description="Current question index (0-based)")
-
-    # 진행 상태
-    answers: Dict[str, bool] = Field(default={}, description="User answers (questionId: userAnswer)")
-    correctCount: int = Field(default=0, description="Number of correct answers")
-
-    # 시간 정보
-    startedAt: datetime = Field(default_factory=datetime.utcnow, description="Session start timestamp")
-    completedAt: Optional[datetime] = Field(None, description="Session completion timestamp")
-    isCompleted: bool = Field(default=False, description="Whether session is completed")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "userId": "user123",
-                "sessionType": "daily_quiz",
-                "questionIds": ["q1", "q2", "q3"],
-                "currentQuestionIndex": 0,
-                "correctCount": 0
-            }
-        }
-
-
-# ============================================================================
-# 퀴즈 시도 기록 모델
-# ============================================================================
-
-class QuizAttempt(BaseModel):
-    """Quiz attempt model for storing individual question attempts"""
-    id: Optional[str] = Field(None, description="Attempt ID (MongoDB ObjectId converted to string)")
-    userId: str = Field(..., description="User ID")
-    sessionId: str = Field(..., description="Session ID")
-    questionId: str = Field(..., description="Question ID")
-
-    userAnswer: bool = Field(..., description="User's answer (True=O, False=X)")
-    isCorrect: bool = Field(..., description="Whether answer was correct")
-
-    attemptedAt: datetime = Field(default_factory=datetime.utcnow, description="Attempt timestamp")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "userId": "user123",
-                "sessionId": "session456",
-                "questionId": "q1",
-                "userAnswer": True,
-                "isCorrect": True
-            }
-        }
-
-
-# ============================================================================
-# 사용자 퀴즈 통계 모델
-# ============================================================================
-
-class UserQuizStats(BaseModel):
-    """User quiz statistics model"""
-    id: Optional[str] = Field(None, description="Stats ID (MongoDB ObjectId converted to string)")
-    userId: str = Field(..., description="User ID")
-
-    # 전체 통계
-    totalQuizzes: int = Field(default=0, description="Total number of quizzes taken")
-    totalCorrect: int = Field(default=0, description="Total number of correct answers")
-    totalPoints: int = Field(default=0, description="Total points earned")
-
-    # 연속 참여
-    currentStreak: int = Field(default=0, description="Current consecutive days streak")
-    maxStreak: int = Field(default=0, description="Maximum consecutive days streak")
-    lastQuizDate: Optional[datetime] = Field(None, description="Last quiz participation date")
-
-    # 업데이트 시간
-    updatedAt: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "userId": "user123",
-                "totalQuizzes": 15,
-                "totalCorrect": 12,
-                "totalPoints": 150,
-                "currentStreak": 3,
-                "maxStreak": 7
-            }
-        }
-
-
-# ============================================================================
-# API 요청/응답 모델
+# API 요청 모델
 # ============================================================================
 
 class QuizSessionStart(BaseModel):
     """Request model for starting a new quiz session"""
+    userId: str = Field(..., description="User ID")
     sessionType: SessionType = Field(..., description="Type of quiz session to start")
-    category: Optional[QuizCategory] = Field(None, description="Category filter (optional)")
-    difficulty: Optional[DifficultyLevel] = Field(None, description="Difficulty filter (optional)")
+    category: Optional[QuizCategory] = Field(None, description="Category filter (required for learning_mission)")
+    difficulty: Optional[DifficultyLevel] = Field(None, description="Difficulty filter (required for learning_mission)")
 
 
 class QuizAnswerSubmit(BaseModel):
     """Request model for submitting an answer"""
     sessionId: str = Field(..., description="Session ID")
+    userId: str = Field(..., description="User ID")
     questionId: str = Field(..., description="Question ID")
     userAnswer: bool = Field(..., description="User's answer (True=O, False=X)")
 
 
+# ============================================================================
+# API 응답 모델 (문서 스펙에 맞춤)
+# ============================================================================
+
+class QuizQuestion(BaseModel):
+    """Quiz question model (for API responses)"""
+    id: str = Field(..., description="Question ID")
+    category: QuizCategory = Field(..., description="Question category")
+    difficulty: DifficultyLevel = Field(..., description="Difficulty level")
+    question: str = Field(..., description="Question text (O/X format)")
+    answer: bool = Field(..., description="Answer (dummy value before submission)")
+    explanation: str = Field(default="", description="Explanation (empty before submission for security)")
+
+
 class QuizSessionResponse(BaseModel):
-    """Response model for quiz session"""
+    """Response model for quiz session start"""
     sessionId: str = Field(..., description="Session ID")
+    userId: str = Field(..., description="User ID")
     sessionType: SessionType = Field(..., description="Session type")
-    currentQuestion: Optional[QuizQuestion] = Field(None, description="Current question")
-    currentQuestionNumber: int = Field(..., description="Current question number (1-based)")
     totalQuestions: int = Field(..., description="Total number of questions")
-    correctCount: int = Field(..., description="Number of correct answers so far")
-    isCompleted: bool = Field(default=False, description="Whether session is completed")
+    currentQuestionNumber: int = Field(..., description="Current question number (1-based)")
+    score: int = Field(default=0, description="Current score")
+    status: str = Field(..., description="Session status (in_progress, completed)")
+    currentQuestion: QuizQuestion = Field(..., description="Current question")
+
+
+class QuestionStats(BaseModel):
+    """Question statistics"""
+    totalAttempts: int = Field(..., description="Total number of attempts")
+    correctAttempts: int = Field(..., description="Number of correct attempts")
+    userChoicePercentage: float = Field(..., description="Percentage of users who chose the same answer")
 
 
 class QuizAnswerResponse(BaseModel):
     """Response model for answer submission"""
     isCorrect: bool = Field(..., description="Whether answer was correct")
-    correctAnswer: bool = Field(..., description="Correct answer (True=O, False=X)")
+    correctAnswer: bool = Field(..., description="Correct answer")
     explanation: str = Field(..., description="Explanation for the answer")
-    userChoicePercentage: float = Field(..., description="Percentage of users who chose the same answer")
-    pointsEarned: int = Field(default=0, description="Points earned for this answer")
-    bonusPoints: int = Field(default=0, description="Bonus points (streak, etc.)")
+    pointsEarned: int = Field(..., description="Points earned for this answer")
+    currentScore: int = Field(..., description="Current total score")
+    consecutiveCorrect: int = Field(..., description="Current consecutive correct count")
+    questionStats: QuestionStats = Field(..., description="Question statistics")
+    nextQuestion: Optional[QuizQuestion] = Field(None, description="Next question (None if last question)")
+
+
+class CategoryPerformance(BaseModel):
+    """Category performance summary"""
+    category: str = Field(..., description="Category name")
+    correct: int = Field(..., description="Number of correct answers")
+    total: int = Field(..., description="Total number of questions")
+    rate: float = Field(..., description="Accuracy rate (%)")
+
+
+class QuizSessionCompleteResponse(BaseModel):
+    """Response model for session completion"""
+    sessionId: str = Field(..., description="Session ID")
+    userId: str = Field(..., description="User ID")
+    sessionType: SessionType = Field(..., description="Session type")
+    totalQuestions: int = Field(..., description="Total number of questions")
+    correctAnswers: int = Field(..., description="Number of correct answers")
+    finalScore: int = Field(..., description="Final score")
+    accuracyRate: float = Field(..., description="Accuracy rate (%)")
+    completedAt: str = Field(..., description="Completion timestamp (ISO format)")
+    streak: Optional[int] = Field(None, description="Current streak (daily_quiz only)")
+    categoryPerformance: List[CategoryPerformance] = Field(..., description="Category-wise performance")
+
+
+class UserQuizStatsResponse(BaseModel):
+    """Response model for user quiz statistics"""
+    userId: str = Field(..., description="User ID")
+    totalSessions: int = Field(..., description="Total number of quiz sessions")
+    totalQuestions: int = Field(..., description="Total number of questions attempted")
+    correctAnswers: int = Field(..., description="Total number of correct answers")
+    totalScore: int = Field(..., description="Total points earned")
+    accuracyRate: float = Field(..., description="Overall accuracy rate (%)")
+    currentStreak: int = Field(..., description="Current consecutive days streak")
+    bestStreak: int = Field(..., description="Best consecutive days streak")
+    level: str = Field(..., description="User level (beginner, intermediate, advanced)")
+    lastSessionDate: Optional[str] = Field(None, description="Last session date (ISO format)")
+
+
+class QuizHistorySession(BaseModel):
+    """Single session in history"""
+    sessionId: str = Field(..., description="Session ID")
+    sessionType: SessionType = Field(..., description="Session type")
+    totalQuestions: int = Field(..., description="Total number of questions")
+    correctAnswers: int = Field(..., description="Number of correct answers")
+    finalScore: int = Field(..., description="Final score")
+    accuracyRate: float = Field(..., description="Accuracy rate (%)")
+    completedAt: str = Field(..., description="Completion timestamp")
+    categoryPerformance: List[CategoryPerformance] = Field(..., description="Category performance")
+
+
+class QuizHistoryResponse(BaseModel):
+    """Response model for quiz history"""
+    sessions: List[QuizHistorySession] = Field(..., description="List of quiz sessions")
+    total: int = Field(..., description="Total number of sessions")
+    limit: int = Field(..., description="Limit per page")
+    offset: int = Field(..., description="Offset")
+    hasMore: bool = Field(..., description="Whether there are more sessions")

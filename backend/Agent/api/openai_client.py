@@ -17,28 +17,50 @@ class OpenAIClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         model: str = "gpt-4o-mini",
         embedding_model: str = "text-embedding-3-small"
     ):
         """
-        Initialize OpenAI client
+        Initialize OpenAI client (supports OpenAI and Upstage Solar)
 
         Args:
-            api_key: OpenAI API key
-            model: GPT model to use
+            api_key: API key (OpenAI or Upstage)
+            base_url: API base URL (default: OpenAI, or https://api.upstage.ai/v1 for Upstage)
+            model: Model to use (gpt-4o-mini, solar-pro2, solar-mini, etc.)
             embedding_model: Embedding model to use
         """
+        # Determine API provider
+        upstage_key = os.getenv('UPSTAGE_API_KEY')
+        openai_key = os.getenv('OPENAI_API_KEY')
+
+        # Priority: UPSTAGE_API_KEY > provided api_key > OPENAI_API_KEY
+        final_api_key = api_key or upstage_key or openai_key
+
+        # Auto-detect Upstage and set defaults
+        if upstage_key and not base_url:
+            base_url = "https://api.upstage.ai/v1"
+            if model == "gpt-4o-mini":  # Default OpenAI model
+                model = "solar-pro2"  # Switch to Upstage default
+            if embedding_model == "text-embedding-3-small":
+                embedding_model = "embedding-query"  # Upstage embedding
+            logger.info(f"Using Upstage Solar API with model: {model}")
+
         self.client = AsyncOpenAI(
-            api_key=api_key or os.getenv('OPENAI_API_KEY')
+            api_key=final_api_key,
+            base_url=base_url
         )
         self.model = model
         self.embedding_model = embedding_model
+        self.is_upstage = base_url and "upstage" in base_url
 
         # Tokenizer for token counting
         try:
             self.tokenizer = tiktoken.encoding_for_model(model)
         except:
+            # Fallback for non-OpenAI models
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
+            logger.warning(f"Using fallback tokenizer for model: {model}")
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
