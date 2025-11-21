@@ -2286,6 +2286,8 @@ async def create_welfare_journey(agent: p.Agent) -> p.Journey:
     t2 = await t1.target.transition_to(
         chat_state="""검색된 복지 프로그램 정보를 바탕으로 상세히 안내해드립니다.
 
+synthesis_prompt에서 생성된 LLM 응답이 여기에 표시됩니다
+
 ---
 
 **추가로 도움이 필요하신가요?**
@@ -2319,6 +2321,8 @@ async def create_welfare_journey(agent: p.Agent) -> p.Journey:
     # ========================================
     t4 = await t3_hospital.target.transition_to(
         chat_state="""근처 병원 정보를 안내해드립니다.
+
+hospital search synthesis_prompt 응답이 여기에 표시됩니다
 
 ---
 
@@ -2462,9 +2466,7 @@ async def main() -> None:
     profile = get_default_profile()
 
     print(f"\n[3/3] Setting up Parlant Server...")
-    # Use custom cost-effective HealthcareNLPService (GPT-4o-mini + text-embedding-3-small)
-    from parlant_nlp_adapter import create_healthcare_nlp_service
-    async with p.Server(nlp_service=create_healthcare_nlp_service) as server:
+    async with p.Server() as server:
         # Create Agent
         agent = await server.create_agent(
             name="CareGuide_v2",
@@ -2498,7 +2500,7 @@ async def main() -> None:
 - Maintain medical accuracy at all times
 
 Always respond in Korean unless specifically requested otherwise.""",
-            composition_mode=p.CompositionMode.COMPOSITED
+            composition_mode=p.CompositionMode.STRICT
         )
 
         print("  ✅ Agent created")
@@ -2513,218 +2515,220 @@ Always respond in Korean unless specifically requested otherwise.""",
         print("  🔧 Adding blocking guidelines...")
         await add_blocking_guidelines(agent, disclaimer_guideline)
 
-        # Create journeys for CareGuide_v2 (medical + research only)
+        # Create journeys
         print("  🗺️ Creating Medical Information Journey...")
         journey = await create_medical_info_journey(agent)
 
         print("  🗺️ Creating Research Paper Journey...")
         research_journey = await create_research_paper_journey(agent)
 
-        # Journey Disambiguation for CareGuide_v2
-        print("  🔀 Setting up Journey disambiguation...")
+#         print("  🗺️ Creating Welfare Support Journey...")
+#         welfare_journey = await create_welfare_journey(agent)
 
-        # Medical vs Research
-        paper_inquiry = await agent.create_observation(
-            "User asks about research papers, scientific studies, or wants advanced paper analysis, "
-            "but it's not clear whether they need basic information or in-depth research analysis"
-        )
-        await paper_inquiry.disambiguate([journey, research_journey])
+#         # Journey Disambiguation
+#         print("  🔀 Setting up Journey disambiguation...")
 
-        print("     ✅ Journey disambiguation configured (2 journeys for CareGuide_v2)")
+#         # Medical vs Research
+#         paper_inquiry = await agent.create_observation(
+#             "User asks about research papers, scientific studies, or wants advanced paper analysis, "
+#             "but it's not clear whether they need basic information or in-depth research analysis"
+#         )
+#         await paper_inquiry.disambiguate([journey, research_journey])
 
-        # ==================== WelfareGuide Agent (Simpler Q&A Pattern) ====================
-        print("\n  🆕 Creating WelfareGuide agent (simple Q&A, no journeys)...")
+#         # Medical vs Welfare
+#         welfare_inquiry = await agent.create_observation(
+#             "User asks about medical costs, insurance benefits, copay reduction, financial support, or welfare programs, "
+#             "but it's not clear whether they need medical information or welfare program guidance"
+#         )
+#         await welfare_inquiry.disambiguate([journey, welfare_journey])
 
-        welfare_agent = await server.create_agent(
-            name="WelfareGuide",
-            description="""You are WelfareGuide, a specialized AI assistant for Korean medical welfare programs.
+#         # Research vs Welfare
+#         research_welfare_inquiry = await agent.create_observation(
+#             "User asks about programs, support systems, or policies, "
+#             "but it's not clear whether they want research papers about programs or actual welfare benefit information"
+#         )
+#         await research_welfare_inquiry.disambiguate([research_journey, welfare_journey])
 
-**Role**: Help CKD patients and their families find and apply for welfare benefits and government support programs.
+#         print("     ✅ Journey disambiguation configured (3 journeys)")
 
-**Core Focus**:
-- Welfare programs (복지 프로그램)
-- Financial support (의료비 지원)
-- Disability registration (장애인 등록)
-- Insurance benefits (산정특례, 본인부담금 감면)
-- Transportation support (교통비 지원)
-- Application procedures (신청 절차)
+#         # ==================== WelfareGuide Agent (Simpler Q&A Pattern) ====================
+#         print("\n  🆕 Creating WelfareGuide agent (simple Q&A, no journeys)...")
 
-**Data Source**:
-- 13 verified welfare programs from government data (2024-2025)
-- Only provide information from the search_welfare_programs tool
-- Do NOT make up or guess program details
+#         welfare_agent = await server.create_agent(
+#             name="WelfareGuide",
+#             description="""You are WelfareGuide, a specialized AI assistant for Korean medical welfare programs.
 
-**User Profiles**:
-- Researcher: Detailed information with policy sources
-- Patient: Practical step-by-step guidance with empathy
-- General: Simple explanations in plain language
+# **Role**: Help CKD patients and their families find and apply for welfare benefits and government support programs.
 
-**Response Style**:
-- Warm, supportive, and encouraging
-- Clear step-by-step instructions
-- Include contact numbers and application details
-- Use Korean language (한국어)
+# **Core Focus**:
+# - Welfare programs (복지 프로그램)
+# - Financial support (의료비 지원)
+# - Disability registration (장애인 등록)
+# - Insurance benefits (산정특례, 본인부담금 감면)
+# - Transportation support (교통비 지원)
+# - Application procedures (신청 절차)
 
-**Important Limitations**:
-- NO medical diagnosis or treatment advice
-- NO definitive eligibility decisions (only general guidelines)
-- Always direct to official agencies for final confirmation
-- Provide empathetic support for financial concerns
+# **Data Source**:
+# - 13 verified welfare programs from government data (2024-2025)
+# - Only provide information from the search_welfare_programs tool
+# - Do NOT make up or guess program details
 
-Always respond in Korean unless specifically requested otherwise.""",
-            composition_mode=p.CompositionMode.COMPOSITED
-        )
+# **User Profiles**:
+# - Researcher: Detailed information with policy sources
+# - Patient: Practical step-by-step guidance with empathy
+# - General: Simple explanations in plain language
 
-        print(f"     ✅ WelfareGuide agent created (ID: {welfare_agent.id})")
+# **Response Style**:
+# - Warm, supportive, and encouraging
+# - Clear step-by-step instructions
+# - Include contact numbers and application details
+# - Use Korean language (한국어)
 
-        # Add safety guidelines to WelfareGuide (same as CareGuide_v2)
-        print("     🔧 Adding safety guidelines to WelfareGuide...")
-        welfare_disclaimer = await add_safety_guidelines(welfare_agent)
+# **Important Limitations**:
+# - NO medical diagnosis or treatment advice
+# - NO definitive eligibility decisions (only general guidelines)
+# - Always direct to official agencies for final confirmation
+# - Provide empathetic support for financial concerns
 
-        print("     🔧 Adding profile guidelines to WelfareGuide...")
-        await add_profile_guidelines(welfare_agent, welfare_disclaimer)
+# Always respond in Korean unless specifically requested otherwise.""",
+#             composition_mode=p.CompositionMode.COMPOSITED
+#         )
 
-        print("     🔧 Adding blocking guidelines to WelfareGuide...")
-        await add_blocking_guidelines(welfare_agent, welfare_disclaimer)
+#         print(f"     ✅ WelfareGuide agent created (ID: {welfare_agent.id})")
 
-        # Add welfare-only guidelines (agent-level)
-        print("     🔧 Adding welfare-specific guidelines...")
+#         # Add welfare-only guidelines (agent-level, no journey)
+#         print("     🔧 Adding welfare-specific guidelines...")
 
-        # Guideline 1: Block medical questions
-        await welfare_agent.create_guideline(
-            condition="User asks about medical diagnosis, symptoms, treatment, or health conditions",
-            action="""Politely redirect the user:
+#         # Guideline 1: Block medical questions
+#         await welfare_agent.create_guideline(
+#             condition="User asks about medical diagnosis, symptoms, treatment, or health conditions",
+#             action="""Politely redirect the user:
 
-"죄송합니다. 저는 **복지 프로그램 전문 상담**만 제공합니다.
+# "죄송합니다. 저는 **복지 프로그램 전문 상담**만 제공합니다.
 
-의료 상담이 필요하신 경우:
-- CareGuide 의료상담 서비스를 이용해주세요
-- 또는 의료진과 직접 상담하세요
+# 의료 상담이 필요하신 경우:
+# - CareGuide 의료상담 서비스를 이용해주세요
+# - 또는 의료진과 직접 상담하세요
 
-**제가 도와드릴 수 있는 것**:
-✅ 복지 프로그램 정보 (산정특례, 의료비 지원 등)
-✅ 신청 방법 및 절차
-✅ 장애인 등록 안내
-✅ 교통비 지원 정보
+# **제가 도와드릴 수 있는 것**:
+# ✅ 복지 프로그램 정보 (산정특례, 의료비 지원 등)
+# ✅ 신청 방법 및 절차
+# ✅ 장애인 등록 안내
+# ✅ 교통비 지원 정보
 
-복지 관련 질문이 있으시면 말씀해주세요!"
+# 복지 관련 질문이 있으시면 말씀해주세요!"
 
-**Tone**: Friendly but firm, clearly define your scope"""
-        )
+# **Tone**: Friendly but firm, clearly define your scope"""
+#         )
 
-        # Guideline 2: Eligibility disclaimer
-        await welfare_agent.create_guideline(
-            condition="User asks about specific eligibility or whether they qualify for a program",
-            action="""Always remind the user that:
+#         # Guideline 2: Eligibility disclaimer
+#         await welfare_agent.create_guideline(
+#             condition="User asks about specific eligibility or whether they qualify for a program",
+#             action="""Always remind the user that:
 
-1. You provide GENERAL guidelines based on government data
-2. FINAL ELIGIBILITY is determined by authorities (국민건강보험공단, 주민센터, etc.)
-3. Personal circumstances may affect eligibility
-4. They should contact the program directly for personalized assessment
+# 1. You provide GENERAL guidelines based on government data
+# 2. FINAL ELIGIBILITY is determined by authorities (국민건강보험공단, 주민센터, etc.)
+# 3. Personal circumstances may affect eligibility
+# 4. They should contact the program directly for personalized assessment
 
-**Example Format**:
-"일반적으로 [자격 요건]에 해당하는 경우 신청 가능합니다.
-하지만 최종 자격 여부는 [담당 기관]에서 개별적으로 판단합니다.
-정확한 상담을 위해 [전화번호]로 직접 문의하시는 것을 권장드립니다."
+# **Example Format**:
+# "일반적으로 [자격 요건]에 해당하는 경우 신청 가능합니다.
+# 하지만 최종 자격 여부는 [담당 기관]에서 개별적으로 판단합니다.
+# 정확한 상담을 위해 [전화번호]로 직접 문의하시는 것을 권장드립니다."
 
-**Tone**: Helpful but cautious, avoid definitive yes/no about eligibility"""
-        )
+# **Tone**: Helpful but cautious, avoid definitive yes/no about eligibility"""
+#         )
 
-        # Guideline 3: Empathetic support for financial distress
-        await welfare_agent.create_guideline(
-            condition="User expresses financial difficulty, desperation, or emotional distress about medical costs",
-            action="""Respond with empathy and comprehensive support:
+#         # Guideline 3: Empathetic support for financial distress
+#         await welfare_agent.create_guideline(
+#             condition="User expresses financial difficulty, desperation, or emotional distress about medical costs",
+#             action="""Respond with empathy and comprehensive support:
 
-1. **Acknowledge** their situation: "의료비 부담이 크시겠어요. 여러 지원 제도가 있으니 함께 알아보겠습니다."
+# 1. **Acknowledge** their situation: "의료비 부담이 크시겠어요. 여러 지원 제도가 있으니 함께 알아보겠습니다."
 
-2. **Emphasize** available programs:
-   - 산정특례 (90% 본인부담금 감면)
-   - 의료비 지원 (재난적 의료비, 긴급 의료비)
-   - 장애인 복지 혜택
+# 2. **Emphasize** available programs:
+#    - 산정특례 (90% 본인부담금 감면)
+#    - 의료비 지원 (재난적 의료비, 긴급 의료비)
+#    - 장애인 복지 혜택
 
-3. **Prioritize by impact**:
-   - 산정특례 first (biggest reduction)
-   - 긴급 의료비 for urgent needs (3-7 days)
+# 3. **Prioritize by impact**:
+#    - 산정특례 first (biggest reduction)
+#    - 긴급 의료비 for urgent needs (3-7 days)
 
-4. **Encourage action**:
-   - "포기하지 마시고 꼭 신청하세요"
-   - "담당자와 상담하시면 도움받으실 수 있습니다"
+# 4. **Encourage action**:
+#    - "포기하지 마시고 꼭 신청하세요"
+#    - "담당자와 상담하시면 도움받으실 수 있습니다"
 
-5. **Emergency contacts**:
-   - 보건복지콜센터: 국번없이 129
-   - 긴급 복지 지원: 주민센터
-   - 재난적 의료비: 1577-1000
+# 5. **Emergency contacts**:
+#    - 보건복지콜센터: 국번없이 129
+#    - 긴급 복지 지원: 주민센터
+#    - 재난적 의료비: 1577-1000
 
-**Tone**: Warm, supportive, encouraging, non-judgmental
-**Avoid**: Minimizing concerns, making promises about approval"""
-        )
+# **Tone**: Warm, supportive, encouraging, non-judgmental
+# **Avoid**: Minimizing concerns, making promises about approval"""
+#         )
 
-        # Guideline 4: Clear application instructions
-        await welfare_agent.create_guideline(
-            condition="User asks about application process or required documents",
-            action="""Provide CLEAR, STEP-BY-STEP instructions:
+#         # Guideline 4: Clear application instructions
+#         await welfare_agent.create_guideline(
+#             condition="User asks about application process or required documents",
+#             action="""Provide CLEAR, STEP-BY-STEP instructions:
 
-1. **Steps in numbered format**:
-   - Step 1: [First action - "병원에서 진단서 받기"]
-   - Step 2: [Second action - "서류 준비하기"]
-   - Step 3: [Third action - "신청 기관 방문"]
+# 1. **Steps in numbered format**:
+#    - Step 1: [First action - "병원에서 진단서 받기"]
+#    - Step 2: [Second action - "서류 준비하기"]
+#    - Step 3: [Third action - "신청 기관 방문"]
 
-2. **Required documents**:
-   - Use bullet points
-   - Be specific (e.g., "의사 진단서 (희귀난치성질환 등록 신청용)")
-   - Mention where to get each document
+# 2. **Required documents**:
+#    - Use bullet points
+#    - Be specific (e.g., "의사 진단서 (희귀난치성질환 등록 신청용)")
+#    - Mention where to get each document
 
-3. **Where to apply**:
-   - Exact location (e.g., "국민건강보험공단 지사 또는 병원 원무과")
-   - Suggest calling ahead
+# 3. **Where to apply**:
+#    - Exact location (e.g., "국민건강보험공단 지사 또는 병원 원무과")
+#    - Suggest calling ahead
 
-4. **Processing time**:
-   - Realistic expectations (e.g., "7-14일 소요")
-   - Follow-up options
+# 4. **Processing time**:
+#    - Realistic expectations (e.g., "7-14일 소요")
+#    - Follow-up options
 
-5. **Contact for questions**:
-   - Always provide phone number
-   - Encourage calling for clarification
+# 5. **Contact for questions**:
+#    - Always provide phone number
+#    - Encourage calling for clarification
 
-**Format**: Numbered lists, bullet points, emojis for clarity
-**Language**: Korean (한국어)"""
-        )
+# **Format**: Numbered lists, bullet points, emojis for clarity
+# **Language**: Korean (한국어)"""
+#         )
 
-        # Guideline 5: Profile-aware responses
-        await welfare_agent.create_guideline(
-            condition="Responding to user queries",
-            action="""Adapt response based on user profile:
+#         # Guideline 5: Profile-aware responses
+#         await welfare_agent.create_guideline(
+#             condition="Responding to user queries",
+#             action="""Adapt response based on user profile:
 
-**Researcher Profile** (학술/전문가):
-- Detailed policy information
-- Include legal basis and sources
-- Cite government agencies and regulations
-- Max 10 programs
-- Technical terminology acceptable
+# **Researcher Profile** (학술/전문가):
+# - Detailed policy information
+# - Include legal basis and sources
+# - Cite government agencies and regulations
+# - Max 10 programs
+# - Technical terminology acceptable
 
-**Patient Profile** (환자/경험자):
-- Practical step-by-step guidance
-- Focus on actionable advice
-- Empathetic tone
-- Max 5 programs
-- Include personal stories if helpful
+# **Patient Profile** (환자/경험자):
+# - Practical step-by-step guidance
+# - Focus on actionable advice
+# - Empathetic tone
+# - Max 5 programs
+# - Include personal stories if helpful
 
-**General Profile** (일반인/노비스):
-- Simple explanations
-- Avoid jargon
-- Visual formatting (emojis, bullets)
-- Max 3 programs
-- Analogies for complex concepts
+# **General Profile** (일반인/노비스):
+# - Simple explanations
+# - Avoid jargon
+# - Visual formatting (emojis, bullets)
+# - Max 3 programs
+# - Analogies for complex concepts
 
-Check customer tags for profile (profile:researcher, profile:patient, profile:general)"""
-        )
+# Check customer tags for profile (profile:researcher, profile:patient, profile:general)"""
+#         )
 
-        print("     ✅ Welfare guidelines added (5 total)")
-
-        # Add Welfare Support Journey to WelfareGuide agent
-        print("     🗺️ Creating Welfare Support Journey for WelfareGuide...")
-        welfare_journey = await create_welfare_journey(welfare_agent)
-        print("     ✅ Welfare Journey added to WelfareGuide agent")
+#         print("     ✅ Welfare guidelines added (5 total)")
 
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
@@ -2737,57 +2741,57 @@ Check customer tags for profile (profile:researcher, profile:patient, profile:ge
         )
 
 
-        # # Display server information
-        # print("="*70)
-        # print("🎉 CareGuide v2.0 + WelfareGuide Server Successfully Started!")
-        # print("="*70)
-        # print(f"\n📋 **Server Information**:")
-        # print(f"  • CareGuide Agent ID: {agent.id}")
+        # Display server information
+        print("="*70)
+        print("🎉 CareGuide v2.0 + WelfareGuide Server Successfully Started!")
+        print("="*70)
+        print(f"\n📋 **Server Information**:")
+        print(f"  • CareGuide Agent ID: {agent.id}")
         # print(f"  • WelfareGuide Agent ID: {welfare_agent.id}")
-        # print(f"  • Customer ID: {customer.id}")
-        # print(f"  • Medical Journey ID: {journey.id}")
-        # print(f"  • Research Journey ID: {research_journey.id}")
+        print(f"  • Customer ID: {customer.id}")
+        print(f"  • Medical Journey ID: {journey.id}")
+        print(f"  • Research Journey ID: {research_journey.id}")
         # print(f"  • Welfare Journey ID (CareGuide): {welfare_journey.id}")
 
-        # print(f"\n👤 **User Profile**:")
-        # profile_display = {
-        #     "researcher": "Researcher/Expert",
-        #     "patient": "Patient/Experience Holder",
-        #     "general": "General Public/Novice"
-        # }
-        # print(f"  • Selected Profile: {profile_display[profile]}")
-        # print(f"  • Max Results: {PROFILE_LIMITS[profile]['max_results']} per source")
-        # print(f"  • Detail Level: {PROFILE_LIMITS[profile]['detail_level']}")
+        print(f"\n👤 **User Profile**:")
+        profile_display = {
+            "researcher": "Researcher/Expert",
+            "patient": "Patient/Experience Holder",
+            "general": "General Public/Novice"
+        }
+        print(f"  • Selected Profile: {profile_display[profile]}")
+        print(f"  • Max Results: {PROFILE_LIMITS[profile]['max_results']} per source")
+        print(f"  • Detail Level: {PROFILE_LIMITS[profile]['detail_level']}")
 
-        # print(f"\n🔍 **Search System**:")
-        # print(f"  • Search Method: Hybrid (Keyword 40% + Semantic 60%)")
-        # print(f"  • Data Sources:")
-        # print(f"    1. MongoDB - Structured data (text indexing)")
-        # print(f"    2. Pinecone - Vector database (semantic search)")
-        # print(f"    3. Local Papers - Rich metadata")
-        # print(f"    4. PubMed API - Real-time (abstracts, authors, DOI, MeSH)")
+        print(f"\n🔍 **Search System**:")
+        print(f"  • Search Method: Hybrid (Keyword 40% + Semantic 60%)")
+        print(f"  • Data Sources:")
+        print(f"    1. MongoDB - Structured data (text indexing)")
+        print(f"    2. Pinecone - Vector database (semantic search)")
+        print(f"    3. Local Papers - Rich metadata")
+        print(f"    4. PubMed API - Real-time (abstracts, authors, DOI, MeSH)")
 
-        # print(f"\n🛠️ **Registered Tools**:")
-        # print(f"  CareGuide Tools:")
-        # print(f"    • search_medical_qa - Hybrid integrated search")
-        # print(f"    • get_kidney_stage_info - CKD stage information")
-        # print(f"    • get_symptom_info - Symptom info and emergency detection")
-        # print(f"    • check_emergency_keywords - Emergency keyword detection")
-        # print(f"    • search_welfare_programs - Welfare program search (13 programs)")
-        # print(f"    • search_hospitals - Hospital/dialysis center search (104,836 facilities)")
-        # print(f"  WelfareGuide Tools:")
-        # print(f"    • search_welfare_programs - Welfare-only search (13 programs)")
+        print(f"\n🛠️ **Registered Tools**:")
+        print(f"  CareGuide Tools:")
+        print(f"    • search_medical_qa - Hybrid integrated search")
+        print(f"    • get_kidney_stage_info - CKD stage information")
+        print(f"    • get_symptom_info - Symptom info and emergency detection")
+        print(f"    • check_emergency_keywords - Emergency keyword detection")
+        print(f"    • search_welfare_programs - Welfare program search (13 programs)")
+        print(f"    • search_hospitals - Hospital/dialysis center search (104,836 facilities)")
+        print(f"  WelfareGuide Tools:")
+        print(f"    • search_welfare_programs - Welfare-only search (13 programs)")
 
-        # print(f"\n⚠️ **Safety Features**:")
-        # print(f"  • Automatic emergency detection (911 guidance)")
-        # print(f"  • Diagnosis/prescription blocking")
-        # print(f"  • Automatic medical disclaimer")
-        # print(f"  • Inappropriate request blocking")
+        print(f"\n⚠️ **Safety Features**:")
+        print(f"  • Automatic emergency detection (911 guidance)")
+        print(f"  • Diagnosis/prescription blocking")
+        print(f"  • Automatic medical disclaimer")
+        print(f"  • Inappropriate request blocking")
 
-        # print("\n" + "="*70)
-        # print("🟢 Server is running.")
-        # print("   Press Ctrl+C to exit.")
-        # print("="*70 + "\n")
+        print("\n" + "="*70)
+        print("🟢 Server is running.")
+        print("   Press Ctrl+C to exit.")
+        print("="*70 + "\n")
 
 
 
