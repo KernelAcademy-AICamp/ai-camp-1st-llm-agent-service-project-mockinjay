@@ -127,8 +127,8 @@ Respond ONLY with valid JSON, no additional text or explanations."""
             import re
             content = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]', '', content)
 
-            # Parse JSON and create Pydantic model
-            parsed_json = json.loads(content)
+            # Parse JSON with strict=False to handle special characters
+            parsed_json = json.loads(content, strict=False)
             pydantic_obj = self.schema.model_validate(parsed_json)
 
         except (json.JSONDecodeError, Exception) as e:
