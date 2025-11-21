@@ -80,7 +80,7 @@ class QuestionStats(BaseModel):
     """Question statistics"""
     totalAttempts: int = Field(..., description="Total number of attempts")
     correctAttempts: int = Field(..., description="Number of correct attempts")
-    userChoicePercentage: float = Field(..., description="Percentage of users who chose the same answer")
+    userChoicePercentage: float = Field(..., description="Percentage of users who chose the same answer as current user (True or False)")
 
 
 class QuizAnswerResponse(BaseModel):

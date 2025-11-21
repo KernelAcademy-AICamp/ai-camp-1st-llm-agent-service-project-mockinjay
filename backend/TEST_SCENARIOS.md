@@ -2,13 +2,18 @@
 
 ## 환경 설정
 ```bash
-# 서버 실행 (별도 터미널)
-cd /Users/parkchulhee/quiz_agent/backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 프로젝트 루트에서 실행
+cd backend
 
-# 환경 변수 설정 필요
+# 환경 변수 설정 (필수)
 export OPENAI_API_KEY="your-openai-api-key"
-export MONGODB_URI="mongodb://localhost:27017"
+export MONGODB_URI="mongodb://localhost:27017"  # 또는 MongoDB Atlas URI
+
+# 선택사항: OpenAI 프록시나 커스텀 엔드포인트 사용 시
+# export OPENAI_BASE_URL="https://your-openai-proxy"
+
+# 서버 실행 (별도 터미널)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## 시나리오 1: 퀴즈 세션 완전 진행

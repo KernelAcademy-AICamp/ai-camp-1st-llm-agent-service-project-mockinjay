@@ -36,6 +36,11 @@ async def start_quiz_session(request: QuizSessionStart):
 
     Agent를 통해 RAG 기반 퀴즈 생성
 
+    WARNING: This endpoint currently accepts userId from client (demo/testing only).
+    TODO: Replace with server-side user authentication via Depends(get_current_user)
+          before production deployment. Remove userId from request model and obtain
+          from authenticated session.
+
     Args:
         request: 세션 시작 요청 (userId, sessionType, category, difficulty)
 
@@ -46,6 +51,7 @@ async def start_quiz_session(request: QuizSessionStart):
         HTTPException: Agent 처리 실패
     """
     # 사용자 세션 생성 (Agent Manager)
+    # TODO: Replace request.userId with authenticated user ID from token
     session_id = agent_manager.create_user_session(request.userId)
 
     # Quiz Agent 호출
@@ -80,6 +86,9 @@ async def submit_quiz_answer(request: QuizAnswerSubmit):
 
     Agent를 통해 답안 검증 및 피드백 생성
 
+    WARNING: This endpoint currently accepts userId from client (demo/testing only).
+    TODO: Replace with server-side user authentication via Depends(get_current_user).
+
     Args:
         request: 답안 제출 요청 (sessionId, userId, questionId, userAnswer)
 
@@ -89,6 +98,7 @@ async def submit_quiz_answer(request: QuizAnswerSubmit):
     Raises:
         HTTPException: 세션/문제 없음, Agent 처리 실패
     """
+    # TODO: Replace request.userId with authenticated user ID
     session_id = agent_manager.create_user_session(request.userId)
 
     context = {
@@ -163,12 +173,16 @@ async def get_user_quiz_stats(userId: str):
 
     Agent를 통해 누적 통계 반환
 
+    WARNING: This endpoint currently accepts userId from client (demo/testing only).
+    TODO: Replace with server-side user authentication via Depends(get_current_user).
+
     Args:
         userId: 사용자 ID
 
     Returns:
         UserQuizStatsResponse: 사용자 통계
     """
+    # TODO: Replace userId with authenticated user ID
     session_id = agent_manager.create_user_session(userId)
 
     context = {
@@ -198,6 +212,9 @@ async def get_quiz_history(userId: str, limit: int = 10, offset: int = 0):
 
     Agent를 통해 완료된 세션 목록 반환 (페이지네이션)
 
+    WARNING: This endpoint currently accepts userId from client (demo/testing only).
+    TODO: Replace with server-side user authentication via Depends(get_current_user).
+
     Args:
         userId: 사용자 ID
         limit: 조회 개수 (최대 50)
@@ -212,6 +229,7 @@ async def get_quiz_history(userId: str, limit: int = 10, offset: int = 0):
     if limit > 50:
         raise HTTPException(status_code=400, detail="limit은 최대 50까지 가능합니다")
 
+    # TODO: Replace userId with authenticated user ID
     session_id = agent_manager.create_user_session(userId)
 
     context = {

@@ -65,7 +65,7 @@ QUIZ_FEEDBACK_PROMPT_TEMPLATE = """
 문제: {question}
 정답: {correct_answer}
 사용자 답변: {user_answer}
-결과: {"정답" if is_correct else "오답"}
+결과: {result_label}
 
 추가 피드백이나 격려 메시지를 1-2문장으로 작성해주세요.
 - 정답인 경우: 칭찬과 함께 추가 팁 제공

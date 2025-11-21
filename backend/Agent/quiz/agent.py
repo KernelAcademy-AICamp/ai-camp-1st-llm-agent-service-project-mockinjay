@@ -51,10 +51,16 @@ class QuizAgent(BaseAgent):
         """
         퀴즈 관련 요청 처리
 
+        Note: user_input parameter is intentionally unused in Quiz Agent.
+        This agent uses action-based routing via the 'action' field in context.
+        The user_input parameter exists for BaseAgent interface compatibility.
+
         Args:
-            user_input: 사용자 입력 (action 포함)
+            user_input: 사용자 입력 (BaseAgent 호환용, 미사용)
             session_id: 세션 ID
             context: 추가 컨텍스트 (action, params 등)
+                - action: 필수, 실행할 작업 지정
+                  (generate_quiz, submit_answer, complete_session, get_stats, get_history)
 
         Returns:
             Dict[str, Any]: 처리 결과
@@ -157,6 +163,8 @@ class QuizAgent(BaseAgent):
                 "explanation": q["explanation"],
                 "totalAttempts": 0,
                 "correctAttempts": 0,
+                "trueChoiceCount": 0,  # True를 선택한 횟수
+                "falseChoiceCount": 0,  # False를 선택한 횟수
                 "createdAt": datetime.utcnow()
             }
             result = quiz_questions_collection.insert_one(q_doc)
@@ -467,13 +475,15 @@ class QuizAgent(BaseAgent):
             "attemptedAt": datetime.utcnow()
         })
 
-        # 문제 통계 업데이트
+        # 문제 통계 업데이트 (선택 카운트 포함)
         questions_collection.update_one(
             {"_id": ObjectId(question_id)},
             {
                 "$inc": {
                     "totalAttempts": 1,
-                    "correctAttempts": 1 if is_correct else 0
+                    "correctAttempts": 1 if is_correct else 0,
+                    "trueChoiceCount": 1 if user_answer else 0,
+                    "falseChoiceCount": 0 if user_answer else 1
                 }
             }
         )
@@ -482,12 +492,17 @@ class QuizAgent(BaseAgent):
         updated_question = questions_collection.find_one({"_id": ObjectId(question_id)})
         total_attempts = updated_question["totalAttempts"]
         correct_attempts = updated_question["correctAttempts"]
+        true_choice_count = updated_question.get("trueChoiceCount", 0)
+        false_choice_count = updated_question.get("falseChoiceCount", 0)
 
-        # 사용자 선택 비율 계산 (사용자가 선택한 답변의 비율)
-        if user_answer:  # True를 선택한 경우
-            user_choice_percentage = (correct_attempts / total_attempts * 100)
-        else:  # False를 선택한 경우
-            user_choice_percentage = ((total_attempts - correct_attempts) / total_attempts * 100)
+        # 사용자 선택 비율 계산 (같은 답을 선택한 사용자의 비율)
+        if total_attempts > 0:
+            if user_answer:  # True를 선택한 경우
+                user_choice_percentage = (true_choice_count / total_attempts * 100)
+            else:  # False를 선택한 경우
+                user_choice_percentage = (false_choice_count / total_attempts * 100)
+        else:
+            user_choice_percentage = 0.0
 
         # 다음 문제 가져오기 (nextQuestion 필드)
         question_ids = session["questionIds"]
