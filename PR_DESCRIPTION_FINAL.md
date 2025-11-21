@@ -240,6 +240,31 @@ Agent 기반 아키텍처로 Quiz Agent를 완전히 구현했습니다. OpenAI 
 
 ## 🧪 테스트
 
+### 테스트 현황
+
+**✅ 테스트 완료 항목:**
+- ✅ Agent 파일 존재 및 import 확인
+- ✅ AgentManager 등록 확인
+- ✅ MongoDB Atlas 연결 및 CRUD 동작
+- ✅ 퀴즈 생성 (3개 문제 생성 성공)
+- ✅ 답안 제출 및 채점 로직
+- ✅ 연속 정답 보너스 (3개 이상 시 +5점)
+- ✅ 점수 계산 및 통계 업데이트
+- ✅ 전체 플로우 (생성 → 제출 → 완료)
+
+**⚠️ 테스트 환경:**
+- **API 사용:** Upstage Solar API (solar-pro2)로 테스트 진행
+  - OpenAI API와 호환되는 인터페이스 사용
+  - 퀴즈 생성, JSON 파싱 정상 동작 확인
+  - 토큰 사용량: 236-283 토큰/요청
+- **OpenAI API 테스트:** 미실시 (API 키 부재)
+  - 코드는 OpenAI API 기본 사용 (gpt-4o-mini)
+  - OpenAI API 키로 동일하게 작동할 것으로 예상
+
+**❌ 미완료 항목:**
+- Vector DB (Pinecone) - 팀 전체 의존성 문제로 스킵
+- 전체 서버 실행 - Pinecone 의존성 문제로 실행 불가
+
 ### 테스트 파일
 - `backend/test_quiz_agent.py` - 전체 플로우 통합 테스트
   - 퀴즈 생성 (daily_quiz, level_test, learning_mission)
@@ -251,9 +276,27 @@ Agent 기반 아키텍처로 Quiz Agent를 완전히 구현했습니다. OpenAI 
 ### 테스트 실행 방법
 ```bash
 cd backend
-export OPENAI_API_KEY='your-api-key'
+export OPENAI_API_KEY='your-api-key'  # OpenAI API 키 필요
 export MONGODB_URI='your-mongodb-uri'
 python test_quiz_agent.py
+```
+
+**참고:** 실제 테스트는 Upstage Solar API로 진행했으며, OpenAI API는 팀에서 키 설정 후 테스트 필요합니다.
+
+### 테스트 결과 예시
+
+**생성된 퀴즈 (Upstage Solar API):**
+```
+✅ MongoDB 연결: 성공
+✅ 퀴즈 3개 생성 성공 (카테고리: 영양 관리, 난이도: 쉬움)
+
+문제 1: "만성콩팥병 환자는 단백질 섭취를 완전히 제한해야 한다." (정답: X)
+문제 2: "만성콩팥병 환자는 나트륨 섭취를 줄이기 위해 가공식품을 피해야 한다." (정답: O)
+문제 3: "만성콩팥병 환자는 칼륨 섭취를 늘리기 위해 바나나와 감자를 많이 먹어야 한다." (정답: X)
+
+✅ 답안 제출: 채점 및 점수 계산 정상
+✅ 연속 정답 보너스: 3개 이상 시 +5점 동작 확인
+✅ 세션 완료: 통계 업데이트 정상
 ```
 
 ## ⚠️ 알려진 이슈
