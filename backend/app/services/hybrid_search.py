@@ -106,7 +106,6 @@ class OptimizedHybridSearchEngine:
                 for key, _ in sorted_items[:20]:
                     del self._result_cache[key]
 
-    @lru_cache(maxsize=100)
     async def _get_query_embedding(self, query: str) -> List[float]:
         """Get query embedding with caching (shared across namespaces)"""
         if query not in self._query_embedding_cache:

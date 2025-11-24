@@ -24,6 +24,10 @@ from dotenv import load_dotenv
 from pymongo import ASCENDING, TEXT
 import logging
 import time
+import asyncio
+from bson import ObjectId
+
+from app.db.vector_manager import OptimizedVectorDBManager
 
 load_dotenv()
 
@@ -76,7 +80,46 @@ class WelfareManager:
         self._cache_timestamp = 0
         self._cache_ttl = 3600  # 1 hour
 
+        # Hybrid search components
+        self.enable_vector_search = True
+        self.vector_namespace = "welfare_programs"
+        self.vector_manager: Optional[OptimizedVectorDBManager] = None
+        self._vector_ready = False
+        self._vector_init_failed = False
+        self.keyword_weight = 0.4
+        self.semantic_weight = 0.6
+
         logger.info(f"WelfareManager initialized: {self.db_name}")
+
+    async def _ensure_connection(self):
+        """Ensure the MongoDB client/DB is initialized."""
+        if self.client is None or self.db is None:
+            await self.connect()
+
+    async def _ensure_vector_manager(self) -> bool:
+        """Initialize Pinecone vector manager if enabled."""
+        if not self.enable_vector_search or self._vector_init_failed:
+            return False
+
+        if self.vector_manager is None:
+            try:
+                self.vector_manager = OptimizedVectorDBManager(use_cache=True)
+            except Exception as e:
+                logger.warning(f"Welfare vector manager init failed: {e}")
+                self._vector_init_failed = True
+                return False
+
+        if not self._vector_ready:
+            try:
+                await self.vector_manager.create_index()
+                self._vector_ready = True
+            except Exception as e:
+                logger.warning(f"Welfare vector index init failed: {e}")
+                self._vector_init_failed = True
+                self.vector_manager = None
+                return False
+
+        return True
 
     async def connect(self):
         """Connect to MongoDB with connection pooling
@@ -319,6 +362,287 @@ class WelfareManager:
         logger.debug(f"CKD stage search: stage={stage}, results={len(results)}")
 
         return results
+
+    async def search_programs(
+        self,
+        query: Optional[str] = None,
+        category: Optional[str] = None,
+        disease: Optional[str] = None,
+        ckd_stage: Optional[int] = None,
+        limit: int = 20
+    ) -> List[Dict]:
+        """Hybrid welfare search combining Mongo keyword and vector search."""
+        await self._ensure_connection()
+
+        filters: Dict = {}
+
+        if category:
+            filters["category"] = category
+
+        if disease:
+            filters["target_disease"] = {"$in": [disease]}
+
+        if ckd_stage is not None:
+            filters["eligibility.ckd_stage"] = {"$in": [ckd_stage]}
+
+        keyword_results: List[Dict] = []
+        semantic_results: List[Dict] = []
+
+        if query:
+            # Run keyword and semantic search concurrently
+            keyword_task = asyncio.create_task(self.search_by_text(
+                query=query,
+                limit=limit,
+                filters=filters or None
+            ))
+
+            semantic_task = asyncio.create_task(self._semantic_search_programs(
+                query=query,
+                limit=limit,
+                category=category,
+                disease=disease,
+                ckd_stage=ckd_stage
+            ))
+
+            keyword_results, semantic_results = await asyncio.gather(
+                keyword_task,
+                semantic_task
+            )
+
+        fallback_limit = max(limit * 2, limit)
+        fallback_results = await self._filter_only_program_search(filters, fallback_limit)
+
+        merged = self._merge_welfare_results(
+            keyword_results,
+            semantic_results,
+            fallback_results,
+            limit
+        )
+
+        logger.debug(
+            "Hybrid welfare search complete: query=%s, filters=%s, results=%d",
+            query,
+            filters,
+            len(merged)
+        )
+
+        return merged
+
+    async def _filter_only_program_search(self, filters: Dict, limit: int) -> List[Dict]:
+        """Fallback query that relies on structured filters only."""
+        base_query = filters.copy() if filters else {}
+        cursor = (
+            self.db.welfare_programs
+            .find(base_query)
+            .sort([("year", -1), ("title", ASCENDING)])
+            .limit(limit)
+        )
+        return await cursor.to_list(length=limit)
+
+    async def _semantic_search_programs(
+        self,
+        query: Optional[str],
+        limit: int,
+        category: Optional[str],
+        disease: Optional[str],
+        ckd_stage: Optional[int]
+    ) -> List[Dict]:
+        """Semantic welfare search via Pinecone."""
+        if not query:
+            return []
+
+        vector_ready = await self._ensure_vector_manager()
+        if not vector_ready or not self.vector_manager:
+            return []
+
+        try:
+            matches = await self.vector_manager.semantic_search(
+                query=query,
+                top_k=max(limit * 3, limit),
+                namespace=self.vector_namespace
+            )
+        except Exception as e:
+            logger.warning(f"Welfare semantic search failed: {e}")
+            return []
+
+        doc_ids = []
+        scores = []
+        for match in matches:
+            metadata = match.get("metadata") or {}
+            doc_id = metadata.get("doc_id") or metadata.get("programId")
+            if not doc_id:
+                continue
+            doc_ids.append(doc_id)
+            scores.append((doc_id, match.get("score", 0.0)))
+
+        docs_map = await self._get_welfare_docs_by_ids(doc_ids)
+
+        semantic_results: List[Dict] = []
+        seen = set()
+        for doc_id, score in scores:
+            if doc_id in seen:
+                continue
+            seen.add(doc_id)
+
+            doc = docs_map.get(doc_id)
+            if not doc:
+                continue
+
+            if not self._welfare_doc_matches_filters(doc, category, disease, ckd_stage):
+                continue
+
+            doc_copy = dict(doc)
+            doc_copy["semantic_score"] = max(score, 0.0)
+            semantic_results.append(doc_copy)
+
+            if len(semantic_results) >= limit:
+                break
+
+        return semantic_results
+
+    async def _get_welfare_docs_by_ids(self, doc_ids: List[str]) -> Dict[str, Dict]:
+        """Fetch welfare docs by Mongo _id or programId."""
+        if not doc_ids:
+            return {}
+
+        object_ids = []
+        program_ids = []
+        for doc_id in doc_ids:
+            if not doc_id:
+                continue
+            try:
+                object_ids.append(ObjectId(doc_id))
+            except Exception:
+                program_ids.append(doc_id)
+
+        query = []
+        if object_ids:
+            query.append({"_id": {"$in": object_ids}})
+        if program_ids:
+            query.append({"programId": {"$in": program_ids}})
+
+        if not query:
+            return {}
+
+        mongo_query = {"$or": query} if len(query) > 1 else query[0]
+        cursor = self.db.welfare_programs.find(mongo_query)
+        docs = await cursor.to_list(length=len(doc_ids))
+
+        result = {}
+        for doc in docs:
+            result[str(doc["_id"])] = doc
+            if "programId" in doc:
+                result[doc["programId"]] = doc
+
+        return result
+
+    def _welfare_doc_matches_filters(
+        self,
+        doc: Dict,
+        category: Optional[str],
+        disease: Optional[str],
+        ckd_stage: Optional[int]
+    ) -> bool:
+        """Apply category/disease/CKD filters to a single doc."""
+        if category and doc.get("category") != category:
+            return False
+
+        if disease:
+            targets = doc.get("target_disease") or []
+            if disease not in targets:
+                return False
+
+        if ckd_stage is not None:
+            eligibility = doc.get("eligibility") or {}
+            stages = eligibility.get("ckd_stage") or []
+            if isinstance(stages, list):
+                if ckd_stage not in stages:
+                    return False
+            else:
+                return False
+
+        return True
+
+    def _merge_welfare_results(
+        self,
+        keyword_results: List[Dict],
+        semantic_results: List[Dict],
+        fallback_results: List[Dict],
+        limit: int
+    ) -> List[Dict]:
+        """Merge keyword, semantic, and fallback results."""
+        combined: Dict[str, Dict] = {}
+
+        def add_result(
+            doc: Dict,
+            keyword_score: float = 0.0,
+            semantic_score: float = 0.0,
+            fallback_order: Optional[int] = None
+        ):
+            doc_id = str(doc.get("_id") or doc.get("programId") or "")
+            if not doc_id:
+                return
+
+            entry = combined.get(doc_id)
+            if not entry:
+                entry = {
+                    "doc": doc,
+                    "keyword_score": 0.0,
+                    "semantic_score": 0.0,
+                    "fallback_order": None
+                }
+                combined[doc_id] = entry
+            else:
+                entry["doc"] = doc
+
+            entry["keyword_score"] = max(entry["keyword_score"], keyword_score)
+            entry["semantic_score"] = max(entry["semantic_score"], semantic_score)
+
+            if fallback_order is not None:
+                if entry["fallback_order"] is None:
+                    entry["fallback_order"] = fallback_order
+                else:
+                    entry["fallback_order"] = min(entry["fallback_order"], fallback_order)
+
+        max_keyword_score = max(
+            [doc.get("score", 0) for doc in keyword_results],
+            default=0.0
+        )
+
+        for doc in keyword_results:
+            normalized = (
+                doc.get("score", 0) / max_keyword_score
+                if max_keyword_score > 0 else 0.0
+            )
+            add_result(doc, keyword_score=normalized, semantic_score=doc.get("semantic_score", 0.0))
+
+        for doc in semantic_results:
+            add_result(doc, semantic_score=doc.get("semantic_score", 0.0))
+
+        fallback_counter = 0
+        for doc in fallback_results:
+            fallback_counter += 1
+            add_result(doc, fallback_order=fallback_counter)
+
+        merged_docs: List[Dict] = []
+        for entry in combined.values():
+            final_score = (
+                entry["keyword_score"] * self.keyword_weight +
+                entry["semantic_score"] * self.semantic_weight
+            )
+
+            if final_score == 0 and entry["fallback_order"] is not None:
+                # Assign a slight bonus to preserve fallback ordering
+                final_score = max(1e-4, 1e-4 * (len(fallback_results) - entry["fallback_order"]))
+
+            entry["doc"]["keyword_score"] = entry["keyword_score"]
+            entry["doc"]["semantic_score"] = entry["semantic_score"]
+            entry["doc"]["hybrid_score"] = final_score
+            merged_docs.append(entry["doc"])
+
+        merged_docs.sort(key=lambda doc: doc.get("hybrid_score", 0), reverse=True)
+
+        return merged_docs[:limit]
 
     async def get_by_id(self, program_id: str) -> Optional[Dict]:
         """프로그램 ID로 조회

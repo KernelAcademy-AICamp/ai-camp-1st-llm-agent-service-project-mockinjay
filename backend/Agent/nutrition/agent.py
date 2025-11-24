@@ -6,9 +6,14 @@ Nutrition Agent Implementation
 import os
 import logging
 import json
-from typing import Dict, Any, Optional, List
+import asyncio
+from typing import Dict, Any, Optional, List, Tuple
 from openai import AsyncOpenAI
-from ..base_agent import BaseAgent
+
+from ..core.local_agent import LocalAgent
+from ..core.agent_registry import AgentRegistry
+from ..core.contracts import AgentRequest, AgentResponse
+from ..core.types import AgentType
 from .prompts import (
     NUTRITION_SYSTEM_PROMPT,
     IMAGE_CLASSIFICATION_PROMPT,
@@ -29,32 +34,47 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-class NutritionAgent(BaseAgent):
+@AgentRegistry.register("nutrition")
+class NutritionAgent(LocalAgent):
     """영양 관리 Agent - CKD 환자 맞춤형 식단 분석 (5가지 이미지 케이스 완벽 지원)"""
 
     def __init__(self):
         super().__init__(agent_type="nutrition")
-        self.client = None
-        self._client_initialized = False
-
+        self.client = None  # Lazy initialization
+        
         # RAG 시스템 (lazy initialization)
         self.rag = None
         self._rag_initialized = False
 
         # 멀티턴 대화 상태 저장 (session_id -> state)
         self.conversation_states = {}
+    
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """에이전트 메타데이터"""
+        return {
+            "name": "Nutrition Agent",
+            "description": "CKD 환자를 위한 영양 분석 및 식단 추천",
+            "version": "2.0",
+            "capabilities": [
+                "image_analysis",
+                "multi_turn_dialog",
+                "dish_recommendation",
+                "ingredient_analysis",
+                "alternative_suggestions",
+                "rag_search"
+            ],
+            "supported_profiles": ["general", "patient", "researcher"]
+        }
 
     async def _ensure_client(self):
-        """OpenAI 클라이언트 lazy initialization"""
-        if not self._client_initialized:
+        """Initialize OpenAI client lazily."""
+        if not self.client:
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                logger.warning("⚠️ OPENAI_API_KEY not found in environment")
-                raise ValueError("OPENAI_API_KEY not configured")
-            else:
-                self.client = AsyncOpenAI(api_key=api_key)
-                self._client_initialized = True
-                logger.info("✅ OpenAI client initialized")
+                raise ValueError("OPENAI_API_KEY environment variable is not set")
+            self.client = AsyncOpenAI(api_key=api_key)
+            logger.info("✅ OpenAI client initialized for nutrition agent")
 
     def _ensure_rag(self):
         """RAG 시스템 lazy initialization"""
@@ -86,13 +106,52 @@ class NutritionAgent(BaseAgent):
         state.update(updates)
         self.conversation_states[session_id] = state
 
-    async def process(
+    async def process(self, request: AgentRequest) -> AgentResponse:
+        """
+        통일된 계약 기반 처리 (새 인터페이스)
+        
+        Args:
+            request: AgentRequest
+            
+        Returns:
+            AgentResponse: 통일된 응답 형식
+        """
+        # 기존 메서드 호출 (어댑터 패턴)
+        legacy_result = await self._process_legacy(
+            request.query,
+            request.session_id,
+            request.context
+        )
+        
+        # Dict -> AgentResponse 변환
+        return AgentResponse(
+            answer=legacy_result.get("response", ""),
+            sources=[],
+            papers=[],
+            tokens_used=legacy_result.get("tokens_used", 0),
+            status=legacy_result.get("status", "success"),
+            agent_type=self.agent_type,
+            metadata={
+                "type": legacy_result.get("type"),
+                "nutritionData": legacy_result.get("nutritionData"),
+                "dishCandidates": legacy_result.get("dishCandidates"),
+                "ingredientCandidates": legacy_result.get("ingredientCandidates"),
+                "recommendedDishes": legacy_result.get("recommendedDishes"),
+                "analysisType": legacy_result.get("analysisType"),
+                "session_id": request.session_id,
+                "has_image": request.context.get("has_image", False) if request.context else False
+            }
+        )
+    
+    async def _process_legacy(
         self,
         user_input: str,
         session_id: str,
         context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
+        기존 process 메서드 (하위 호환성 유지)
+        
         영양 분석 처리 - 5가지 이미지 케이스 완벽 지원
 
         Args:
@@ -237,15 +296,12 @@ class NutritionAgent(BaseAgent):
         """
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",
                         "content": [
-                            {
-                                "type": "text",
-                                "text": IMAGE_CLASSIFICATION_PROMPT
-                            },
+                            {"type": "text", "text": IMAGE_CLASSIFICATION_PROMPT},
                             {
                                 "type": "image_url",
                                 "image_url": {
@@ -255,10 +311,8 @@ class NutritionAgent(BaseAgent):
                         ]
                     }
                 ],
-                max_tokens=500,
-                temperature=0.3
+                max_tokens=500
             )
-
             content = response.choices[0].message.content
             logger.info(f"🔍 Classification response: {content[:200]}")
 
@@ -425,17 +479,16 @@ class NutritionAgent(BaseAgent):
         """단일 식재료로 만들 수 있는 CKD 친화적 요리 추천"""
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",
                         "content": INGREDIENT_TO_DISH_PROMPT.format(ingredient_name=ingredient_name)
                     }
                 ],
-                max_tokens=1500,
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=1500
             )
-
             content = response.choices[0].message.content
             data = self._extract_json(content)
             return data.get("recommendedDishes", [])[:5]
@@ -449,17 +502,16 @@ class NutritionAgent(BaseAgent):
         try:
             ingredients_str = ", ".join(ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",
                         "content": MULTIPLE_INGREDIENTS_ANALYSIS_PROMPT.format(ingredients_list=ingredients_str)
                     }
                 ],
-                max_tokens=1000,
-                temperature=0.5
+                temperature=0.5,
+                max_tokens=1000
             )
-
             content = response.choices[0].message.content
             data = self._extract_json(content)
             return data.get("ingredients", [])
@@ -473,17 +525,16 @@ class NutritionAgent(BaseAgent):
         try:
             ingredients_str = ", ".join(ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",
                         "content": MULTIPLE_INGREDIENTS_TO_DISH_PROMPT.format(ingredients_list=ingredients_str)
                     }
                 ],
-                max_tokens=1500,
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=1500
             )
-
             content = response.choices[0].message.content
             data = self._extract_json(content)
             return data.get("recommendedDishes", [])[:5]
@@ -863,7 +914,7 @@ class NutritionAgent(BaseAgent):
         try:
             high_risk_str = ", ".join(high_risk_ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",
@@ -873,10 +924,9 @@ class NutritionAgent(BaseAgent):
                         )
                     }
                 ],
-                max_tokens=1500,
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=1500
             )
-
             content = response.choices[0].message.content
             data = self._extract_json(content)
 
@@ -930,7 +980,7 @@ class NutritionAgent(BaseAgent):
             system_prompt = NUTRITION_SYSTEM_PROMPT.format(profile_specific_instructions=profile_instructions)
 
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
@@ -943,10 +993,9 @@ class NutritionAgent(BaseAgent):
 한국어로 자세하고 친절하게 답변해주세요."""
                     }
                 ],
-                max_tokens=1500,
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=1500
             )
-
             answer = response.choices[0].message.content
             logger.info(f"✅ Text analysis response received: {len(answer)} chars")
 

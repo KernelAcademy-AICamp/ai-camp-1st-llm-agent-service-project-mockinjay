@@ -74,7 +74,10 @@ app.add_middleware(
 
 # Global instances for nutrition agent
 nutrition_agent = NutritionAgent()
-session_manager = SessionManager()
+# Global instances for nutrition agent
+nutrition_agent = NutritionAgent()
+from app.core.context_system import context_system
+session_manager = context_system.session_manager
 
 # Include routers
 app.include_router(chat_router)

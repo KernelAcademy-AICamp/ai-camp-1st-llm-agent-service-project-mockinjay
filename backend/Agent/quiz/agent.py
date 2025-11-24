@@ -9,10 +9,12 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from bson import ObjectId
 
-from ..base_agent import BaseAgent
-from ..api.openai_client import OpenAIClient
+from ..core.local_agent import LocalAgent
+from ..core.agent_registry import AgentRegistry
+from ..core.contracts import AgentRequest, AgentResponse
 from ..api.vector_client import VectorClient
 from ..api.mongodb_client import MongoDBClient
+from ..api.openai_client import OpenAIClient
 from .prompts import (
     QUIZ_GENERATION_SYSTEM_PROMPT,
     QUIZ_GENERATION_USER_PROMPT_TEMPLATE,
@@ -33,7 +35,8 @@ from app.db.connection import db
 logger = logging.getLogger(__name__)
 
 
-class QuizAgent(BaseAgent):
+@AgentRegistry.register("quiz")
+class QuizAgent(LocalAgent):
     """퀴즈 생성 및 관리 Agent"""
 
     def __init__(self):
@@ -41,14 +44,161 @@ class QuizAgent(BaseAgent):
         self.openai_client = OpenAIClient(model="gpt-4o-mini")
         self.vector_client = VectorClient()
         self.mongodb_client = MongoDBClient()
+    
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """에이전트 메타데이터"""
+        return {
+            "name": "Quiz Agent",
+            "description": "RAG 기반 CKD 퀴즈 생성 및 관리",
+            "version": "2.0",
+            "capabilities": [
+                "quiz_generation",
+                "rag_search",
+                "answer_submission",
+                "session_management",
+                "user_stats",
+                "quiz_history"
+            ],
+            "supported_session_types": ["daily_quiz", "level_test", "learning_mission"]
+        }
 
-    async def process(
+    async def process(self, request: AgentRequest) -> AgentResponse:
+        """
+        통일된 계약 기반 처리 (새 인터페이스)
+        
+        Args:
+            request: AgentRequest
+            
+        Returns:
+            AgentResponse: 통일된 응답 형식
+        """
+        # 기존 메서드 호출 (어댑터 패턴)
+        legacy_result = await self._process_legacy(
+            request.query,
+            request.session_id,
+            request.context
+        )
+        
+        # Dict -> AgentResponse 변환
+        if not legacy_result.get("success", False):
+            return AgentResponse(
+                answer=legacy_result.get("error", "퀴즈 처리 오류"),
+                status="error",
+                agent_type=self.agent_type,
+                metadata=legacy_result.get("metadata", {})
+            )
+        
+        # 액션 감지: legacy_result의 필드를 보고 어떤 액션이 실행되었는지 판단
+        if "sessionId" in legacy_result and "currentQuestion" in legacy_result:
+            # generate_quiz 액션
+            action = "generate_quiz"
+        elif "isCorrect" in legacy_result and "explanation" in legacy_result:
+            # submit_answer 액션
+            action = "submit_answer"
+        elif "accuracyRate" in legacy_result and "completedAt" in legacy_result:
+            # complete_session 액션
+            action = "complete_session"
+        elif "totalSessions" in legacy_result:
+            # get_stats 액션
+            action = "get_stats"
+        elif "sessions" in legacy_result or "total" in legacy_result:
+            # get_history 액션
+            action = "get_history"
+        else:
+            # 알 수 없는 액션
+            action = None
+        
+        # answer 필드 생성 (액션별로 다름)
+        if action == "generate_quiz":
+            session_type_kr = {
+                "daily_quiz": "일일 퀴즈",
+                "level_test": "레벨 테스트",
+                "learning_mission": "학습 미션"
+            }.get(legacy_result.get('sessionType'), "퀴즈")
+            
+            total_questions = legacy_result.get('totalQuestions', 0)
+            current_question = legacy_result.get('currentQuestion', {})
+            question_text = current_question.get('question', '')
+            
+            answer = f"""🎯 {session_type_kr}가 시작되었습니다!
+
+📝 **문제 1/{total_questions}**
+{question_text}
+
+위 문장이 맞으면 'True', 틀리면 'False'를 선택하세요."""
+        elif action == "submit_answer":
+            is_correct = legacy_result.get("isCorrect", False)
+            explanation = legacy_result.get("explanation", "")
+            current_score = legacy_result.get("currentScore", 0)
+            consecutive = legacy_result.get("consecutiveCorrect", 0)
+            
+            result_emoji = "✅" if is_correct else "❌"
+            result_text = "정답입니다!" if is_correct else "틀렸습니다."
+            
+            answer = f"""{result_emoji} {result_text}
+
+💡 **해설**: {explanation}
+
+📊 현재 점수: {current_score}점"""
+            
+            if consecutive >= 3:
+                answer += f"\n🔥 연속 {consecutive}개 정답! 보너스 +5점!"
+                
+        elif action == "complete_session":
+            accuracy = legacy_result.get("accuracyRate", 0)
+            final_score = legacy_result.get("finalScore", 0)
+            total = legacy_result.get("totalQuestions", 0)
+            correct = legacy_result.get("correctAnswers", 0)
+            
+            answer = f"""🎉 퀴즈를 완료했습니다!
+
+📊 최종 결과:
+   - 정답률: {accuracy}% ({correct}/{total})
+   - 최종 점수: {final_score}점"""
+   
+            streak = legacy_result.get("streak")
+            if streak:
+                answer += f"\n🔥 현재 연속 {streak}일째 퀴즈 풀이 중!"
+                
+        elif action == "get_stats":
+            total_sessions = legacy_result.get("totalSessions", 0)
+            total_questions = legacy_result.get("totalQuestions", 0)
+            correct_answers = legacy_result.get("correctAnswers", 0)
+            accuracy = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+            
+            answer = f"""📊 퀴즈 통계
+
+   - 총 세션: {total_sessions}개
+   - 총 문제: {total_questions}개
+   - 정답: {correct_answers}개
+   - 정답률: {accuracy:.1f}%"""
+   
+        elif action == "get_history":
+            total = legacy_result.get("total", 0)
+            answer = f"📚 총 {total}개의 퀴즈 이력이 있습니다."
+        else:
+            answer = "퀴즈 요청이 처리되었습니다."
+        
+        return AgentResponse(
+            answer=answer,
+            sources=[],
+            papers=[],
+            tokens_used=legacy_result.get("tokens_used", 0),
+            status="success",
+            agent_type=self.agent_type,
+            metadata=legacy_result  # 전체 레거시 응답을 메타데이터로 포함
+        )
+    
+    async def _process_legacy(
         self,
         user_input: str,
         session_id: str,
         context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
+        기존 process 메서드 (하위 호환성 유지)
+        
         퀴즈 관련 요청 처리
 
         Args:
@@ -59,11 +209,33 @@ class QuizAgent(BaseAgent):
         Returns:
             Dict[str, Any]: 처리 결과
         """
-        if not context:
-            return {
-                "success": False,
-                "error": "퀴즈 에이전트에 컨텍스트가 필요합니다"
-            }
+        # 자연어 쿼리 감지: context가 없거나 비어있는 경우
+        if not context or not context.get("action"):
+            # 퀴즈 요청인지 확인
+            quiz_keywords = ["퀴즈", "quiz", "문제", "테스트", "시험"]
+            if any(keyword in user_input.lower() for keyword in quiz_keywords):
+                # 기본 daily_quiz 설정으로 자동 생성
+                logger.info(f"자연어 퀴즈 요청 감지: {user_input}")
+                context = {
+                    "action": "generate_quiz",
+                    "userId": session_id,  # session_id를 userId로 사용
+                    "sessionType": "daily_quiz",
+                    "category": None,  # daily_quiz는 카테고리 자동 선택
+                    "difficulty": None  # daily_quiz는 난이도 혼합
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "퀴즈 에이전트에 컨텍스트가 필요합니다",
+                    "hint": "퀴즈를 시작하려면 '퀴즈'라는 단어를 포함하거나, context에 action을 지정하세요.",
+                    "available_actions": [
+                        "generate_quiz",
+                        "submit_answer",
+                        "complete_session",
+                        "get_stats",
+                        "get_history"
+                    ]
+                }
 
         action = context.get("action")
 
@@ -270,16 +442,34 @@ class QuizAgent(BaseAgent):
             rag_context=rag_context
         )
 
-        result = await self.openai_client.generate(
-            prompt=user_prompt,
-            system_prompt=QUIZ_GENERATION_SYSTEM_PROMPT,
+        messages = [
+            {"role": "system", "content": QUIZ_GENERATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        result_text = await self.openai_client.generate(
+            messages=messages,
             temperature=0.7,
             max_tokens=2000
         )
+        result = {"text": result_text}
 
-        # 3. JSON 파싱
+        # 3. JSON 파싱 (마크다운 코드 블록 제거)
         try:
-            questions = json.loads(result["text"])
+            response_text = result["text"].strip()
+            
+            # 마크다운 코드 블록 제거 (```json ... ```)
+            if response_text.startswith("```"):
+                # 첫 번째 줄 제거 (```json)
+                lines = response_text.split("\n")
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                # 마지막 줄 제거 (```)
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                response_text = "\n".join(lines).strip()
+            
+            questions = json.loads(response_text)
             if not isinstance(questions, list):
                 raise ValueError("퀴즈 문제 목록 형식이 올바르지 않습니다")
 
@@ -292,7 +482,8 @@ class QuizAgent(BaseAgent):
 
         except json.JSONDecodeError as e:
             logger.error(f"퀴즈 JSON 파싱 실패: {e}")
-            logger.error(f"응답: {result['text']}")
+            logger.error(f"원본 응답: {result['text'][:500]}...")
+            logger.error(f"정제된 응답: {response_text[:500]}...")
             raise ValueError("퀴즈 문제 생성에 실패했습니다")
 
     def _build_rag_context(

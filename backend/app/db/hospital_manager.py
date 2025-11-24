@@ -3,11 +3,16 @@ Hospital Data Manager - 병원/약국/투석 데이터 관리
 """
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import List, Dict, Optional, Tuple
+import re
 import os
 from dotenv import load_dotenv
 from pymongo import ASCENDING, TEXT, GEOSPHERE
 import logging
 import time
+import asyncio
+from bson import ObjectId
+
+from app.db.vector_manager import OptimizedVectorDBManager
 
 load_dotenv()
 
@@ -46,6 +51,45 @@ class HospitalManager:
         self._stats_cache = {}
         self._cache_timestamp = 0
         self._cache_ttl = 300  # 5 minutes
+
+        # Hybrid search configuration
+        self.enable_vector_search = True
+        self.vector_namespace = "hospitals"
+        self.vector_manager: Optional[OptimizedVectorDBManager] = None
+        self._vector_ready = False
+        self._vector_init_failed = False
+        self.keyword_weight = 0.4
+        self.semantic_weight = 0.6
+
+    async def _ensure_connection(self):
+        """Ensure MongoDB connection exists before running queries."""
+        if self.client is None or self.db is None:
+            await self.connect()
+
+    async def _ensure_vector_manager(self) -> bool:
+        """Initialize Pinecone vector manager if enabled."""
+        if not self.enable_vector_search or self._vector_init_failed:
+            return False
+
+        if self.vector_manager is None:
+            try:
+                self.vector_manager = OptimizedVectorDBManager(use_cache=True)
+            except Exception as e:
+                logger.warning(f"Hospital vector manager init failed: {e}")
+                self._vector_init_failed = True
+                return False
+
+        if not self._vector_ready:
+            try:
+                await self.vector_manager.create_index()
+                self._vector_ready = True
+            except Exception as e:
+                logger.warning(f"Hospital vector index init failed: {e}")
+                self._vector_init_failed = True
+                self.vector_manager = None
+                return False
+
+        return True
 
     async def connect(self):
         """Connect to MongoDB with optimized settings"""
@@ -184,7 +228,7 @@ class HospitalManager:
         Returns:
             검색 결과 리스트
         """
-        query = {"region": region}
+        query = self._build_region_query(region) or {}
 
         if type:
             query["type"] = type
@@ -330,8 +374,6 @@ class HospitalManager:
         Returns:
             병원 정보 또는 None
         """
-        from bson import ObjectId
-
         try:
             result = await self.db.hospitals.find_one({"_id": ObjectId(hospital_id)})
             return result
@@ -360,8 +402,9 @@ class HospitalManager:
         """
         query = {"has_dialysis_unit": True}
 
-        if region:
-            query["region"] = region
+        region_filter = self._build_region_query(region)
+        if region_filter:
+            query.update(region_filter)
 
         if night_only:
             query["night_dialysis"] = True
@@ -477,6 +520,355 @@ class HospitalManager:
         """
         types = await self.db.hospitals.distinct("type")
         return sorted(types)
+
+    def _build_region_query(self, region: Optional[str]) -> Dict:
+        """Create a Mongo query that matches region/address substrings."""
+        if not region:
+            return {}
+
+        keyword = region.strip()
+        if not keyword:
+            return {}
+
+        escaped = re.escape(keyword)
+        regex = {"$regex": escaped, "$options": "i"}
+        return {
+            "$or": [
+                {"region": regex},
+                {"address": regex}
+            ]
+        }
+
+    def _doc_matches_region(self, doc: Dict, region: Optional[str]) -> bool:
+        """Check if region keyword appears in region/address fields."""
+        if not region:
+            return True
+
+        keyword = region.strip()
+        if not keyword:
+            return True
+
+        keyword_lower = keyword.lower()
+        region_value = str(doc.get("region", "") or "").lower()
+        address_value = str(doc.get("address", "") or "").lower()
+
+        return keyword_lower in region_value or keyword_lower in address_value
+
+    async def search_hospitals(
+        self,
+        query: Optional[str] = None,
+        hospital_type: Optional[str] = None,
+        region: Optional[str] = None,
+        has_dialysis: Optional[bool] = None,
+        night_dialysis: Optional[bool] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        max_distance_km: float = 10.0,
+        limit: int = 20
+    ) -> List[Dict]:
+        """Hybrid hospital search combining keyword, semantic, and structured filters."""
+        await self._ensure_connection()
+
+        filters: Dict = {}
+        region_filter = self._build_region_query(region)
+        if region_filter:
+            filters.update(region_filter)
+        if hospital_type:
+            filters["type"] = hospital_type
+        if has_dialysis is not None:
+            filters["has_dialysis_unit"] = has_dialysis
+        if night_dialysis is not None:
+            filters["night_dialysis"] = night_dialysis
+
+        if query:
+            keyword_task = asyncio.create_task(self.search_by_text(
+                query=query,
+                limit=limit,
+                filters=filters or None
+            ))
+
+            semantic_task = asyncio.create_task(self._semantic_search_hospitals(
+                query=query,
+                limit=limit,
+                hospital_type=hospital_type,
+                region=region,
+                has_dialysis=has_dialysis,
+                night_dialysis=night_dialysis
+            ))
+
+            keyword_results, semantic_results = await asyncio.gather(
+                keyword_task,
+                semantic_task
+            )
+
+            fallback_results = await self._base_filter_hospital_search(
+                filters,
+                max(limit * 2, limit)
+            )
+
+            merged = self._merge_hospital_results(
+                keyword_results,
+                semantic_results,
+                fallback_results,
+                limit
+            )
+
+            logger.debug(
+                "Hybrid hospital search complete: query=%s, filters=%s, results=%d",
+                query,
+                filters,
+                len(merged)
+            )
+
+            return merged
+
+        # Queryless path retains existing behavior (region/nearby searches)
+        if latitude is not None and longitude is not None:
+            nearby = await self.search_nearby(
+                latitude=latitude,
+                longitude=longitude,
+                max_distance_km=max_distance_km,
+                type=hospital_type,
+                has_dialysis=has_dialysis,
+                limit=limit * 2
+            )
+
+            if region:
+                nearby = [h for h in nearby if self._doc_matches_region(h, region)]
+            if night_dialysis is not None:
+                nearby = [h for h in nearby if h.get("night_dialysis") == night_dialysis]
+
+            return nearby[:limit]
+
+        if region:
+            return await self.search_by_region(
+                region=region,
+                type=hospital_type,
+                has_dialysis=has_dialysis,
+                night_dialysis=night_dialysis,
+                limit=limit
+            )
+
+        fallback = await self._base_filter_hospital_search(filters, limit)
+        return fallback[:limit]
+
+    async def _base_filter_hospital_search(self, filters: Dict, limit: int) -> List[Dict]:
+        """Structured fallback search when keyword/semantic results are insufficient."""
+        projection = {
+            "name": 1,
+            "address": 1,
+            "phone": 1,
+            "region": 1,
+            "type": 1,
+            "dialysis_machines": 1,
+            "has_dialysis_unit": 1,
+            "night_dialysis": 1,
+            "dialysis_days": 1,
+            "lat": 1,
+            "lng": 1,
+            "naver_map_url": 1,
+            "kakao_map_url": 1,
+            "_id": 1
+        }
+
+        query = filters.copy() if filters else {}
+
+        cursor = (
+            self.db.hospitals
+            .find(query, projection)
+            .sort([("has_dialysis_unit", -1), ("dialysis_machines", -1), ("name", ASCENDING)])
+            .limit(limit)
+        )
+        return await cursor.to_list(length=limit)
+
+    async def _semantic_search_hospitals(
+        self,
+        query: Optional[str],
+        limit: int,
+        hospital_type: Optional[str],
+        region: Optional[str],
+        has_dialysis: Optional[bool],
+        night_dialysis: Optional[bool]
+    ) -> List[Dict]:
+        """Semantic hospital search leveraging Pinecone vectors."""
+        if not query:
+            return []
+
+        vector_ready = await self._ensure_vector_manager()
+        if not vector_ready or not self.vector_manager:
+            return []
+
+        try:
+            matches = await self.vector_manager.semantic_search(
+                query=query,
+                top_k=max(limit * 3, limit),
+                namespace=self.vector_namespace
+            )
+        except Exception as e:
+            logger.warning(f"Hospital semantic search failed: {e}")
+            return []
+
+        doc_ids = []
+        scores = []
+        for match in matches:
+            metadata = match.get("metadata") or {}
+            doc_id = metadata.get("doc_id") or metadata.get("_id") or metadata.get("hospital_id")
+            if not doc_id:
+                continue
+            doc_ids.append(doc_id)
+            scores.append((doc_id, match.get("score", 0.0)))
+
+        docs_map = await self._get_hospitals_by_ids(doc_ids)
+
+        semantic_results: List[Dict] = []
+        seen = set()
+        for doc_id, score in scores:
+            if doc_id in seen:
+                continue
+            seen.add(doc_id)
+
+            doc = docs_map.get(doc_id)
+            if not doc:
+                continue
+
+            if not self._hospital_doc_matches_filters(
+                doc,
+                hospital_type,
+                region,
+                has_dialysis,
+                night_dialysis
+            ):
+                continue
+
+            doc_copy = dict(doc)
+            doc_copy["semantic_score"] = max(score, 0.0)
+            semantic_results.append(doc_copy)
+
+            if len(semantic_results) >= limit:
+                break
+
+        return semantic_results
+
+    async def _get_hospitals_by_ids(self, doc_ids: List[str]) -> Dict[str, Dict]:
+        """Fetch hospital documents by Mongo _id."""
+        if not doc_ids:
+            return {}
+
+        object_ids = []
+        for doc_id in doc_ids:
+            if not doc_id:
+                continue
+            try:
+                object_ids.append(ObjectId(doc_id))
+            except Exception:
+                continue
+
+        if not object_ids:
+            return {}
+
+        cursor = self.db.hospitals.find({"_id": {"$in": object_ids}})
+        docs = await cursor.to_list(length=len(object_ids))
+
+        return {str(doc["_id"]): doc for doc in docs}
+
+    def _hospital_doc_matches_filters(
+        self,
+        doc: Dict,
+        hospital_type: Optional[str],
+        region: Optional[str],
+        has_dialysis: Optional[bool],
+        night_dialysis: Optional[bool]
+    ) -> bool:
+        """Apply region/type/dialysis filters to a hospital doc."""
+        if region and not self._doc_matches_region(doc, region):
+            return False
+        if hospital_type and doc.get("type") != hospital_type:
+            return False
+        if has_dialysis is not None and doc.get("has_dialysis_unit") != has_dialysis:
+            return False
+        if night_dialysis is not None and doc.get("night_dialysis") != night_dialysis:
+            return False
+        return True
+
+    def _merge_hospital_results(
+        self,
+        keyword_results: List[Dict],
+        semantic_results: List[Dict],
+        fallback_results: List[Dict],
+        limit: int
+    ) -> List[Dict]:
+        """Combine keyword, semantic, and fallback hospital results."""
+        combined: Dict[str, Dict] = {}
+
+        def add_result(
+            doc: Dict,
+            keyword_score: float = 0.0,
+            semantic_score: float = 0.0,
+            fallback_order: Optional[int] = None
+        ):
+            doc_id = str(doc.get("_id") or "")
+            if not doc_id:
+                return
+
+            entry = combined.get(doc_id)
+            if not entry:
+                entry = {
+                    "doc": doc,
+                    "keyword_score": 0.0,
+                    "semantic_score": 0.0,
+                    "fallback_order": None
+                }
+                combined[doc_id] = entry
+            else:
+                entry["doc"] = doc
+
+            entry["keyword_score"] = max(entry["keyword_score"], keyword_score)
+            entry["semantic_score"] = max(entry["semantic_score"], semantic_score)
+
+            if fallback_order is not None:
+                if entry["fallback_order"] is None:
+                    entry["fallback_order"] = fallback_order
+                else:
+                    entry["fallback_order"] = min(entry["fallback_order"], fallback_order)
+
+        max_keyword_score = max(
+            [doc.get("score", 0) for doc in keyword_results],
+            default=0.0
+        )
+
+        for doc in keyword_results:
+            normalized = (
+                doc.get("score", 0) / max_keyword_score
+                if max_keyword_score > 0 else 0.0
+            )
+            add_result(doc, keyword_score=normalized)
+
+        for doc in semantic_results:
+            add_result(doc, semantic_score=doc.get("semantic_score", 0.0))
+
+        fallback_counter = 0
+        for doc in fallback_results:
+            fallback_counter += 1
+            add_result(doc, fallback_order=fallback_counter)
+
+        merged_docs: List[Dict] = []
+        for entry in combined.values():
+            final_score = (
+                entry["keyword_score"] * self.keyword_weight +
+                entry["semantic_score"] * self.semantic_weight
+            )
+
+            if final_score == 0 and entry["fallback_order"] is not None:
+                final_score = max(1e-4, 1e-4 * (len(fallback_results) - entry["fallback_order"]))
+
+            entry["doc"]["keyword_score"] = entry["keyword_score"]
+            entry["doc"]["semantic_score"] = entry["semantic_score"]
+            entry["doc"]["hybrid_score"] = final_score
+            merged_docs.append(entry["doc"])
+
+        merged_docs.sort(key=lambda doc: doc.get("hybrid_score", 0), reverse=True)
+
+        return merged_docs[:limit]
 
 
 # ==================== Test Functions ====================

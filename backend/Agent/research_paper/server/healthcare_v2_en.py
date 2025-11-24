@@ -28,10 +28,14 @@ import sys
 # 프로젝트 루트를 Python 경로에 추가 (backend 폴더)
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
+# Shared profile utilities
+from Agent.parlant_common import (
+    get_profile,
+    convert_objectid_to_str,
+    get_default_profile
+)
 # ==================== Optimized Imports ====================
 from app.services.hybrid_search import OptimizedHybridSearchEngine
-from app.db.welfare_manager import WelfareManager
-from app.db.hospital_manager import HospitalManager
 import json
 import logging
 
@@ -40,17 +44,29 @@ try:
     from cache_manager import CacheManager
     CACHE_AVAILABLE = True
 except ImportError:
-    print("⚠️ CacheManager not available (Redis not installed). Running without cache.")
-    CACHE_AVAILABLE = False
-    CacheManager = None
+    try:
+        from Agent.research_paper.server.cache_manager import CacheManager
+        CACHE_AVAILABLE = True
+    except ImportError:
+        print("⚠️ CacheManager not available (Redis not installed). Running without cache.")
+        CACHE_AVAILABLE = False
+        CacheManager = None
 
 # Advanced components
-from advanced_components import (
-    QueryRouter,
-    PerformanceMonitor,
-    CrossEncoderReranker,
-    HybridScoringSystem
-)
+try:
+    from advanced_components import (
+        QueryRouter,
+        PerformanceMonitor,
+        CrossEncoderReranker,
+        HybridScoringSystem
+    )
+except ImportError:
+    from Agent.research_paper.server.advanced_components import (
+        QueryRouter,
+        PerformanceMonitor,
+        CrossEncoderReranker,
+        HybridScoringSystem
+    )
 
 # ==================== Configuration ====================
 PROFILE_LIMITS = {
@@ -66,117 +82,9 @@ CACHE_MANAGER = None
 QUERY_ROUTER = None
 PERFORMANCE_MONITOR = None
 RERANKER = None
-WELFARE_MANAGER: Optional[WelfareManager] = None
-HOSPITAL_MANAGER: Optional[HospitalManager] = None
 
 
 # ==================== Helper Functions ====================
-
-async def get_profile(context: ToolContext) -> str:
-    """Determine profile based on plugin_data or customer tags
-
-    IMPORTANT: Profile-specific behavior is controlled by Parlant guidelines.
-    The LLM receives different instructions based on customer tags:
-    - "profile:researcher" → Academic language, max 10 results
-    - "profile:patient" → Practical advice, max 5 results
-    - "profile:general" → Simple language, max 3 results
-
-    This function reads customer tags from Parlant's internal stores to
-    determine the correct profile for result limiting.
-
-    Args:
-        context: ToolContext with customer_id and plugin_data
-
-    Returns:
-        Profile type for result limiting
-    """
-    # 1. Check if profile is in plugin_data (preferred method)
-    if hasattr(context, 'plugin_data') and context.plugin_data:
-        # Support both 'profile' and 'careguide_profile' keys
-        profile = context.plugin_data.get('profile') or context.plugin_data.get('careguide_profile')
-        if profile and profile in ["researcher", "patient", "general"]:
-            print(f"✅ Profile from plugin_data: {profile}")
-            return profile
-
-    # 2. Fetch customer and tags from Container using customer_id
-    if hasattr(context, 'customer_id') and hasattr(context, 'plugin_data'):
-        customer_id = context.customer_id
-        container = context.plugin_data.get('container')
-
-        if container and customer_id:
-            try:
-                # Import stores from Parlant core
-                from parlant.core.customers import CustomerStore
-                from parlant.core.tags import TagStore
-
-                # Get customer from store
-                customer_store = container[CustomerStore]
-                customer = await customer_store.read_customer(customer_id)
-
-                if customer and customer.tags:
-                    print(f"🔍 Fetched customer with {len(customer.tags)} tag IDs: {customer.tags}")
-
-                    # customer.tags is a list of TagId (strings)
-                    # We need to fetch the actual Tag objects to get tag names
-                    tag_store = container[TagStore]
-
-                    for tag_id in customer.tags:
-                        try:
-                            # Fetch Tag object from TagStore
-                            tag = await tag_store.read_tag(tag_id)
-                            tag_name = tag.name
-
-                            print(f"🔍 Tag ID '{tag_id}' → name '{tag_name}'")
-
-                            # Check if this is a profile tag
-                            if tag_name and tag_name.startswith('profile:'):
-                                profile = tag_name.split(':', 1)[1]
-                                if profile in ["researcher", "patient", "general"]:
-                                    print(f"✅ Profile extracted from customer tags: {profile}")
-                                    return profile
-                        except Exception as tag_error:
-                            print(f"⚠️  Failed to read tag {tag_id}: {tag_error}")
-                            continue
-
-            except Exception as e:
-                print(f"⚠️  Failed to fetch customer from store: {e}")
-                import traceback
-                traceback.print_exc()
-
-    # 3. Check customer object if directly available (unlikely but kept as fallback)
-    customer = getattr(context, 'customer', None)
-    if customer and hasattr(customer, 'tags'):
-        print(f"🔍 Customer object available directly with tags: {customer.tags}")
-        # In this case, tags might already be Tag objects or TagIds
-        for tag in customer.tags:
-            tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else str(tag))
-            if tag_name and tag_name.startswith('profile:'):
-                profile = tag_name.split(':', 1)[1]
-                if profile in ["researcher", "patient", "general"]:
-                    print(f"✅ Profile extracted from customer object: {profile}")
-                    return profile
-
-    # Note: We don't fetch from REST API here to avoid deadlock
-    # The Parlant server is busy executing this tool, so HTTP requests
-    # to the same server will timeout or block.
-
-    # Default profile for result limiting
-    # The actual response style is controlled by Parlant guidelines
-    print(f"ℹ️  Using default profile limits (guidelines control actual behavior)")
-    return "general"
-
-
-def convert_objectid_to_str(data):
-    """Convert ObjectId to string (recursive)"""
-    if isinstance(data, ObjectId):
-        return str(data)
-    elif isinstance(data, dict):
-        return {key: convert_objectid_to_str(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [convert_objectid_to_str(item) for item in data]
-    else:
-        return data
-
 
 async def initialize_search_engine():
     """Initialize optimized search engine with caching and advanced components"""
@@ -257,8 +165,8 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
             if source.startswith('dataset_'):
                 source = 'AI Hub'
             qa_data.append({
-                "question": item.get('question', '')[:200],
-                "answer": item.get('answer', '')[:500],
+                "question": item.get('question', ''),
+                "answer": item.get('answer', ''),
                 "source": source
             })
     
@@ -269,25 +177,25 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
             metadata = item.get('metadata', {})
             paper_data.append({
                 "title": item.get('title', 'N/A'),
-                "abstract": item.get('abstract', 'N/A')[:400],
+                "abstract": item.get('abstract', 'N/A'),
                 "source": item.get('source', '대한신장학회'),
-                "journal": metadata.get('journal', '')[:50] if isinstance(metadata, dict) else '',
+                "journal": metadata.get('journal', '') if isinstance(metadata, dict) else '',
                 "pub_date": metadata.get('publication_date', '') if isinstance(metadata, dict) else ''
             })
 
-    # 3. Medical data - encode as toon_format
-    medical_data = []
-    if raw_results["medical_results"]:
-        for item in raw_results["medical_results"][:max_results]:
-            keywords = item.get('keyword', [])
-            if isinstance(keywords, list):
-                keywords = keywords[:3]
-            else:
-                keywords = [str(keywords)[:40]]
-            medical_data.append({
-                "keywords": keywords,
-                "text": item.get('text', '')[:300]
-            })
+    # # 3. Medical data - encode as toon_format
+    # medical_data = []
+    # if raw_results["medical_results"]:
+    #     for item in raw_results["medical_results"][:max_results]:
+    #         keywords = item.get('keyword', [])
+    #         if isinstance(keywords, list):
+    #             keywords = keywords[:3]
+    #         else:
+    #             keywords = [str(keywords)[:40]]
+    #         medical_data.append({
+    #             "keywords": keywords,
+    #             "text": item.get('text', '')[:300]
+    #         })
 
     # 4. PubMed data - encode as toon_format
     pubmed_data = []
@@ -295,21 +203,31 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
         for paper in raw_results["pubmed_results"][:max_results]:
             authors_list = paper.get('authors', [])[:3]
             pubmed_data.append({
-                "title": paper.get('title', 'N/A')[:200],
+                "title": paper.get('title', 'N/A'),
                 "authors": authors_list,
-                "journal": paper.get('journal', 'N/A')[:50],
+                "journal": paper.get('journal', 'N/A'),
                 "pub_date": paper.get('pub_date', 'N/A'),
                 "pmid": paper.get('pmid', 'N/A'),
-                "doi": paper.get('doi', 'N/A')[:40],
-                "abstract": paper.get('abstract', 'N/A')[:400],
+                "doi": paper.get('doi', 'N/A'),
+                "abstract": paper.get('abstract', 'N/A'),
                 "url": paper.get('url', 'N/A')
+            })
+
+    guideline_data = []
+    if raw_results["guidelines_results"]:
+        for item in raw_results["guidelines_results"][:max_results]:
+            guideline_data.append({
+                "keywords": item.get('keyword', 'N/A'),
+                "text": item.get('text', 'N/A'),
+
             })
 
     # Encode to toon_format (more compact than JSON)
     qa_summary = encode(qa_data) if qa_data else "No results"
     paper_summary = encode(paper_data) if paper_data else "No results"
-    medical_summary = encode(medical_data) if medical_data else "No results"
+    # medical_summary = encode(medical_data) if medical_data else "No results"
     pubmed_summary = encode(pubmed_data) if pubmed_data else "No results"
+    guideline_summary = encode(guideline_data) if guideline_data else "No results"
 
     # 5. Final prompt generation (using toon_format for compactness)
     prompt = f"""Question: "{query}"
@@ -317,31 +235,21 @@ Profile: {profile.upper()}
 
 Search Results ({raw_results['search_method'].upper()} method):
 
-[1] QA Database ({len(raw_results['qa_results'])} results):
+- QA Database ({len(raw_results['qa_results'])} results):
 {qa_summary}
 
-[2] Local Papers ({len(raw_results['paper_results'])} results):
+[2] Papers ({len(raw_results['paper_results']) + len(raw_results['pubmed_results'])} results):
 {paper_summary}
-
-[3] Medical Data ({len(raw_results['medical_results'])} results):
-{medical_summary}
-
-[4] PubMed ({len(raw_results['pubmed_results'])} results):
 {pubmed_summary}
 
-Note: Results are in toon_format (compact data format). 
-- Simple objects: "key: value" format
-- Arrays: "[N,]header: row1,row2..." format
-- Use decode() if needed, but you can read the format directly.
+[3] Guidelines ({len(raw_results['guidelines_results'])} results):
+{guideline_summary}
 
 Write an accurate answer in Korean. Requirements:
 - Profile: {detail_levels.get(profile, '')}
 - Integrate information from all sources
 - Cite sources properly:
-  * For QA data: "AI Hub 데이터에 따르면..." or use specific source name shown
-  * For local papers: "대한신장학회 논문에서..." or use specific source/journal name shown
-  * For medical data: "의료 특허 데이터에서는..."
-  * For PubMed: Include paper title and "Smith et al. (2024)의 연구 (PMID: [pmid], DOI: [doi])에서는..."
+  * For papers: Include paper title and "Smith et al. (2024)의 연구 (PMID: [pmid], DOI: [doi])에서는..."
 - Structure: Introduction → Main content → Conclusion → References
 - References section must include:
   * Paper titles for all PubMed and local papers cited
@@ -352,34 +260,6 @@ Write an accurate answer in Korean. Requirements:
 Begin:"""
 
     return prompt
-
-
-def get_default_profile() -> str:
-    """Get default profile from environment variable.
-
-    This is only used when running the Parlant server directly.
-    When accessed via the UI, the profile is determined by the client.
-
-    Returns:
-        Default profile type (researcher, patient, or general)
-    """
-    profile = os.getenv("CARE_GUIDE_DEFAULT_PROFILE", "general").lower()
-
-    if profile not in ["researcher", "patient", "general"]:
-        print(f"⚠️  Invalid profile '{profile}' in environment variable, using 'general'")
-        profile = "general"
-
-    profile_names = {
-        "researcher": "Researcher/Expert",
-        "patient": "Patient/Experience Holder",
-        "general": "General Public/Novice"
-    }
-
-    print(f"\n✅ Using default profile: {profile_names[profile]}")
-    print("   (Profile can be overridden by client session metadata)\n")
-
-    return profile
-
 
 # ==================== Medical Information Tools ====================
 
@@ -408,6 +288,8 @@ async def search_medical_qa(
     - Query routing (intent classification)
     - Cross-encoder re-ranking (improved relevance)
     - Performance monitoring
+
+    **Note**: This tool may take up to 2-3 minutes to complete due to extensive search across multiple databases.
 
     **Search Methods**:
     1. MongoDB text search (parallel, connection pooled)
@@ -1162,420 +1044,7 @@ The following emergency keywords were detected:
     )
 
 
-# ==================== Welfare & Hospital Tools ====================
 
-logger = logging.getLogger(__name__)
-
-
-async def initialize_welfare_manager():
-    """Initialize WelfareManager singleton
-
-    SEARCH_ENGINE 초기화 패턴 적용
-    """
-    global WELFARE_MANAGER
-    if WELFARE_MANAGER is None:
-        WELFARE_MANAGER = WelfareManager()
-        await WELFARE_MANAGER.connect()
-        logger.info("✅ WelfareManager initialized for Parlant Tool")
-
-
-async def initialize_hospital_manager():
-    """Initialize HospitalManager singleton"""
-    global HOSPITAL_MANAGER
-    if HOSPITAL_MANAGER is None:
-        HOSPITAL_MANAGER = HospitalManager()
-        await HOSPITAL_MANAGER.connect()
-        logger.info("✅ HospitalManager initialized for Parlant Tool")
-
-
-@p.tool
-async def search_welfare_programs(
-    context: ToolContext,
-    query: str,
-    category: Optional[str] = None,
-    disease: Optional[str] = None,
-    ckd_stage: Optional[int] = None
-) -> ToolResult:
-    """Search welfare programs for CKD patients
-
-    이 도구는 만성콩팥병 환자를 위한 복지 프로그램을 검색합니다.
-    산정특례, 장애인 복지, 의료비 지원, 신장이식 지원, 교통비 지원 등을 찾을 수 있습니다.
-
-    **데이터 출처**:
-    - 국민건강보험공단 (NHIS)
-    - 보건복지부 (MOHW)
-    - 질병관리청 (KDCA)
-    - 공공데이터포털 (data.go.kr)
-    - 2024-2025년 검증된 정부 프로그램
-
-    **주요 카테고리**:
-    - sangjung_special: 산정특례 제도 (본인부담금 감면 10%)
-    - disability: 장애인 복지 혜택 (장애인연금, 공공요금 감면 등)
-    - medical_aid: 저소득층 의료비 지원 (재난적 의료비, 긴급 의료비)
-    - transplant: 신장이식 지원 (KAMCO-밀알복지재단, 사랑의장기기증)
-    - transport: 투석 환자 교통비 및 활동 지원
-
-    **사용 예시**:
-    - search_welfare_programs(query="산정특례")
-    - search_welfare_programs(query="의료비", category="medical_aid")
-    - search_welfare_programs(query="지원", ckd_stage=4)
-
-    Args:
-        context: Tool execution context (automatic)
-        query: 검색어 (e.g., "산정특례", "장애인 등록", "의료비 지원")
-        category: 카테고리 필터 (optional)
-        disease: 질병 필터 (e.g., "CKD", "ESRD", "dialysis") (optional)
-        ckd_stage: CKD 단계 필터 1-5 (optional)
-
-    Returns:
-        ToolResult containing:
-        - results: 검색된 프로그램 리스트
-        - synthesis_prompt: LLM이 사용할 합성 프롬프트
-        - metadata: 검색 메타데이터 (count, response_time)
-    """
-    start_time = time.time()
-
-    try:
-        # Initialize WelfareManager (singleton)
-        await initialize_welfare_manager()
-
-        # Get profile for result limiting
-        profile = await get_profile(context)
-        max_results = PROFILE_LIMITS[profile]["max_results"]
-
-        logger.info(f"[WELFARE TOOL] Search started: query='{query}', profile='{profile}', max={max_results}")
-
-        # Build filters
-        filters = {}
-        if category:
-            filters["category"] = category
-            logger.info(f"[WELFARE TOOL] Filter: category={category}")
-
-        if disease:
-            filters["target_disease"] = {"$in": [disease]}
-            logger.info(f"[WELFARE TOOL] Filter: disease={disease}")
-
-        if ckd_stage:
-            filters["eligibility.ckd_stage"] = {"$in": [ckd_stage]}
-            logger.info(f"[WELFARE TOOL] Filter: ckd_stage={ckd_stage}")
-
-        # Execute search
-        results = await WELFARE_MANAGER.search_by_text(
-            query=query,
-            limit=max_results,
-            filters=filters if filters else None
-        )
-
-        logger.info(f"[WELFARE TOOL] Search completed: {len(results)} results in {time.time()-start_time:.3f}s")
-
-        # Format results for LLM
-        formatted_results = []
-        for prog in results:
-            formatted_results.append({
-                "programId": prog.get("programId"),
-                "title": prog.get("title"),
-                "category": prog.get("category"),
-                "description": prog.get("description"),
-                "benefits": prog.get("benefits", {}),
-                "application": prog.get("application", {}),
-                "contact": prog.get("contact", {}),
-                "keywords": prog.get("keywords", []),
-                "year": prog.get("year"),
-                "fact_check_verified": prog.get("fact_check_verified", False),
-                "score": prog.get("score", 0)
-            })
-
-        # Generate LLM synthesis prompt
-        synthesis_prompt = f"""You are CareGuide, an AI assistant helping CKD patients find welfare programs.
-
-**User Query**: "{query}"
-**User Profile**: {profile}
-  - researcher: Provide detailed, academic-level information with sources
-  - patient: Provide practical, step-by-step guidance with empathy
-  - general: Provide simple, easy-to-understand explanation
-
-**Search Results**: {len(formatted_results)} welfare programs found
-
-**Programs**:
-{json.dumps(formatted_results, ensure_ascii=False, indent=2)}
-
-**Your Task**:
-Synthesize the above welfare program information into a comprehensive, helpful response.
-
-**Required Content**:
-1. **Brief Summary** (1-2 sentences):
-   - Overview of available programs matching the query
-
-2. **Program Details** (for each program):
-   - 💳 Program name and category
-   - 📋 Eligibility requirements (who can apply)
-   - ✨ Benefits (copay reduction, financial support, specific amounts)
-   - 📝 Application process (step-by-step)
-   - 📄 Required documents (bulleted list)
-   - 📍 Where to apply
-   - ⏱️ Processing time and validity period
-   - 📞 Contact information (phone number, website)
-
-3. **Important Notes**:
-   - Clarify that final eligibility is determined by authorities
-   - Provide specific contact numbers for personalized guidance
-   - Encourage users to contact programs directly for accurate info
-   - Mention fact-check verification if available
-
-4. **Next Steps**:
-   - Suggest related programs if applicable
-   - Offer to find nearby hospitals/application centers
-   - Suggest other helpful actions
-
-**Response Style**:
-{'Academic and detailed with references' if profile == 'researcher' else 'Practical and supportive with examples' if profile == 'patient' else 'Simple and encouraging'}
-
-**Language**: Use Korean (한국어) for all responses.
-
-**Format**:
-- Use markdown formatting
-- Use emojis for visual clarity (💳, 📋, ✨, etc.)
-- Bold important information
-- Use bullet points and numbered lists
-- Include phone numbers and websites as clickable links where possible
-
-**Disclaimer**:
-Always remind users that this is general information based on 2024-2025 government data and they should contact the relevant authorities for personalized eligibility assessment.
-"""
-
-        elapsed = time.time() - start_time
-
-        return ToolResult(
-            data={
-                "query": query,
-                "category": category,
-                "disease": disease,
-                "ckd_stage": ckd_stage,
-                "profile": profile,
-                "results": formatted_results,
-                "synthesis_prompt": synthesis_prompt,
-                "metadata": {
-                    "count": len(formatted_results),
-                    "response_time": f"{elapsed:.3f}s",
-                    "max_results": max_results,
-                    "filters_applied": bool(filters),
-                    "data_source": "공공데이터포털 2024-2025 검증 완료"
-                }
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"[WELFARE TOOL] Error: {e}", exc_info=True)
-        return ToolResult(
-            data={
-                "error": str(e),
-                "query": query,
-                "results": [],
-                "synthesis_prompt": f"복지 프로그램 검색 중 오류가 발생했습니다: {e}. 죄송합니다. 국민건강보험공단(1577-1000) 또는 보건복지콜센터(129)로 직접 문의하시기 바랍니다."
-            }
-        )
-
-
-@p.tool
-async def search_hospitals(
-    context: ToolContext,
-    query: Optional[str] = None,
-    region: Optional[str] = None,
-    has_dialysis: Optional[bool] = None,
-    night_dialysis: Optional[bool] = None,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
-    max_distance_km: Optional[float] = 10.0
-) -> ToolResult:
-    """Search hospitals, pharmacies, and dialysis centers
-
-    이 도구는 병원, 약국, 투석센터를 검색합니다.
-    특히 복지 프로그램 신청이 가능한 병원이나 투석 가능한 병원을 찾을 수 있습니다.
-
-    **104,836개** 병원/약국 데이터베이스에서 검색합니다.
-
-    **검색 방법**:
-    1. Text search: query parameter (e.g., "서울대병원")
-    2. Regional search: region parameter (e.g., "서울", "부산")
-    3. Nearby search: latitude + longitude (e.g., 37.5826, 127.0001)
-
-    **사용 예시**:
-    - search_hospitals(region="서울", has_dialysis=True)
-    - search_hospitals(query="서울대병원")
-    - search_hospitals(latitude=37.5826, longitude=127.0001, max_distance_km=5.0)
-
-    Args:
-        context: Tool execution context (automatic)
-        query: 병원명 또는 검색어 (optional)
-        region: 지역 (e.g., "서울", "부산", "대구") (optional)
-        has_dialysis: 투석 가능 병원만 (optional)
-        night_dialysis: 야간 투석 가능 병원만 (optional)
-        latitude: 사용자 위도 (nearby search용) (optional)
-        longitude: 사용자 경도 (nearby search용) (optional)
-        max_distance_km: 최대 거리 (km) (default: 10.0)
-
-    Returns:
-        ToolResult containing:
-        - results: 병원 리스트
-        - synthesis_prompt: LLM이 사용할 프롬프트
-        - metadata: 검색 메타데이터
-    """
-    start_time = time.time()
-
-    try:
-        # Initialize HospitalManager
-        await initialize_hospital_manager()
-
-        # Get profile for result limiting
-        profile = await get_profile(context)
-        max_results = PROFILE_LIMITS[profile]["max_results"] * 2  # 병원은 더 많이 표시
-
-        logger.info(f"[HOSPITAL TOOL] Search started: query='{query}', region='{region}', dialysis={has_dialysis}")
-
-        # Determine search method
-        results = []
-
-        if latitude is not None and longitude is not None:
-            # Nearby search (geospatial)
-            logger.info(f"[HOSPITAL TOOL] Using nearby search: lat={latitude}, lng={longitude}, distance={max_distance_km}km")
-            results = await HOSPITAL_MANAGER.search_nearby(
-                latitude=latitude,
-                longitude=longitude,
-                max_distance_km=max_distance_km,
-                has_dialysis=has_dialysis,
-                limit=max_results
-            )
-
-        elif region:
-            # Regional search
-            logger.info(f"[HOSPITAL TOOL] Using regional search: region={region}")
-            results = await HOSPITAL_MANAGER.search_by_region(
-                region=region,
-                has_dialysis=has_dialysis,
-                night_dialysis=night_dialysis,
-                limit=max_results
-            )
-
-        elif query:
-            # Text search
-            logger.info(f"[HOSPITAL TOOL] Using text search: query={query}")
-            filters = {}
-            if has_dialysis:
-                filters["has_dialysis_unit"] = True
-            if night_dialysis:
-                filters["night_dialysis"] = True
-
-            results = await HOSPITAL_MANAGER.search_by_text(
-                query=query,
-                limit=max_results,
-                filters=filters if filters else None
-            )
-
-        else:
-            # Default: Get dialysis centers
-            logger.info(f"[HOSPITAL TOOL] Using default: get dialysis centers")
-            results = await HOSPITAL_MANAGER.get_dialysis_centers(
-                region=region,
-                night_only=night_dialysis or False,
-                limit=max_results
-            )
-
-        logger.info(f"[HOSPITAL TOOL] Search completed: {len(results)} results")
-
-        # Format results
-        formatted_results = []
-        for hospital in results:
-            formatted_results.append({
-                "name": hospital.get("name"),
-                "address": hospital.get("address"),
-                "phone": hospital.get("phone"),
-                "region": hospital.get("region"),
-                "type": hospital.get("type"),
-                "has_dialysis": hospital.get("has_dialysis_unit", False),
-                "dialysis_machines": hospital.get("dialysis_machines", 0),
-                "night_dialysis": hospital.get("night_dialysis", False),
-                "dialysis_days": hospital.get("dialysis_days", []),
-                "naver_map": hospital.get("naver_map_url"),
-                "kakao_map": hospital.get("kakao_map_url"),
-                "distance": hospital.get("distance")  # For nearby search
-            })
-
-        # Generate LLM synthesis prompt
-        synthesis_prompt = f"""You are CareGuide, helping users find hospitals and dialysis centers.
-
-**Search Parameters**:
-- Query: {query or 'N/A'}
-- Region: {region or 'N/A'}
-- Dialysis capability: {has_dialysis or 'N/A'}
-- Night dialysis: {night_dialysis or 'N/A'}
-- Location: {f'({latitude}, {longitude})' if latitude else 'N/A'}
-
-**Hospitals Found**: {len(formatted_results)}
-
-**Hospital Data**:
-{json.dumps(formatted_results, ensure_ascii=False, indent=2)}
-
-**Your Task**:
-Synthesize hospital information into a helpful response.
-
-**Required Content**:
-1. **Summary**: Brief overview of hospitals found
-2. **Hospital List**: For each hospital:
-   - 🏥 Hospital name
-   - 📍 Address
-   - 📞 Phone number
-   - 💉 Dialysis capability (if applicable)
-     - Number of machines
-     - Night dialysis availability
-     - Available days
-   - 🗺️ Map links (Naver/Kakao)
-   - 📏 Distance (if nearby search)
-
-3. **Recommendations**:
-   - Best options based on user needs
-   - Tips for visiting or contacting
-   - Which hospital to visit for welfare program application
-
-4. **Additional Info**:
-   - For welfare program application (산정특례, 장애진단서 etc.)
-   - Suggest calling ahead to confirm services
-
-**Language**: Use Korean (한국어).
-
-**Format**:
-- Use markdown
-- Use emojis for clarity
-- Bold hospital names
-- Provide clickable map links if available
-"""
-
-        elapsed = time.time() - start_time
-
-        return ToolResult(
-            data={
-                "query": query,
-                "region": region,
-                "has_dialysis": has_dialysis,
-                "night_dialysis": night_dialysis,
-                "results": formatted_results,
-                "synthesis_prompt": synthesis_prompt,
-                "metadata": {
-                    "count": len(formatted_results),
-                    "response_time": f"{elapsed:.3f}s",
-                    "search_method": "nearby" if latitude else ("region" if region else ("text" if query else "default"))
-                }
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"[HOSPITAL TOOL] Error: {e}", exc_info=True)
-        return ToolResult(
-            data={
-                "error": str(e),
-                "results": [],
-                "synthesis_prompt": f"병원 검색 중 오류가 발생했습니다: {e}"
-            }
-        )
 
 
 # ==================== Guidelines ====================
@@ -1640,38 +1109,7 @@ async def add_profile_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideli
         action="""You must use academic language and technical terminology.
         Focus on research findings, biological mechanisms, and evidence-based information.
         Provide detailed scientific explanations with specific data when available.
-
-        When user asks medical questions, ALWAYS use search_medical_qa tool first.
-
-        **Tool Usage - Customize based on query type**:
-
-        For literature review / research questions:
-        search_medical_qa(query="...", profile="researcher", max_papers=20, max_pubmed=15, max_qa=5, use_medical=False)
-
-        For clinical questions needing comprehensive sources:
-        search_medical_qa(query="...", profile="researcher", max_qa=10, max_papers=10, max_medical=5, max_pubmed=10)
-
-        For quick factual questions:
-        search_medical_qa(query="...", profile="researcher", max_qa=10, use_papers=False, use_medical=False, use_pubmed=False)
-
-        **Available Parameters**:
-        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
-        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 10 for researcher)
-        - max_per_source: Set all sources at once (overridden by individual limits)
-
-        **Data Sources**:
-        The tool searches 5 sources: guidelines database, QA database, papers (local + PubMed), medical patents, and PubMed real-time.
-        Choose sources based on query - not all sources are needed for every question.
-
-        **Response Guidelines**:
-        - Cite all papers with authors, year, and identifiers (PMID/DOI when available)
-        - Don't distinguish between local papers and PubMed - treat all as "논문 연구"
-        - Integrate information from multiple sources naturally
-        - With researcher profile, you get up to 10 results per source by default (customize as needed)
-        - Maintain professional and scholarly tone throughout
-
         Always respond in Korean.""",
-        tools=[search_medical_qa]
     )
 
     # Patient profile
@@ -1681,39 +1119,7 @@ async def add_profile_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideli
         Focus on daily life applications, self-care methods, and patient-centered information.
         Provide specific, actionable advice that patients can implement.
         Use empathetic language and acknowledge the challenges of living with illness.
-
-        When user asks medical questions, ALWAYS use search_medical_qa tool first.
-
-        **Tool Usage - Customize based on query type**:
-
-        For practical daily life questions:
-        search_medical_qa(query="...", profile="patient", max_qa=10, use_papers=False, use_medical=False, use_pubmed=False)
-
-        For treatment/management questions needing evidence:
-        search_medical_qa(query="...", profile="patient", max_qa=5, max_papers=5, use_medical=False, max_pubmed=3)
-
-        For symptom-related questions:
-        search_medical_qa(query="...", profile="patient", max_qa=8, max_papers=3, use_medical=False, use_pubmed=False)
-
-        **Available Parameters**:
-        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
-        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 5 for patient)
-        - max_per_source: Set all sources at once (overridden by individual limits)
-
-        **Data Sources**:
-        The tool searches 5 sources: guidelines database, QA database, papers, medical patents, and PubMed.
-        For patients, prioritize QA database (practical answers) over academic papers.
-        Not all sources are needed for every question.
-
-        **Response Guidelines**:
-        - Translate complex medical terms into everyday language
-        - Focus on actionable advice and practical tips
-        - When citing papers, don't distinguish local vs PubMed - just say "논문 연구에 따르면"
-        - With patient profile, you get up to 5 results per source by default (customize as needed)
-        - Provide encouragement while maintaining medical accuracy
-
         Always respond in Korean.""",
-        tools=[search_medical_qa]
     )
 
     # General profile
@@ -1723,39 +1129,7 @@ async def add_profile_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideli
         Minimize technical terminology and use plain, everyday language.
         Focus on basic concepts and general understanding.
         Use analogies and examples to explain complex ideas.
-
-        When user asks medical questions, ALWAYS use search_medical_qa tool first.
-
-        **Tool Usage - Customize based on query type**:
-
-        For simple definition/explanation questions:
-        search_medical_qa(query="...", profile="general", max_qa=5, use_papers=False, use_medical=False, use_pubmed=False)
-
-        For general health information:
-        search_medical_qa(query="...", profile="general", max_qa=3, max_papers=2, use_medical=False, use_pubmed=False)
-
-        For basic medical concepts:
-        search_medical_qa(query="...", profile="general", max_qa=5, max_papers=3, use_medical=False, use_pubmed=False)
-
-        **Available Parameters**:
-        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
-        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 3 for general)
-        - max_per_source: Set all sources at once (overridden by individual limits)
-
-        **Data Sources**:
-        The tool searches 5 sources: guidelines database, QA database, papers, medical patents, and PubMed.
-        For general users, prioritize QA database (simple answers) and limit papers.
-        Not all sources are needed for every question.
-
-        **Response Guidelines**:
-        - Avoid medical jargon unless absolutely necessary (then explain it immediately)
-        - Use analogies and everyday examples
-        - Don't distinguish between different paper sources - just say "연구에 따르면"
-        - Break down information into small, digestible parts
-        - With general profile, you get up to 3 results per source by default (customize as needed)
-
         Always respond in Korean.""",
-        tools=[search_medical_qa]
     )
 
     # Entailment: ALL profile guidelines must trigger the disclaimer
@@ -1995,7 +1369,6 @@ Present the found papers clearly with key details (title, authors, journal, year
 4. Bookmark interesting papers
 5. Refine your search query
 6. Start a new search
-7. End session
 
 Please tell me your choice."""
     )
@@ -2183,274 +1556,10 @@ Have a productive research day! 🔬📚""",
 
 # ==================== Journey 7: Welfare Support Journey ====================
 
-async def create_welfare_journey(agent: p.Agent) -> p.Journey:
-    """복지 지원 Journey (Journey 1 패턴 100% 적용)
-
-    Journey 1 (Medical Information Journey) 구조 참고:
-    - Multi-step conversation flow
-    - Tool execution (search_welfare_programs, search_hospitals)
-    - State transitions with conditions
-    - Fork-based user choices
-    - Profile-aware responses
-    - Journey-level guidelines
-
-    **Steps**:
-    0. Welcome and introduce welfare categories
-    1. Execute welfare search (tool)
-    2. Present results and offer follow-up
-    3. (Optional) Find nearby hospitals (tool)
-    4. End or loop back
-
-    **Tools Used**:
-    - search_welfare_programs: 복지 프로그램 검색
-    - search_hospitals: 신청 가능 병원 검색
-
-    **Profile Behavior**:
-    - researcher: 10 results, detailed info
-    - patient: 5 results, practical advice
-    - general: 3 results, simple explanation
-    """
-    journey = await agent.create_journey(
-        title="Welfare Support Journey",
-        description="Guide for welfare programs, insurance support, and medical cost reduction for CKD patients",
-        conditions=[
-            "User asks about welfare programs (복지, 지원, 혜택)",
-            "User wants to know about 산정특례 or copay reduction",
-            "User needs information about disability registration (장애인 등록)",
-            "User asks about medical cost support or insurance benefits (의료비, 본인부담금)",
-            "User mentions 교통비 지원 or transport support",
-            "User asks how to apply for benefits (신청 방법)",
-            "User needs financial assistance information"
-        ]
-    )
-
-    # ========================================
-    # Step 0: Welcome & Category Introduction
-    # ========================================
-    t0 = await journey.initial_state.transition_to(
-        chat_state="""안녕하세요! 복지 지원 상담에 오신 것을 환영합니다. 🎗️
-
-만성콩팥병 환자를 위한 다양한 복지 혜택을 안내해드립니다.
-모든 정보는 **2024-2025년 정부 공식 데이터**를 기반으로 검증되었습니다.
-
-**주요 복지 프로그램**:
-
-1. 💳 **산정특례** - 본인부담금 90% 감면
-   - CKD 3기 이상: 본인부담금 10%
-   - 혈액투석/복막투석: 본인부담금 10%
-   - 유효기간: 5년 (투석은 계속)
-
-2. 🦽 **장애인 등록** - 장애인 복지 혜택
-   - 투석 3개월 이상: 심한 장애 (구 2급)
-   - 신장이식 후: 심하지 않은 장애 (구 5급)
-   - 장애인연금 최대 월 43만원 (2025년)
-   - 전기요금, 교통비, 문화시설 할인
-
-3. 💰 **의료비 지원** - 저소득층 의료비
-   - 재난적 의료비: 최대 2,000만원
-   - 긴급 의료비: 최대 300만원
-   - 희귀질환 의료비: 간병비 월 30만원 포함
-
-4. 🏥 **신장이식 지원** - 수술비 및 면역억제제
-   - KAMCO-밀알복지재단: 최대 500만원
-   - 사랑의장기기증운동본부: 저소득층 지원
-
-5. 🚗 **교통비 지원** - 투석 환자 교통비
-   - 지자체별 월 10-15만원
-   - 활동지원 서비스: 병원 동행 가능
-
----
-
-어떤 복지 혜택에 대해 궁금하신가요?
-구체적으로 말씀해주시면 자세히 안내해드리겠습니다.
-
-**예시**:
-- "산정특례 신청 방법 알려주세요"
-- "장애인 등록하려면 어떻게 하나요?"
-- "의료비 지원 받을 수 있나요?"
-- "신장이식 수술비 지원은?"
-"""
-    )
-
-    # ========================================
-    # Step 1: Execute Welfare Search (Tool)
-    # ========================================
-    t1 = await t0.target.transition_to(
-        tool_state=search_welfare_programs,
-        condition="User specifies welfare program interest or asks specific question about benefits"
-    )
-
-    # ========================================
-    # Step 2: Present Results
-    # ========================================
-    t2 = await t1.target.transition_to(
-        chat_state="""검색된 복지 프로그램 정보를 바탕으로 상세히 안내해드립니다.
-
-synthesis_prompt에서 생성된 LLM 응답이 여기에 표시됩니다
-
----
-
-**추가로 도움이 필요하신가요?**
-
-다음 옵션 중 선택해주세요:
-- 🔍 **다른 복지 프로그램 알아보기** (다른 카테고리나 키워드로 검색)
-- 🏥 **근처 신청 가능한 병원 찾기** (산정특례 신청, 장애진단서 발급 등)
-- ✅ **상담 종료** (충분한 정보를 얻으셨다면)
-
-원하시는 옵션을 말씀해주세요."""
-    )
-
-    # ========================================
-    # Step 3: Follow-up Options (Fork)
-    # ========================================
-
-    # Option A: Search more programs (loop back to Step 1)
-    await t2.target.transition_to(
-        state=t1.target,
-        condition="User wants to know about other welfare programs or different category"
-    )
-
-    # Option B: Find nearby hospitals (new tool execution)
-    t3_hospital = await t2.target.transition_to(
-        tool_state=search_hospitals,
-        condition="User wants to find nearby hospitals or application centers or dialysis centers"
-    )
-
-    # ========================================
-    # Step 4: Present Hospital Results
-    # ========================================
-    t4 = await t3_hospital.target.transition_to(
-        chat_state="""근처 병원 정보를 안내해드립니다.
-
-hospital search synthesis_prompt 응답이 여기에 표시됩니다
-
----
-
-**다음 단계**:
-복지 프로그램 신청은 위 병원에서 가능합니다.
-- **산정특례**: 병원 원무과 방문하여 신청서 제출
-- **장애진단서**: 신장내과 진료 예약 필요
-- **투석 상담**: 투석실에 연락하여 상담
-
-**추가 도움**:
-- 다른 지역 병원 찾기
-- 다른 복지 프로그램 알아보기
-- 상담 종료"""
-    )
-
-    # Loop back options from hospital results
-    await t4.target.transition_to(
-        state=t1.target,
-        condition="User wants to explore more welfare programs"
-    )
-
-    await t4.target.transition_to(
-        state=t3_hospital.target,
-        condition="User wants to search hospitals in different region"
-    )
-
-    # Option C: End journey
-    await t2.target.transition_to(
-        state=p.END_JOURNEY,
-        condition="User is satisfied or wants to end the conversation or says goodbye"
-    )
-
-    await t4.target.transition_to(
-        state=p.END_JOURNEY,
-        condition="User is satisfied or wants to end"
-    )
-
-    # ========================================
-    # Journey-level Guidelines
-    # ========================================
-
-    # Guideline 1: Eligibility disclaimer
-    await journey.create_guideline(
-        condition="User asks about specific eligibility requirements or whether they qualify",
-        action="""Always remind the user that:
-
-1. You are providing GENERAL guidelines based on typical requirements from government data
-2. FINAL ELIGIBILITY is determined by the relevant authorities (국민건강보험공단, 주민센터, KONOS, etc.)
-3. Personal circumstances may affect eligibility
-4. They should contact the program directly for personalized eligibility assessment
-
-**Example Response Format**:
-"일반적으로 [자격 요건]에 해당하는 경우 신청 가능합니다.
-하지만 최종 자격 여부는 [담당 기관]에서 개별적으로 판단합니다.
-정확한 상담을 위해 [전화번호]로 직접 문의하시는 것을 권장드립니다."
-
-**Tone**: Helpful but cautious, avoiding definitive yes/no answers about eligibility
-"""
-    )
-
-    # Guideline 2: Empathetic support
-    await journey.create_guideline(
-        condition="User expresses financial difficulty, desperation, or emotional distress about medical costs",
-        action="""Respond with empathy and comprehensive support:
-
-1. **Acknowledge** their situation with compassion
-   - "의료비 부담이 크시겠어요. 여러 지원 제도가 있으니 함께 알아보겠습니다."
-
-2. **Emphasize** that multiple support programs are available
-   - List all relevant programs (산정특례, 의료비 지원, 장애인 복지)
-
-3. **Provide** the most relevant programs for their situation
-   - Prioritize by impact (산정특례 90% reduction first)
-   - Mention urgent options (긴급 의료비 3-7일 처리)
-
-4. **Encourage** them to apply and seek help
-   - "포기하지 마시고 꼭 신청하세요"
-   - "담당자와 상담하시면 도움받으실 수 있습니다"
-
-5. **Emergency contact** if needed
-   - 보건복지콜센터: 국번없이 129
-   - 긴급 복지 지원: 주민센터
-   - 재난적 의료비: 1577-1000
-
-**Tone**: Warm, supportive, encouraging, non-judgmental
-**Avoid**: Minimizing their concerns, making promises about approval, being overly optimistic
-"""
-    )
-
-    # Guideline 3: Application process clarity
-    await journey.create_guideline(
-        condition="User asks about application process or required documents",
-        action="""Provide CLEAR, STEP-BY-STEP application instructions:
-
-1. **List steps** in numbered format
-   - Step 1: [First action - e.g., "병원에서 진단서 받기"]
-   - Step 2: [Second action - e.g., "서류 준비하기"]
-   - Step 3: [Third action - e.g., "신청 기관 방문"]
-   - ...
-
-2. **Required documents**:
-   - Use bullet points
-   - Be specific (e.g., "의사 진단서 (희귀난치성질환 등록 신청용)")
-   - Mention where to get each document if not obvious
-
-3. **Where to apply**:
-   - Provide exact location (e.g., "국민건강보험공단 지사 또는 병원 원무과")
-   - Suggest calling ahead to confirm office hours and requirements
-
-4. **Processing time**:
-   - Set realistic expectations (e.g., "7-14일 소요")
-   - Mention follow-up options if delayed
-
-5. **Contact for questions**:
-   - Always provide phone number and organization
-   - Encourage calling for clarification before visiting
-
-**Format**: Use numbered lists, bullet points, and emojis for visual clarity
-**Language**: Korean (한국어)
-"""
-    )
-
-    return journey
-
 
 # ==================== Main Function ====================
 
-async def main() -> None:
+async def register_agent(server: p.Server) -> None:
     """Main function - Server initialization and execution"""
 
     print("\n" + "="*70)
@@ -2466,7 +1575,7 @@ async def main() -> None:
     profile = get_default_profile()
 
     print(f"\n[3/3] Setting up Parlant Server...")
-    async with p.Server() as server:
+    if server:  # Use provided server
         # Create Agent
         agent = await server.create_agent(
             name="CareGuide_v2",
@@ -2499,7 +1608,8 @@ async def main() -> None:
 - Use empathetic, supportive language
 - Maintain medical accuracy at all times
 
-Always respond in Korean unless specifically requested otherwise.""",
+Always respond in Korean unless specifically requested otherwise.
+""",
             composition_mode=p.CompositionMode.COMPOSITED
         )
 
@@ -2521,214 +1631,6 @@ Always respond in Korean unless specifically requested otherwise.""",
 
         print("  🗺️ Creating Research Paper Journey...")
         research_journey = await create_research_paper_journey(agent)
-
-#         print("  🗺️ Creating Welfare Support Journey...")
-#         welfare_journey = await create_welfare_journey(agent)
-
-#         # Journey Disambiguation
-#         print("  🔀 Setting up Journey disambiguation...")
-
-#         # Medical vs Research
-#         paper_inquiry = await agent.create_observation(
-#             "User asks about research papers, scientific studies, or wants advanced paper analysis, "
-#             "but it's not clear whether they need basic information or in-depth research analysis"
-#         )
-#         await paper_inquiry.disambiguate([journey, research_journey])
-
-#         # Medical vs Welfare
-#         welfare_inquiry = await agent.create_observation(
-#             "User asks about medical costs, insurance benefits, copay reduction, financial support, or welfare programs, "
-#             "but it's not clear whether they need medical information or welfare program guidance"
-#         )
-#         await welfare_inquiry.disambiguate([journey, welfare_journey])
-
-#         # Research vs Welfare
-#         research_welfare_inquiry = await agent.create_observation(
-#             "User asks about programs, support systems, or policies, "
-#             "but it's not clear whether they want research papers about programs or actual welfare benefit information"
-#         )
-#         await research_welfare_inquiry.disambiguate([research_journey, welfare_journey])
-
-#         print("     ✅ Journey disambiguation configured (3 journeys)")
-
-#         # ==================== WelfareGuide Agent (Simpler Q&A Pattern) ====================
-#         print("\n  🆕 Creating WelfareGuide agent (simple Q&A, no journeys)...")
-
-#         welfare_agent = await server.create_agent(
-#             name="WelfareGuide",
-#             description="""You are WelfareGuide, a specialized AI assistant for Korean medical welfare programs.
-
-# **Role**: Help CKD patients and their families find and apply for welfare benefits and government support programs.
-
-# **Core Focus**:
-# - Welfare programs (복지 프로그램)
-# - Financial support (의료비 지원)
-# - Disability registration (장애인 등록)
-# - Insurance benefits (산정특례, 본인부담금 감면)
-# - Transportation support (교통비 지원)
-# - Application procedures (신청 절차)
-
-# **Data Source**:
-# - 13 verified welfare programs from government data (2024-2025)
-# - Only provide information from the search_welfare_programs tool
-# - Do NOT make up or guess program details
-
-# **User Profiles**:
-# - Researcher: Detailed information with policy sources
-# - Patient: Practical step-by-step guidance with empathy
-# - General: Simple explanations in plain language
-
-# **Response Style**:
-# - Warm, supportive, and encouraging
-# - Clear step-by-step instructions
-# - Include contact numbers and application details
-# - Use Korean language (한국어)
-
-# **Important Limitations**:
-# - NO medical diagnosis or treatment advice
-# - NO definitive eligibility decisions (only general guidelines)
-# - Always direct to official agencies for final confirmation
-# - Provide empathetic support for financial concerns
-
-# Always respond in Korean unless specifically requested otherwise.""",
-#             composition_mode=p.CompositionMode.COMPOSITED
-#         )
-
-#         print(f"     ✅ WelfareGuide agent created (ID: {welfare_agent.id})")
-
-#         # Add welfare-only guidelines (agent-level, no journey)
-#         print("     🔧 Adding welfare-specific guidelines...")
-
-#         # Guideline 1: Block medical questions
-#         await welfare_agent.create_guideline(
-#             condition="User asks about medical diagnosis, symptoms, treatment, or health conditions",
-#             action="""Politely redirect the user:
-
-# "죄송합니다. 저는 **복지 프로그램 전문 상담**만 제공합니다.
-
-# 의료 상담이 필요하신 경우:
-# - CareGuide 의료상담 서비스를 이용해주세요
-# - 또는 의료진과 직접 상담하세요
-
-# **제가 도와드릴 수 있는 것**:
-# ✅ 복지 프로그램 정보 (산정특례, 의료비 지원 등)
-# ✅ 신청 방법 및 절차
-# ✅ 장애인 등록 안내
-# ✅ 교통비 지원 정보
-
-# 복지 관련 질문이 있으시면 말씀해주세요!"
-
-# **Tone**: Friendly but firm, clearly define your scope"""
-#         )
-
-#         # Guideline 2: Eligibility disclaimer
-#         await welfare_agent.create_guideline(
-#             condition="User asks about specific eligibility or whether they qualify for a program",
-#             action="""Always remind the user that:
-
-# 1. You provide GENERAL guidelines based on government data
-# 2. FINAL ELIGIBILITY is determined by authorities (국민건강보험공단, 주민센터, etc.)
-# 3. Personal circumstances may affect eligibility
-# 4. They should contact the program directly for personalized assessment
-
-# **Example Format**:
-# "일반적으로 [자격 요건]에 해당하는 경우 신청 가능합니다.
-# 하지만 최종 자격 여부는 [담당 기관]에서 개별적으로 판단합니다.
-# 정확한 상담을 위해 [전화번호]로 직접 문의하시는 것을 권장드립니다."
-
-# **Tone**: Helpful but cautious, avoid definitive yes/no about eligibility"""
-#         )
-
-#         # Guideline 3: Empathetic support for financial distress
-#         await welfare_agent.create_guideline(
-#             condition="User expresses financial difficulty, desperation, or emotional distress about medical costs",
-#             action="""Respond with empathy and comprehensive support:
-
-# 1. **Acknowledge** their situation: "의료비 부담이 크시겠어요. 여러 지원 제도가 있으니 함께 알아보겠습니다."
-
-# 2. **Emphasize** available programs:
-#    - 산정특례 (90% 본인부담금 감면)
-#    - 의료비 지원 (재난적 의료비, 긴급 의료비)
-#    - 장애인 복지 혜택
-
-# 3. **Prioritize by impact**:
-#    - 산정특례 first (biggest reduction)
-#    - 긴급 의료비 for urgent needs (3-7 days)
-
-# 4. **Encourage action**:
-#    - "포기하지 마시고 꼭 신청하세요"
-#    - "담당자와 상담하시면 도움받으실 수 있습니다"
-
-# 5. **Emergency contacts**:
-#    - 보건복지콜센터: 국번없이 129
-#    - 긴급 복지 지원: 주민센터
-#    - 재난적 의료비: 1577-1000
-
-# **Tone**: Warm, supportive, encouraging, non-judgmental
-# **Avoid**: Minimizing concerns, making promises about approval"""
-#         )
-
-#         # Guideline 4: Clear application instructions
-#         await welfare_agent.create_guideline(
-#             condition="User asks about application process or required documents",
-#             action="""Provide CLEAR, STEP-BY-STEP instructions:
-
-# 1. **Steps in numbered format**:
-#    - Step 1: [First action - "병원에서 진단서 받기"]
-#    - Step 2: [Second action - "서류 준비하기"]
-#    - Step 3: [Third action - "신청 기관 방문"]
-
-# 2. **Required documents**:
-#    - Use bullet points
-#    - Be specific (e.g., "의사 진단서 (희귀난치성질환 등록 신청용)")
-#    - Mention where to get each document
-
-# 3. **Where to apply**:
-#    - Exact location (e.g., "국민건강보험공단 지사 또는 병원 원무과")
-#    - Suggest calling ahead
-
-# 4. **Processing time**:
-#    - Realistic expectations (e.g., "7-14일 소요")
-#    - Follow-up options
-
-# 5. **Contact for questions**:
-#    - Always provide phone number
-#    - Encourage calling for clarification
-
-# **Format**: Numbered lists, bullet points, emojis for clarity
-# **Language**: Korean (한국어)"""
-#         )
-
-#         # Guideline 5: Profile-aware responses
-#         await welfare_agent.create_guideline(
-#             condition="Responding to user queries",
-#             action="""Adapt response based on user profile:
-
-# **Researcher Profile** (학술/전문가):
-# - Detailed policy information
-# - Include legal basis and sources
-# - Cite government agencies and regulations
-# - Max 10 programs
-# - Technical terminology acceptable
-
-# **Patient Profile** (환자/경험자):
-# - Practical step-by-step guidance
-# - Focus on actionable advice
-# - Empathetic tone
-# - Max 5 programs
-# - Include personal stories if helpful
-
-# **General Profile** (일반인/노비스):
-# - Simple explanations
-# - Avoid jargon
-# - Visual formatting (emojis, bullets)
-# - Max 3 programs
-# - Analogies for complex concepts
-
-# Check customer tags for profile (profile:researcher, profile:patient, profile:general)"""
-#         )
-
-#         print("     ✅ Welfare guidelines added (5 total)")
 
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
@@ -2763,37 +1665,13 @@ Always respond in Korean unless specifically requested otherwise.""",
         print(f"  • Max Results: {PROFILE_LIMITS[profile]['max_results']} per source")
         print(f"  • Detail Level: {PROFILE_LIMITS[profile]['detail_level']}")
 
-        print(f"\n🔍 **Search System**:")
-        print(f"  • Search Method: Hybrid (Keyword 40% + Semantic 60%)")
-        print(f"  • Data Sources:")
-        print(f"    1. MongoDB - Structured data (text indexing)")
-        print(f"    2. Pinecone - Vector database (semantic search)")
-        print(f"    3. Local Papers - Rich metadata")
-        print(f"    4. PubMed API - Real-time (abstracts, authors, DOI, MeSH)")
-
-        print(f"\n🛠️ **Registered Tools**:")
-        print(f"  CareGuide Tools:")
-        print(f"    • search_medical_qa - Hybrid integrated search")
-        print(f"    • get_kidney_stage_info - CKD stage information")
-        print(f"    • get_symptom_info - Symptom info and emergency detection")
-        print(f"    • check_emergency_keywords - Emergency keyword detection")
-        print(f"    • search_welfare_programs - Welfare program search (13 programs)")
-        print(f"    • search_hospitals - Hospital/dialysis center search (104,836 facilities)")
-        print(f"  WelfareGuide Tools:")
-        print(f"    • search_welfare_programs - Welfare-only search (13 programs)")
-
-        print(f"\n⚠️ **Safety Features**:")
-        print(f"  • Automatic emergency detection (911 guidance)")
-        print(f"  • Diagnosis/prescription blocking")
-        print(f"  • Automatic medical disclaimer")
-        print(f"  • Inappropriate request blocking")
-
-        print("\n" + "="*70)
-        print("🟢 Server is running.")
-        print("   Press Ctrl+C to exit.")
-        print("="*70 + "\n")
-
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    async def run_standalone():
+        async with p.Server() as server:
+            await register_agent(server)
+            print("Server running standalone. Press Ctrl+C to exit.")
+            await asyncio.Event().wait()
+
+    asyncio.run(run_standalone())
