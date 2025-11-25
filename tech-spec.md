@@ -190,10 +190,12 @@ POST /api/agent/route
   - 게시글 작성/조회
   - 댓글
   - 좋아요
+  - 🆕 관리자 게시글 삭제
 - **API**:
   - `POST /api/community/posts` - 게시글 작성
   - `GET /api/community/posts` - 게시글 목록
   - `POST /api/community/comments` - 댓글 작성
+  - `DELETE /api/community/posts/{post_id}` - 게시글 삭제 (관리자 전용)
 
 ### 5.4 Trends (jh) - **Trend Visualization Agent 연동**
 - **경로**: `/trends`
@@ -210,11 +212,25 @@ POST /api/agent/route
   - 회원가입/로그인
   - 프로필 관리
   - 북마크 관리
+  - 🆕 관리자 권한 관리
 - **API**:
-  - `POST /api/auth/signup` - 회원가입
-  - `POST /api/auth/login` - 로그인
-  - `GET /api/user/profile` - 프로필 조회
+  - `POST /api/auth/signup` - 회원가입 (role 포함)
+  - `POST /api/auth/login` - 로그인 (role 반환)
+  - `GET /api/user/profile` - 프로필 조회 (role 포함)
   - `PUT /api/user/profile` - 프로필 수정
+
+**관리자 권한 검증:**
+```python
+from app.api.dependencies import require_admin
+
+@router.delete("/posts/{post_id}")
+async def delete_post(
+    post_id: str,
+    admin_id: str = Depends(require_admin)  # 관리자만 접근 가능
+):
+    # 게시글 삭제 로직
+    pass
+```
 
 ### 5.6 Agent 관리 API (🆕)
 - **기능**: Agent 시스템 관리
@@ -234,9 +250,14 @@ POST /api/agent/route
   email: string;
   name: string;
   profile: "general" | "patient" | "researcher";
+  role: "user" | "admin";  // 🆕 관리자 권한 (기본값: "user")
   createdAt: Date;
 }
 ```
+
+**권한 시스템:**
+- `user`: 일반 사용자 (기본값)
+- `admin`: 관리자 (게시글 삭제 등 관리 권한)
 
 ### ChatMessage
 ```typescript

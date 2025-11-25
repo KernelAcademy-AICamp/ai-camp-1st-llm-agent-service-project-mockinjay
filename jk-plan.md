@@ -102,7 +102,7 @@ users_collection = db["users"]
 ```
 
 **체크리스트**:
-- [ ] MongoDB 설치 및 실행 (사용자가 직접 설치 필요)
+- [x] MongoDB 설치 및 실행 (사용자가 직접 설치 필요)
 - [x] 연결 코드 작성
 - [x] 연결 테스트 (엔드포인트 `/db-check` 제공)
 
@@ -246,12 +246,12 @@ app.include_router(auth.router)
 ```
 
 **체크리스트**:
-- [ ] User 모델 작성
-- [ ] 비밀번호 해싱 함수
-- [ ] JWT 토큰 생성 함수
-- [ ] 회원가입 API
-- [ ] 로그인 API
-- [ ] Postman으로 테스트
+- [x] User 모델 작성
+- [x] 비밀번호 해싱 함수
+- [x] JWT 토큰 생성 함수
+- [x] 회원가입 API
+- [x] 로그인 API
+- [x] Postman으로 테스트
 
 #### 6. 회원가입 페이지
 
@@ -334,11 +334,11 @@ export default function SignUp() {
 ```
 
 **체크리스트**:
-- [ ] 회원가입 폼 UI
-- [ ] 입력 검증
-- [ ] API 연동
-- [ ] 에러 처리
-- [ ] 성공 시 로그인 페이지로 이동
+- [x] 회원가입 폼 UI
+- [x] 입력 검증
+- [x] API 연동
+- [x] 에러 처리
+- [x] 성공 시 로그인 페이지로 이동
 
 #### 7. 로그인 페이지
 
@@ -410,11 +410,11 @@ export default function Login() {
 ```
 
 **체크리스트**:
-- [ ] 로그인 폼 UI
-- [ ] API 연동
-- [ ] 토큰 저장
-- [ ] Context 업데이트
-- [ ] 성공 시 채팅 페이지로 이동
+- [x] 로그인 폼 UI
+- [x] API 연동
+- [x] 토큰 저장
+- [x] Context 업데이트
+- [x] 성공 시 채팅 페이지로 이동
 
 #### 8. User Context 생성
 
@@ -476,10 +476,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 ```
 
 **체크리스트**:
-- [ ] Context 생성
-- [ ] Provider 구현
-- [ ] 로그인 상태 관리
-- [ ] App.tsx에 Provider 추가
+- [x] Context 생성
+- [x] Provider 구현
+- [x] 로그인 상태 관리
+- [x] App.tsx에 Provider 추가
 
 #### 9. 마이페이지 API
 
@@ -515,9 +515,9 @@ async def update_profile(name: str, user_id: str = Depends(get_current_user)):
 ```
 
 **체크리스트**:
-- [ ] 프로필 조회 API
-- [ ] 프로필 수정 API
-- [ ] JWT 인증 미들웨어
+- [x] 프로필 조회 API
+- [x] 프로필 수정 API
+- [x] JWT 인증 미들웨어
 
 #### 10. 마이페이지 UI
 
@@ -592,10 +592,10 @@ export default function MyPage() {
 ```
 
 **체크리스트**:
-- [ ] 마이페이지 UI
-- [ ] 프로필 조회
-- [ ] 프로필 수정
-- [ ] 로그아웃 버튼
+- [x] 마이페이지 UI
+- [x] 프로필 조회
+- [x] 프로필 수정
+- [x] 로그아웃 버튼
 
 ### Week 3: 공통 컴포넌트 제공
 
@@ -652,11 +652,11 @@ export function Header() {
 ```
 
 **체크리스트**:
-- [ ] Button 컴포넌트
-- [ ] Input 컴포넌트
-- [ ] Card 컴포넌트
-- [ ] Header 컴포넌트
-- [ ] Loading 컴포넌트
+- [x] Button 컴포넌트
+- [x] Input 컴포넌트
+- [x] Card 컴포넌트
+- [x] Header 컴포넌트
+- [x] Loading 컴포넌트
 
 #### 12. API Client 설정
 
@@ -681,32 +681,32 @@ export default apiClient;
 ```
 
 **체크리스트**:
-- [ ] Axios 인스턴스 생성
-- [ ] 인터셉터 설정
-- [ ] 기본 URL 설정
-- [ ] 토큰 자동 추가
+- [x] Axios 인스턴스 생성
+- [x] 인터셉터 설정
+- [x] 기본 URL 설정
+- [x] 토큰 자동 추가
 
 ## 완료 기준
 
 ### Backend
 - [x] FastAPI 서버 실행
 - [x] MongoDB 연결
-- [ ] 회원가입 API 작동 (Week 2)
-- [ ] 로그인 API 작동 및 JWT 토큰 반환 (Week 2)
-- [ ] 프로필 조회/수정 API 작동 (Week 2)
+- [x] 회원가입 API 작동 (Week 2)
+- [x] 로그인 API 작동 및 JWT 토큰 반환 (Week 2)
+- [x] 프로필 조회/수정 API 작동 (Week 2)
 - [x] CORS 설정 완료
 
 ### Frontend
 - [x] React 앱 실행
-- [ ] 회원가입 페이지 작동 (Week 2)
-- [ ] 로그인 페이지 작동 및 토큰 저장 (Week 2)
-- [ ] 마이페이지 작동 (Week 2)
-- [ ] Context API로 로그인 상태 관리 (Week 2)
-- [ ] 공통 컴포넌트 제공 (Header, Button 등) (Week 3)
-- [ ] API Client 설정 완료 (Week 3)
+- [x] 회원가입 페이지 작동 (Week 2)
+- [x] 로그인 페이지 작동 및 토큰 저장 (Week 2)
+- [x] 마이페이지 작동 (Week 2)
+- [x] Context API로 로그인 상태 관리 (Week 2)
+- [x] 공통 컴포넌트 제공 (Header, Button 등) (Week 3)
+- [x] API Client 설정 완료 (Week 3)
 
 ### 통합
-- [ ] 다른 팀원이 API Client 사용 가능 (Week 3)
+- [x] 다른 팀원이 API Client 사용 가능 (Week 3)
 - [ ] 다른 팀원이 공통 컴포넌트 사용 가능 (Week 3)
 - [ ] 다른 팀원이 UserContext 사용 가능 (Week 2-3)
 

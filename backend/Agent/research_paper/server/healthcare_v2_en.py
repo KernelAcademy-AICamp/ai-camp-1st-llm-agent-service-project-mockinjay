@@ -67,7 +67,7 @@ RERANKER = None
 # ==================== Helper Functions ====================
 
 async def get_profile(context: ToolContext) -> str:
-    """Determine profile based on plugin_data or customer context
+    """Determine profile based on plugin_data or customer tags
 
     IMPORTANT: Profile-specific behavior is controlled by Parlant guidelines.
     The LLM receives different instructions based on customer tags:
@@ -75,29 +75,84 @@ async def get_profile(context: ToolContext) -> str:
     - "profile:patient" → Practical advice, max 5 results
     - "profile:general" → Simple language, max 3 results
 
-    This function attempts to read profile from context but defaults to
-    standard limits. The actual tone/style is controlled by LLM guidelines.
+    This function reads customer tags from Parlant's internal stores to
+    determine the correct profile for result limiting.
 
     Args:
-        context: ToolContext with optional plugin_data
+        context: ToolContext with customer_id and plugin_data
 
     Returns:
         Profile type for result limiting
     """
-    # Check if profile is in plugin_data (preferred method)
+    # 1. Check if profile is in plugin_data (preferred method)
     if hasattr(context, 'plugin_data') and context.plugin_data:
-        profile = context.plugin_data.get('profile')
+        # Support both 'profile' and 'careguide_profile' keys
+        profile = context.plugin_data.get('profile') or context.plugin_data.get('careguide_profile')
         if profile and profile in ["researcher", "patient", "general"]:
             print(f"✅ Profile from plugin_data: {profile}")
             return profile
 
+    # 2. Fetch customer and tags from Container using customer_id
+    if hasattr(context, 'customer_id') and hasattr(context, 'plugin_data'):
+        customer_id = context.customer_id
+        container = context.plugin_data.get('container')
+
+        if container and customer_id:
+            try:
+                # Import stores from Parlant core
+                from parlant.core.customers import CustomerStore
+                from parlant.core.tags import TagStore
+
+                # Get customer from store
+                customer_store = container[CustomerStore]
+                customer = await customer_store.read_customer(customer_id)
+
+                if customer and customer.tags:
+                    print(f"🔍 Fetched customer with {len(customer.tags)} tag IDs: {customer.tags}")
+
+                    # customer.tags is a list of TagId (strings)
+                    # We need to fetch the actual Tag objects to get tag names
+                    tag_store = container[TagStore]
+
+                    for tag_id in customer.tags:
+                        try:
+                            # Fetch Tag object from TagStore
+                            tag = await tag_store.read_tag(tag_id)
+                            tag_name = tag.name
+
+                            print(f"🔍 Tag ID '{tag_id}' → name '{tag_name}'")
+
+                            # Check if this is a profile tag
+                            if tag_name and tag_name.startswith('profile:'):
+                                profile = tag_name.split(':', 1)[1]
+                                if profile in ["researcher", "patient", "general"]:
+                                    print(f"✅ Profile extracted from customer tags: {profile}")
+                                    return profile
+                        except Exception as tag_error:
+                            print(f"⚠️  Failed to read tag {tag_id}: {tag_error}")
+                            continue
+
+            except Exception as e:
+                print(f"⚠️  Failed to fetch customer from store: {e}")
+                import traceback
+                traceback.print_exc()
+
+    # 3. Check customer object if directly available (unlikely but kept as fallback)
+    customer = getattr(context, 'customer', None)
+    if customer and hasattr(customer, 'tags'):
+        print(f"🔍 Customer object available directly with tags: {customer.tags}")
+        # In this case, tags might already be Tag objects or TagIds
+        for tag in customer.tags:
+            tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else str(tag))
+            if tag_name and tag_name.startswith('profile:'):
+                profile = tag_name.split(':', 1)[1]
+                if profile in ["researcher", "patient", "general"]:
+                    print(f"✅ Profile extracted from customer object: {profile}")
+                    return profile
+
     # Note: We don't fetch from REST API here to avoid deadlock
     # The Parlant server is busy executing this tool, so HTTP requests
     # to the same server will timeout or block.
-
-    # Instead, we rely on:
-    # 1. LLM guidelines (controlled by customer tags) for tone/style
-    # 2. Default result limits (can be adjusted by guidelines)
 
     # Default profile for result limiting
     # The actual response style is controlled by Parlant guidelines
@@ -1019,33 +1074,77 @@ async def check_emergency_keywords(context: ToolContext, text: str) -> ToolResul
     Returns:
         Emergency status and guidance message
     """
-    emergency_keywords = [
+    # 영문 응급 키워드
+    EMERGENCY_KEYWORDS_EN = [
         "chest pain", "difficulty breathing", "unconsciousness",
-        "severe edema", "generalized edema", "fainting", "collapse"
+        "severe edema", "generalized edema", "fainting", "collapse",
+        "seizure", "severe bleeding", "altered consciousness",
+        "sudden vision loss", "severe headache", "numbness"
     ]
 
-    found_keywords = [kw for kw in emergency_keywords if kw in text.lower()]
+    # 한글 응급 키워드
+    EMERGENCY_KEYWORDS_KO = [
+        # 흉통
+        "흉통", "가슴 통증", "가슴이 아", "가슴 답답",
+
+        # 호흡곤란
+        "호흡곤란", "숨쉬기 힘", "숨이 차", "숨을 쉴 수 없",
+
+        # 의식저하
+        "의식저하", "의식 없", "정신 없", "깨어나지 않",
+
+        # 경련
+        "경련", "발작", "몸이 떨",
+
+        # 출혈
+        "심한출혈", "피가 많이", "출혈이 멈추지",
+
+        # 실신
+        "쓰러짐", "실신", "기절", "정신 잃",
+
+        # 부종
+        "부종 심", "전신 부종", "몸이 부", "얼굴이 부",
+
+        # 기타
+        "갑자기 안 보", "시력 상실", "심한 두통", "마비"
+    ]
+
+    # 통합
+    EMERGENCY_KEYWORDS = EMERGENCY_KEYWORDS_EN + EMERGENCY_KEYWORDS_KO
+
+    found_keywords = [kw for kw in EMERGENCY_KEYWORDS if kw in text.lower()]
     is_emergency = len(found_keywords) > 0
 
     if is_emergency:
-        return ToolResult(
-            data={
-                "is_emergency": True,
-                "found_keywords": found_keywords,
-                "message": f"""🚨 **EMERGENCY DETECTED!**
+        # 한글 키워드 포함 여부 확인
+        has_korean = any(kw in EMERGENCY_KEYWORDS_KO for kw in found_keywords)
+
+        if has_korean:
+            message = f"""🚨 **응급 상황 감지!**
+
+다음 응급 증상이 감지되었습니다:
+{chr(10).join([f'  • {kw}' for kw in found_keywords])}
+
+**즉시 조치가 필요합니다:**
+📞 119에 즉시 전화하세요
+🏥 가까운 응급실로 가세요
+⚠️ 의료 조치를 지연하지 마세요"""
+        else:
+            message = f"""🚨 **EMERGENCY DETECTED!**
 
 The following emergency keywords were detected:
 {chr(10).join([f'  • {kw}' for kw in found_keywords])}
 
-⚠️ **CALL 911 IMMEDIATELY!**
+**IMMEDIATE ACTION REQUIRED:**
+📞 Call emergency services immediately (119/911)
+🏥 Go to the nearest emergency room
+⚠️ Do not delay seeking medical care"""
 
-📞 **Emergency Call Steps**:
-1. Call 911
-2. Report location
-3. Describe symptoms
-4. Follow dispatcher instructions
-
-⏱️ Time is critical!"""
+        return ToolResult(
+            data={
+                "is_emergency": True,
+                "found_keywords": found_keywords,
+                "message": message
             }
         )
 
@@ -1404,6 +1503,262 @@ async def create_medical_info_journey(agent: p.Agent) -> p.Journey:
     return journey
 
 
+async def create_research_paper_journey(agent: p.Agent) -> p.Journey:
+    """연구자 전용 논문 검색 및 분석 Journey
+
+    이 Journey는 연구자에게 다음 기능을 제공합니다:
+    - 고급 PubMed 검색 (최대 20개 결과)
+    - 다중 논문 비교 분석
+    - 메타분석 요약
+    - 논문 북마크 (선택)
+
+    Medical Information Journey와 차별점:
+    - 연구자 프로필 전용
+    - 더 많은 검색 결과 (10-20개 vs 3-5개)
+    - 전문적인 분석 도구
+    - 학술적 언어 사용
+    """
+    journey = await agent.create_journey(
+        title="Research Paper Deep Dive",
+        description="Advanced PubMed search and multi-paper comparison for researchers",
+        conditions=[
+            "User is a researcher",
+            "User wants advanced paper search and analysis",
+            "User needs to compare multiple research papers"
+        ]
+    )
+
+    # Step 1: Welcome & Query Input
+    t0 = await journey.initial_state.transition_to(
+        chat_state="""Welcome to **Research Paper Deep Dive** - Advanced mode for researchers!
+
+This journey provides:
+✓ Extended PubMed search (up to 20 papers)
+✓ Multi-paper comparative analysis
+✓ Meta-analysis summarization
+✓ Academic-level explanations
+
+**Search Options**:
+1. **Keyword search**: "CKD biomarker 2024"
+2. **PMID search**: "PMID: 12345678, 87654321"
+3. **Author search**: "Smith J [Author]"
+4. **Journal search**: "New England Journal of Medicine [Journal]"
+
+Please enter your search query in Korean or English:"""
+    )
+
+    # Step 2: Execute Search
+    t1 = await t0.target.transition_to(
+        tool_state=search_medical_qa,
+        tool_instruction="""🔍 Executing PubMed search in researcher mode...
+
+**Researcher Mode Settings**:
+- Max results: 20 papers
+- Include: Guidelines, Papers, PubMed API
+- Exclude: Basic QA (research focus)
+
+Searching across multiple academic sources..."""
+    )
+
+    # Step 3: Present Results and Ask for Next Action
+    t2 = await t1.target.transition_to(
+        chat_state="""📊 **Search Results**
+
+Present the found papers clearly with key details (title, authors, journal, year, PMID).
+
+**What would you like to do next?**
+1. Analyze a specific paper in detail
+2. Compare multiple papers
+3. Summarize meta-analysis findings
+4. Bookmark interesting papers
+5. Refine your search query
+6. Start a new search
+7. End session
+
+Please tell me your choice."""
+    )
+
+    # Step 4: Single Paper Analysis (conditional)
+    t3 = await t2.target.transition_to(
+        chat_state="""📑 **Detailed Paper Analysis**
+
+I'll provide an in-depth academic analysis covering:
+
+**1. Study Design & Methodology**
+   - Research type, sample size, study duration
+   - Inclusion/exclusion criteria
+   - Methodological quality
+
+**2. Key Findings**
+   - Primary and secondary outcomes
+   - Statistical significance (p-values, confidence intervals)
+   - Effect sizes
+
+**3. Results Interpretation**
+   - Clinical implications
+   - Practical applications
+   - Relevant patient subgroups
+
+**4. Limitations & Bias Assessment**
+   - Study limitations
+   - Potential biases (selection, measurement, reporting)
+   - Confounding factors
+
+**5. Evidence Quality (GRADE)**
+   - Risk of bias level
+   - Consistency of results
+   - Generalizability
+
+**6. Clinical Recommendations**
+   - Practice implications
+   - Areas for further research
+
+Would you like to analyze another paper, compare papers, or perform a different action?""",
+        condition="User requests detailed analysis of a specific paper"
+    )
+
+    # Step 4-alt: Multi-Paper Comparison (conditional)
+    t4 = await t2.target.transition_to(
+        chat_state="""📊 **Comparative Analysis of Multiple Papers**
+
+I'll systematically compare the selected papers:
+
+**Comparison Matrix**:
+| Aspect | Paper A | Paper B | Paper C |
+|--------|---------|---------|---------|
+| Design | ... | ... | ... |
+| Sample Size | ... | ... | ... |
+| Primary Outcome | ... | ... | ... |
+| Effect Size | ... | ... | ... |
+| P-value | ... | ... | ... |
+| Evidence Level | ... | ... | ... |
+
+**Consensus Findings**:
+- Common trends across studies
+- Magnitude and direction of effects
+- Consistency across populations
+
+**Discrepancies & Heterogeneity**:
+- Methodological differences
+- Variations in outcomes
+- Sources of heterogeneity (I², τ²)
+
+**Integrated Conclusion**:
+Based on the synthesized evidence, here are the key clinical recommendations...
+
+Would you like to explore specific aspects, add more papers, or take another action?""",
+        condition="User wants to compare multiple research papers"
+    )
+
+    # Step 4-alt2: Meta-Analysis Summary (conditional)
+    t5 = await t2.target.transition_to(
+        chat_state="""🔬 **Meta-Analysis Summary**
+
+Comprehensive meta-analysis breakdown:
+
+**Study Characteristics**:
+- Number of included studies: N
+- Total participants: N
+- Publication years: YYYY-YYYY
+
+**Pooled Effect Size**:
+- Effect measure: [OR/RR/HR/MD]
+- Pooled estimate: X.XX (95% CI: X.XX to X.XX)
+- Z-score and p-value
+
+**Heterogeneity Assessment**:
+- I² statistic: X% [interpretation]
+- Cochran's Q: X (p = X.XX)
+- τ² (tau-squared): X.XX
+
+**Publication Bias**:
+- Funnel plot symmetry: [assessment]
+- Egger's test: p = X.XX
+- Trim-and-fill analysis: [findings]
+
+**Subgroup Analyses** (if available):
+- By study design
+- By geographic region
+- By patient characteristics
+
+**Sensitivity Analysis**:
+- Leave-one-out results
+- Fixed vs random effects comparison
+
+**GRADE Evidence Quality**:
+- Risk of bias: [rating]
+- Inconsistency: [rating]
+- Indirectness: [rating]
+- Imprecision: [rating]
+- Overall quality: [High/Moderate/Low/Very Low]
+
+**Clinical Implications & Recommendations**
+
+What would you like to do next?""",
+        condition="User selected a meta-analysis paper for summary"
+    )
+
+    # Merge paths back
+    await t3.target.transition_to(state=t2.target, condition="User wants to perform another analysis")
+    await t4.target.transition_to(state=t2.target, condition="User wants to perform another analysis")
+    await t5.target.transition_to(state=t2.target, condition="User wants to perform another analysis")
+
+    # Step 5: Refine Search (loop back)
+    t6 = await t2.target.transition_to(
+        chat_state="""🔧 **Refine Your Search**
+
+Current query can be refined using:
+
+**Filters**:
+- Publication year (e.g., 2020-2024)
+- Study type (RCT, meta-analysis, cohort, case-control)
+- Language
+
+**Advanced Search Techniques**:
+- MeSH terms for precise subject matching
+- Boolean operators (AND, OR, NOT)
+- Field-specific search: [Author], [Journal], [Title], [PMID]
+
+**Examples**:
+- \"CKD AND biomarker AND 2023[PDAT]\"
+- \"Smith J[Author] AND kidney disease\"
+- \"New England Journal of Medicine[Journal]\"
+
+Please enter your refined search query:""",
+        condition="User wants to refine the current search"
+    )
+
+    # Loop refined search back to search execution
+    await t6.target.transition_to(state=t1.target)
+
+    # Step 6: New Search (loop to beginning)
+    await t2.target.transition_to(
+        state=t0.target,
+        condition="User wants to start a completely new search"
+    )
+
+    # Step 7: End Journey
+    t7 = await t2.target.transition_to(
+        chat_state="""Thank you for using **Research Paper Deep Dive**!
+
+**Session Summary**:
+- Multiple research papers explored
+- Advanced analysis tools utilized
+- Academic insights generated
+
+💡 **Tip**: You can access your bookmarked papers anytime in My Page → Bookmarks.
+
+The research journey continues - feel free to return anytime for more in-depth literature analysis!
+
+Have a productive research day! 🔬📚""",
+        condition="User indicates they want to end the session or says goodbye"
+    )
+
+    await t7.target.transition_to(state=p.END_JOURNEY)
+
+    return journey
+
+
 # ==================== Main Function ====================
 
 async def main() -> None:
@@ -1472,9 +1827,21 @@ Always respond in Korean unless specifically requested otherwise.""",
         print("  🔧 Adding blocking guidelines...")
         await add_blocking_guidelines(agent, disclaimer_guideline)
 
-        # Create journey
+        # Create journeys
         print("  🗺️ Creating Medical Information Journey...")
         journey = await create_medical_info_journey(agent)
+
+        print("  🗺️ Creating Research Paper Journey...")
+        research_journey = await create_research_paper_journey(agent)
+
+        # Journey Disambiguation
+        print("  🔀 Setting up Journey disambiguation...")
+        paper_inquiry = await agent.create_observation(
+            "User asks about research papers, scientific studies, or wants advanced paper analysis, "
+            "but it's not clear whether they need basic information or in-depth research analysis"
+        )
+        await paper_inquiry.disambiguate([journey, research_journey])
+        print("     ✅ Journey disambiguation configured")
 
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
@@ -1494,7 +1861,8 @@ Always respond in Korean unless specifically requested otherwise.""",
         print(f"\n📋 **Server Information**:")
         print(f"  • Agent ID: {agent.id}")
         print(f"  • Customer ID: {customer.id}")
-        print(f"  • Journey ID: {journey.id}")
+        print(f"  • Medical Journey ID: {journey.id}")
+        print(f"  • Research Journey ID: {research_journey.id}")
 
         print(f"\n👤 **User Profile**:")
         profile_display = {

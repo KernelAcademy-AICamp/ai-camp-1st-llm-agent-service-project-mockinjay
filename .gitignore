@@ -337,10 +337,9 @@ backend/app/api/chat/parlant/parlant-data/
 parlant-data/
 embedding_cache/
 
-
+frontend/  
 
 # dependencies
-frontend/node_modules
 node_modules/
 .pnp
 .pnp.js
@@ -377,3 +376,10 @@ processed/*.jsonl
 *.xlsx
 *.pdf
 data/raw/healthcareproviders/
+.serena/
+docs
+
+# Backup files
+*.backup
+*.bak
+*~
