@@ -39,16 +39,14 @@ async def chat_info():
     }
 
 
+from app.core.context_system import context_system
+import json
+import asyncio
+
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_to_parlant(path: str, request: Request):
     """
-    Proxy all requests to the Parlant server
-
-    This forwards:
-    - Headers (except host)
-    - Query parameters
-    - Request body
-    - HTTP method
+    Proxy all requests to the Parlant server with Context Engineering
     """
     try:
         # Build target URL
@@ -65,6 +63,43 @@ async def proxy_to_parlant(path: str, request: Request):
 
         # Get request body
         body = await request.body()
+        
+        # --- Context Engineering: Injection ---
+        user_id = None
+        session_id = None
+        query = None
+        
+        if request.method == "POST":
+            try:
+                # Try to parse body as JSON to inject context
+                body_json = json.loads(body)
+                session_id = body_json.get("session_id")
+                query = body_json.get("query") or body_json.get("message")
+                
+                if session_id and query:
+                    session = context_system.session_manager.get_session(session_id)
+                    if session:
+                        user_id = session.get("user_id")
+                        if user_id:
+                            # 1. Get Context
+                            user_context = await context_system.context_engineer.get_user_context(user_id)
+                            
+                            # 2. Inject Context
+                            if user_context.get("summary") or user_context.get("keywords"):
+                                # Add to 'context' field which agents should respect
+                                if "context" not in body_json:
+                                    body_json["context"] = {}
+                                
+                                # Add user history context
+                                body_json["context"]["user_history"] = user_context
+                                
+                                # Re-serialize body
+                                body = json.dumps(body_json).encode("utf-8")
+                                # Update content-length header
+                                headers["content-length"] = str(len(body))
+                                logger.info(f"✅ Injected context for user {user_id}")
+            except Exception as e:
+                logger.warning(f"Context injection failed: {e}")
 
         logger.info(f"Proxying {request.method} {url}")
 
@@ -75,6 +110,25 @@ async def proxy_to_parlant(path: str, request: Request):
             headers=headers,
             content=body,
         )
+
+        # --- Context Engineering: Recording ---
+        try:
+            if session_id and query and response.status_code == 200 and user_id:
+                resp_json = response.json()
+                # Try to find the answer in various common fields
+                agent_response = resp_json.get("answer") or resp_json.get("response") or resp_json.get("result", {}).get("response")
+                agent_type = resp_json.get("agent_type", "unknown")
+                
+                if agent_response:
+                    # Save to DB
+                    await context_system.context_engineer.db_manager.save_conversation(
+                        user_id, session_id, agent_type, query, agent_response
+                    )
+                    # Trigger analysis (fire and forget)
+                    asyncio.create_task(context_system.context_engineer.analyze_and_update_context(user_id))
+                    logger.info(f"✅ Saved conversation and triggered analysis for user {user_id}")
+        except Exception as e:
+            logger.warning(f"History saving failed: {e}")
 
         # Return response with proper content handling
         content_type = response.headers.get("content-type", "")
@@ -87,7 +141,6 @@ async def proxy_to_parlant(path: str, request: Request):
                     headers=dict(response.headers)
                 )
             except:
-                # If JSON parsing fails, return as text
                 pass
 
         # Return text response
