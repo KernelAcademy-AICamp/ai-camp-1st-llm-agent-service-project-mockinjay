@@ -1,0 +1,271 @@
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Primary Colors */
+    --color-primary: #00c9b7;
+    --color-primary-hover: #00b3a3;
+    --color-primary-pressed: #008c80;
+    --color-primary-dark: #00a899;
+    --color-accent-purple: #9f7aea;
+
+    /* Semantic Colors */
+    --color-success: #00a8e8;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+
+    /* Text Colors */
+    --color-text-primary: #1f2937;
+    --color-text-secondary: #4b5563;
+    --color-text-tertiary: #6b7280;
+    --color-disabled: #ccc;
+
+    /* Line Colors */
+    --color-line-strong: #d1d5db;
+    --color-line-medium: #e5e7eb;
+    --color-line-light: #f3f4f6;
+    --color-line-subtle: #f9fafb;
+
+    /* Background Colors */
+    --color-background: #fff;
+    --color-surface: #f8fafc;
+    --color-input-bar: #f2fffd;
+
+    /* Navigation Colors */
+    --color-nav-unselected: #666;
+    --color-nav-selected: #00c8b4;
+
+    /* Chat Bubble Colors */
+    --color-bubble-user: #e6f7f5;
+    --color-bubble-ai: #fff;
+    --color-bubble-ai-border: #e0e0e0;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, #00c8b4 0%, #9f7aea 100%);
+
+    /* Shadows */
+    --shadow-default: none;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-shadow: none !important;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  body {
+    color: var(--color-text-primary);
+    background: var(--color-background);
+    font-weight: 400;
+  }
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  h4 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  p {
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.6;
+  }
+
+  button,
+  input,
+  textarea {
+    font-family: inherit;
+  }
+}
+
+@layer components {
+  /* Primary Action Button */
+  .btn-primary-action {
+    @apply px-6 py-3 font-medium transition-all duration-200;
+    background: var(--gradient-primary);
+    color: white;
+    border-radius: 1.025rem;
+  }
+
+  .btn-primary-action:hover {
+    opacity: 0.9;
+  }
+
+  /* Primary Button */
+  .btn-primary {
+    @apply px-6 py-3 font-medium transition-all duration-200;
+    background: var(--color-primary);
+    color: white;
+    border-radius: 1.025rem;
+  }
+
+  .btn-primary:hover {
+    background: var(--color-primary-hover);
+  }
+
+  .btn-primary:active {
+    background: var(--color-primary-pressed);
+  }
+
+  .btn-primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Secondary Button */
+  .btn-secondary {
+    @apply px-6 py-3 font-medium transition-all duration-200;
+    background: var(--color-background);
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    border-radius: 1.025rem;
+  }
+
+  .btn-secondary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-secondary:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Ghost Button */
+  .btn-ghost {
+    @apply px-4 py-2 font-medium transition-all duration-200;
+    color: var(--color-text-secondary);
+    border-radius: 0.625rem;
+  }
+
+  .btn-ghost:hover {
+    background: var(--color-line-subtle);
+  }
+
+  /* Input Field */
+  .input-field {
+    @apply px-4 py-3 transition-all duration-200;
+    border: 1px solid var(--color-line-medium);
+    background: var(--color-background);
+    color: var(--color-text-primary);
+    border-radius: 1.025rem;
+  }
+
+  .input-field:focus {
+    border-color: var(--color-primary);
+    background: var(--color-input-bar);
+    outline: none;
+  }
+
+  .input-field:disabled {
+    background: var(--color-line-subtle);
+    color: var(--color-disabled);
+    cursor: not-allowed;
+  }
+
+  /* Card */
+  .card {
+    @apply p-6 transition-all duration-200;
+    background: var(--color-background);
+    border: 1px solid var(--color-line-medium);
+    border-radius: 1rem;
+  }
+
+  .card:hover {
+    box-shadow: var(--shadow-default);
+  }
+
+  /* Category Tag */
+  .category-tag {
+    @apply px-3 py-1.5 text-sm font-medium;
+    background: var(--color-input-bar);
+    color: var(--color-primary);
+    border-radius: 9999px;
+  }
+
+  /* Agent Selector - Selected */
+  .agent-selector-selected {
+    @apply px-6 py-2.5 font-medium transition-all duration-200;
+    background: var(--color-background);
+    border: 2px solid transparent;
+    border-image: var(--gradient-primary) 1;
+    color: var(--color-primary);
+    border-radius: 9999px;
+  }
+
+  /* Agent Selector - Unselected */
+  .agent-selector-unselected {
+    @apply px-6 py-2.5 font-medium transition-all duration-200;
+    background: var(--color-background);
+    color: var(--color-nav-unselected);
+    border: 1px solid var(--color-line-medium);
+    border-radius: 9999px;
+  }
+
+  /* Tab - Selected */
+  .tab-selected {
+    @apply pb-2 font-medium transition-all duration-200;
+    color: var(--color-primary);
+    border-bottom: 3px solid var(--color-accent-purple);
+  }
+
+  /* Tab - Unselected */
+  .tab-unselected {
+    @apply pb-2 font-medium transition-all duration-200;
+    color: var(--color-text-secondary);
+  }
+
+  /* Chat Bubble - User */
+  .chat-bubble-user {
+    @apply max-w-[80%] px-4 py-3;
+    background: var(--gradient-primary);
+    color: white;
+    border-radius: 1rem;
+  }
+
+  /* Chat Bubble - AI */
+  .chat-bubble-ai {
+    @apply max-w-[80%] px-4 py-3;
+    background: var(--color-line-subtle);
+    color: var(--color-text-primary);
+    border-radius: 1rem;
+  }
+
+  /* Hide Scrollbar */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
