@@ -3,7 +3,7 @@
  * 연구 논문 목록 및 확장 가능한 초록 표시
  */
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, FileText, Calendar, BookOpen, User, Sparkles, Loader2, Languages, FileBarChart } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, FileText, Calendar, BookOpen, User, Sparkles, Loader2, Languages, FileBarChart, CheckCircle, Circle } from 'lucide-react';
 import type { PaperResult } from '../../services/trendsApi';
 import { generateOneLineSummaries, translateAbstracts } from '../../services/trendsApi';
 
@@ -12,11 +12,13 @@ interface PaperListProps {
   onRequestSummary?: () => void;
   loading?: boolean;
   language: 'ko' | 'en';
+  selectedPapers?: PaperResult[];
+  onPaperSelect?: (paper: PaperResult) => void;
 }
 
 type ViewMode = 'original' | 'korean' | 'summary';
 
-const PaperList: React.FC<PaperListProps> = ({ papers, onRequestSummary, loading = false, language }) => {
+const PaperList: React.FC<PaperListProps> = ({ papers, onRequestSummary, loading = false, language, selectedPapers = [], onPaperSelect }) => {
   const [expandedPapers, setExpandedPapers] = useState<Set<string>>(new Set());
   const [oneLineSummaries, setOneLineSummaries] = useState<Map<string, string>>(new Map());
   const [translations, setTranslations] = useState<Map<string, string>>(new Map());
@@ -181,17 +183,36 @@ const PaperList: React.FC<PaperListProps> = ({ papers, onRequestSummary, loading
           const currentContent = getCurrentContent(paper);
           const isLoadingSummary = summaryLoading.has(paper.pmid);
           const isLoadingTranslation = translationLoading.has(paper.pmid);
+          const isSelected = selectedPapers.some(p => p.pmid === paper.pmid);
 
           return (
             <div
               key={paper.pmid}
-              className="border border-gray-200 dark:border-gray-700 rounded-lg p-4
-                hover:border-purple-300 dark:hover:border-purple-600 transition-colors"
+              className={`border rounded-lg p-4 transition-colors ${
+                isSelected
+                  ? 'border-purple-500 dark:border-purple-400 bg-purple-50 dark:bg-purple-900/10'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-600'
+              }`}
             >
-              {/* Paper Title */}
-              <h4 className="font-semibold text-gray-800 dark:text-white mb-2 leading-tight">
-                {paper.title || t.noTitle}
-              </h4>
+              {/* Paper Title with Selection */}
+              <div className="flex items-start gap-3">
+                {onPaperSelect && (
+                  <button
+                    onClick={() => onPaperSelect(paper)}
+                    className={`flex-shrink-0 mt-1 transition-colors ${
+                      isSelected
+                        ? 'text-purple-600 dark:text-purple-400'
+                        : 'text-gray-400 hover:text-purple-500'
+                    }`}
+                    title={language === 'ko' ? (isSelected ? '선택 해제' : '비교 선택') : (isSelected ? 'Deselect' : 'Select for comparison')}
+                  >
+                    {isSelected ? <CheckCircle size={20} /> : <Circle size={20} />}
+                  </button>
+                )}
+                <h4 className="font-semibold text-gray-800 dark:text-white mb-2 leading-tight flex-1">
+                  {paper.title || t.noTitle}
+                </h4>
+              </div>
 
               {/* Metadata */}
               <div className="flex flex-wrap gap-3 text-sm text-gray-600 dark:text-gray-400 mb-3">

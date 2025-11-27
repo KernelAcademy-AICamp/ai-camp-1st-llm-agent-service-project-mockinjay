@@ -8,7 +8,7 @@ import { TrendingUp, ArrowLeft, AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Components
-import { QueryBuilder, AnalysisSelector, ChartRenderer, PaperList, SummaryPanel } from '../components/trends';
+import { QueryBuilder, AnalysisSelector, ChartRenderer, PaperList, SummaryPanel, PaperComparison } from '../components/trends';
 
 // API & Types
 import {
@@ -69,6 +69,10 @@ const TrendsPageEnhanced: React.FC = () => {
 
   // Summary state
   const [aiSummary, setAiSummary] = useState<MultiplePaperSummary | null>(null);
+
+  // Paper comparison state
+  const [selectedPapers, setSelectedPapers] = useState<PaperResult[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
 
   // Translations
   const t = {
@@ -226,7 +230,33 @@ const TrendsPageEnhanced: React.FC = () => {
     setResultState(null);
     setAiSummary(null);
     setError(null);
+    setSelectedPapers([]);
+    setShowComparison(false);
   }, []);
+
+  // Handle paper selection for comparison
+  const handlePaperSelect = useCallback((paper: PaperResult) => {
+    setSelectedPapers(prev => {
+      const isSelected = prev.some(p => p.pmid === paper.pmid);
+      if (isSelected) {
+        return prev.filter(p => p.pmid !== paper.pmid);
+      }
+      if (prev.length >= 4) {
+        toast.warning(language === 'ko' ? '최대 4개까지 선택 가능합니다' : 'Maximum 4 papers can be selected');
+        return prev;
+      }
+      return [...prev, paper];
+    });
+  }, [language]);
+
+  // Handle compare button click
+  const handleCompare = useCallback(() => {
+    if (selectedPapers.length < 2) {
+      toast.warning(language === 'ko' ? '비교하려면 최소 2개 논문을 선택하세요' : 'Select at least 2 papers to compare');
+      return;
+    }
+    setShowComparison(true);
+  }, [selectedPapers.length, language]);
 
   // Render step indicator
   const renderStepIndicator = () => (
@@ -357,6 +387,49 @@ const TrendsPageEnhanced: React.FC = () => {
             <ChartRenderer config={resultState.chartConfig} height={400} />
           )}
 
+          {/* Paper Comparison Controls */}
+          {resultState.papers.length > 1 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {language === 'ko' ? '논문 비교' : 'Compare Papers'}
+                  </span>
+                  <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium">
+                    {selectedPapers.length}/4 {language === 'ko' ? '선택됨' : 'selected'}
+                  </span>
+                </div>
+                <button
+                  onClick={handleCompare}
+                  disabled={selectedPapers.length < 2}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700
+                    disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                >
+                  {language === 'ko' ? '비교하기' : 'Compare'}
+                </button>
+              </div>
+              {selectedPapers.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedPapers.map(paper => (
+                    <span
+                      key={paper.pmid}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 dark:bg-purple-900/20
+                        text-purple-700 dark:text-purple-300 rounded text-xs"
+                    >
+                      {paper.title.substring(0, 30)}...
+                      <button
+                        onClick={() => handlePaperSelect(paper)}
+                        className="ml-1 text-purple-500 hover:text-purple-700"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Papers */}
           {resultState.papers.length > 0 && (
             <PaperList
@@ -364,6 +437,8 @@ const TrendsPageEnhanced: React.FC = () => {
               onRequestSummary={handleRequestSummary}
               loading={summaryLoading}
               language={language}
+              selectedPapers={selectedPapers}
+              onPaperSelect={handlePaperSelect}
             />
           )}
 
@@ -377,6 +452,14 @@ const TrendsPageEnhanced: React.FC = () => {
             />
           )}
         </div>
+      )}
+
+      {/* Paper Comparison Modal */}
+      {showComparison && selectedPapers.length >= 2 && (
+        <PaperComparison
+          papers={selectedPapers}
+          onClose={() => setShowComparison(false)}
+        />
       )}
     </div>
   );

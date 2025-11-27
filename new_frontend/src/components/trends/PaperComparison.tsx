@@ -1,15 +1,21 @@
 /**
  * PaperComparison Component
- * Side-by-side comparison of selected papers
+ * 논문 비교 (한글 번역 지원)
  */
-import React from 'react';
-import { X, FileText, Calendar, Users, BookOpen, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, FileText, Calendar, Users, BookOpen, ExternalLink, Loader2, Languages } from 'lucide-react';
 import type { PaperResult } from '../../services/trendsApi';
+import { translateToKorean } from '../../services/translateApi';
 
 interface PaperComparisonProps {
   papers: PaperResult[];
   onClose: () => void;
-  language: 'ko' | 'en';
+}
+
+interface TranslatedPaper {
+  title: string;
+  findings: string[];
+  keywords: string[];
 }
 
 /**
@@ -18,7 +24,6 @@ interface PaperComparisonProps {
 function extractKeyFindings(abstract: string): string[] {
   if (!abstract) return [];
 
-  // Simple heuristic: find sentences with keywords
   const keywordPatterns = [
     /result(s)?\s+show(ed|s)?/i,
     /we found/i,
@@ -40,7 +45,6 @@ function extractKeyFindings(abstract: string): string[] {
     }
   }
 
-  // If no findings found with keywords, just take first 2 sentences
   if (findings.length === 0 && sentences.length > 0) {
     return sentences.slice(0, 2).map((s) => s.trim());
   }
@@ -53,22 +57,18 @@ function extractKeyFindings(abstract: string): string[] {
  */
 function findCommonThemes(papers: PaperResult[]): string[] {
   const allKeywords = papers.flatMap((p) => p.keywords || []);
-
-  // Count keyword frequency
   const keywordCounts: Record<string, number> = {};
+
   allKeywords.forEach((keyword) => {
     const normalized = keyword.toLowerCase();
     keywordCounts[normalized] = (keywordCounts[normalized] || 0) + 1;
   });
 
-  // Find keywords that appear in multiple papers
-  const commonThemes = Object.entries(keywordCounts)
+  return Object.entries(keywordCounts)
     .filter(([_, count]) => count >= 2)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([keyword]) => keyword);
-
-  return commonThemes;
 }
 
 /**
@@ -93,28 +93,103 @@ function identifyDifferences(papers: PaperResult[]): Record<string, string[]> {
   return differences;
 }
 
-const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose, language }) => {
+const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose }) => {
+  const [translations, setTranslations] = useState<Map<string, TranslatedPaper>>(new Map());
+  const [translatedThemes, setTranslatedThemes] = useState<string[]>([]);
+  const [translatedDifferences, setTranslatedDifferences] = useState<Record<string, string[]>>({});
+  const [isTranslating, setIsTranslating] = useState(true);
+
   const t = {
-    title: language === 'ko' ? '논문 비교' : 'Paper Comparison',
-    compareCount: language === 'ko' ? '개 논문 비교' : ' Papers Comparison',
-    paperTitle: language === 'ko' ? '제목' : 'Title',
-    authors: language === 'ko' ? '저자' : 'Authors',
-    journal: language === 'ko' ? '저널' : 'Journal',
-    pubDate: language === 'ko' ? '발행일' : 'Publication Date',
-    keyFindings: language === 'ko' ? '주요 결과' : 'Key Findings',
-    commonThemes: language === 'ko' ? '공통 주제' : 'Common Themes',
-    uniqueAspects: language === 'ko' ? '고유 특성' : 'Unique Aspects',
-    viewPaper: language === 'ko' ? '논문 보기' : 'View Paper',
-    noKeyFindings: language === 'ko' ? '주요 결과를 찾을 수 없습니다' : 'No key findings available',
-    noCommonThemes:
-      language === 'ko' ? '공통 주제가 없습니다' : 'No common themes identified',
-    noUniqueAspects:
-      language === 'ko' ? '고유 특성이 없습니다' : 'No unique aspects identified',
+    title: '논문 비교',
+    compareCount: '개 논문 비교',
+    paperTitle: '제목',
+    authors: '저자',
+    journal: '저널',
+    pubDate: '발행일',
+    keyFindings: '주요 결과',
+    commonThemes: '공통 주제',
+    uniqueAspects: '고유 특성',
+    viewPaper: '논문 보기',
+    noKeyFindings: '주요 결과를 찾을 수 없습니다',
+    noCommonThemes: '공통 주제가 없습니다',
+    noUniqueAspects: '고유 특성이 없습니다',
+    translating: '번역 중...',
   };
 
-  // Analyze papers
-  const commonThemes = findCommonThemes(papers);
-  const differences = identifyDifferences(papers);
+  // 번역 실행
+  useEffect(() => {
+    const translateAll = async () => {
+      setIsTranslating(true);
+
+      try {
+        // 공통 주제 번역
+        const commonThemes = findCommonThemes(papers);
+        const translatedThemesList: string[] = [];
+        for (const theme of commonThemes) {
+          const translated = await translateToKorean(theme);
+          translatedThemesList.push(translated);
+        }
+        setTranslatedThemes(translatedThemesList);
+
+        // 각 논문 번역
+        const newTranslations = new Map<string, TranslatedPaper>();
+        const differences = identifyDifferences(papers);
+        const newDifferences: Record<string, string[]> = {};
+
+        for (const paper of papers) {
+          // 제목 번역
+          const translatedTitle = await translateToKorean(paper.title);
+
+          // 주요 결과 번역
+          const findings = extractKeyFindings(paper.abstract || '');
+          const translatedFindings: string[] = [];
+          for (const finding of findings) {
+            const translated = await translateToKorean(finding);
+            translatedFindings.push(translated);
+          }
+
+          // 고유 키워드 번역
+          const uniqueKeywords = differences[paper.pmid] || [];
+          const translatedKeywords: string[] = [];
+          for (const keyword of uniqueKeywords) {
+            const translated = await translateToKorean(keyword);
+            translatedKeywords.push(translated);
+          }
+
+          newTranslations.set(paper.pmid, {
+            title: translatedTitle,
+            findings: translatedFindings,
+            keywords: translatedKeywords,
+          });
+
+          newDifferences[paper.pmid] = translatedKeywords;
+        }
+
+        setTranslations(newTranslations);
+        setTranslatedDifferences(newDifferences);
+      } catch (err) {
+        console.error('번역 오류:', err);
+      } finally {
+        setIsTranslating(false);
+      }
+    };
+
+    translateAll();
+  }, [papers]);
+
+  const getTranslatedTitle = (paper: PaperResult): string => {
+    return translations.get(paper.pmid)?.title || paper.title;
+  };
+
+  const getTranslatedFindings = (paper: PaperResult): string[] => {
+    const translated = translations.get(paper.pmid)?.findings;
+    if (translated && translated.length > 0) return translated;
+    return extractKeyFindings(paper.abstract || '');
+  };
+
+  const getTranslatedKeywords = (pmid: string): string[] => {
+    return translatedDifferences[pmid] || [];
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
@@ -123,16 +198,24 @@ const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose, lang
         <div className="bg-purple-600 text-white px-6 py-4 flex items-center justify-between">
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <FileText size={28} />
-            {t.title} ({papers.length}
-            {t.compareCount})
+            {t.title} ({papers.length}{t.compareCount})
           </h2>
-          <button
-            onClick={onClose}
-            className="text-white hover:text-gray-200 transition-colors"
-            aria-label="Close"
-          >
-            <X size={28} />
-          </button>
+          <div className="flex items-center gap-4">
+            {isTranslating && (
+              <span className="flex items-center gap-2 text-sm bg-purple-700 px-3 py-1 rounded-full">
+                <Loader2 size={14} className="animate-spin" />
+                <Languages size={14} />
+                {t.translating}
+              </span>
+            )}
+            <button
+              onClick={onClose}
+              className="text-white hover:text-gray-200 transition-colors"
+              aria-label="닫기"
+            >
+              <X size={28} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -142,9 +225,9 @@ const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose, lang
             <h3 className="text-lg font-bold text-green-800 dark:text-green-300 mb-3">
               {t.commonThemes}
             </h3>
-            {commonThemes.length > 0 ? (
+            {translatedThemes.length > 0 ? (
               <div className="flex flex-wrap gap-2">
-                {commonThemes.map((theme, idx) => (
+                {translatedThemes.map((theme, idx) => (
                   <span
                     key={idx}
                     className="px-3 py-1.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full text-sm font-medium"
@@ -152,6 +235,11 @@ const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose, lang
                     {theme}
                   </span>
                 ))}
+              </div>
+            ) : isTranslating ? (
+              <div className="flex items-center gap-2 text-green-600">
+                <Loader2 size={16} className="animate-spin" />
+                {t.translating}
               </div>
             ) : (
               <p className="text-sm text-green-600 dark:text-green-400 italic">
@@ -189,7 +277,16 @@ const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose, lang
                       key={paper.pmid}
                       className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-gray-800 dark:text-gray-200"
                     >
-                      <div className="font-semibold mb-2">{paper.title}</div>
+                      <div className="font-semibold mb-2">
+                        {isTranslating ? (
+                          <span className="flex items-center gap-2">
+                            <Loader2 size={14} className="animate-spin" />
+                            {paper.title}
+                          </span>
+                        ) : (
+                          getTranslatedTitle(paper)
+                        )}
+                      </div>
                       {paper.url && (
                         <a
                           href={paper.url}
@@ -267,13 +364,18 @@ const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose, lang
                     {t.keyFindings}
                   </td>
                   {papers.map((paper) => {
-                    const findings = extractKeyFindings(paper.abstract || '');
+                    const findings = getTranslatedFindings(paper);
                     return (
                       <td
                         key={paper.pmid}
                         className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-700 dark:text-gray-300"
                       >
-                        {findings.length > 0 ? (
+                        {isTranslating ? (
+                          <div className="flex items-center gap-2 text-gray-500">
+                            <Loader2 size={14} className="animate-spin" />
+                            {t.translating}
+                          </div>
+                        ) : findings.length > 0 ? (
                           <ul className="list-disc list-inside space-y-1">
                             {findings.map((finding, idx) => (
                               <li key={idx} className="text-xs">
@@ -295,13 +397,18 @@ const PaperComparison: React.FC<PaperComparisonProps> = ({ papers, onClose, lang
                     {t.uniqueAspects}
                   </td>
                   {papers.map((paper) => {
-                    const uniqueKeywords = differences[paper.pmid] || [];
+                    const uniqueKeywords = getTranslatedKeywords(paper.pmid);
                     return (
                       <td
                         key={paper.pmid}
                         className="border border-gray-300 dark:border-gray-600 px-4 py-3"
                       >
-                        {uniqueKeywords.length > 0 ? (
+                        {isTranslating ? (
+                          <div className="flex items-center gap-2 text-gray-500 text-xs">
+                            <Loader2 size={12} className="animate-spin" />
+                            {t.translating}
+                          </div>
+                        ) : uniqueKeywords.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
                             {uniqueKeywords.map((keyword, idx) => (
                               <span
