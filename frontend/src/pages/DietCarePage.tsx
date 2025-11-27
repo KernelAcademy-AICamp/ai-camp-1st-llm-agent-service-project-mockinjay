@@ -28,14 +28,14 @@ export function DietCarePage() {
     <div className="flex-1 overflow-y-auto" style={{ background: '#FFFFFF' }}>
       {/* Mobile Header */}
       <div className="lg:hidden">
-        <MobileHeader 
-          title="식단케어" 
-          showMenu={true} 
+        <MobileHeader
+          title="식단케어"
+          showMenu={true}
           showProfile={true}
         />
       </div>
 
-      <div className="p-6 max-w-6xl mx-auto pb-24 lg:pb-6">
+      <div className="p-6 lg:max-w-[832px] mx-auto pb-24 lg:pb-6">
         
         {/* Tabs - Strictly following image 1 style */}
         <div className="border-b mb-8" style={{ borderColor: '#E5E7EB' }}>
@@ -228,12 +228,15 @@ export function DietCarePage() {
         {activeTab === 'diet-log' && (
           <div className="space-y-6">
             {/* Goal Setting Section */}
+            <div className="flex justify-between items-center">
+              <h3 style={{ color: '#1F2937' }}>목표 설정</h3>
+              <button className="px-4 py-2 rounded-xl text-white font-medium" style={{ backgroundColor: 'rgb(0, 201, 183)' }}>
+                목표 저장
+              </button>
+            </div>
+
             <div className="card" style={{ background: 'linear-gradient(135deg, #F2FFFD 0%, #F8F4FE 100%)' }}>
-              <div className="flex items-center gap-3 mb-4">
-                <Target size={24} color="#00C9B7" />
-                <h3 style={{ color: '#1F2937' }}>목표 설정</h3>
-              </div>
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="grid md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm mb-2" style={{ color: '#4B5563' }}>
                     칼륨 (mg/일)
@@ -264,15 +267,22 @@ export function DietCarePage() {
                     className="input-field w-full"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm mb-2" style={{ color: '#4B5563' }}>
+                    열량 (kcal/일)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="2000"
+                    className="input-field w-full"
+                  />
+                </div>
               </div>
-              <button className="w-full py-3 rounded-xl text-white font-bold mt-4" style={{ background: 'linear-gradient(90deg, #00C9B7 0%, #7C3AED 100%)' }}>
-                목표 저장
-              </button>
             </div>
             
             <div className="flex justify-between items-center">
               <h3 style={{ color: '#1F2937' }}>식사 기록</h3>
-              <button className="px-4 py-2 rounded-xl text-white font-medium" style={{ backgroundColor: '#00C9B7' }}>
+              <button className="px-4 py-2 rounded-xl text-white font-medium" style={{ background: 'linear-gradient(135deg, rgb(0, 200, 180) 0%, rgb(159, 122, 234) 100%)' }}>
                 식사 추가
               </button>
             </div>

@@ -33,7 +33,7 @@ export function MainPage() {
         {/* Description */}
         <div className="text-center mb-6">
           <p style={{ color: 'var(--color-text-secondary)', lineHeight: '1.8' }}>
-            케어플러스는 신장병 환자, 간병인(일반인), 연구자에게 신장병과 관련된 식이 및 영양 및 의료 복지 정보를 편리하게 찾도록 돕는 특화 AI 서비스입니다.
+            케어플러스는 신장병 환우, 간병인, 연구자분들을 위해 만들어진 따뜻한 AI 파트너입니다. 의료·복지, 식이·영양, 연구 정보를 편하게 찾을 수 있도록 정성껏 도와드려요.
           </p>
         </div>
         

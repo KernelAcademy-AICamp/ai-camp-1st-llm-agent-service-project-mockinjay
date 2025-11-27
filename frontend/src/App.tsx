@@ -25,14 +25,19 @@ import { ProfilePage } from './pages/ProfilePage';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { HealthRecordsPage } from './pages/HealthRecordsPage';
+import { HealthRecordAddPage } from './pages/HealthRecordAddPage';
+import { HealthRecordEditPage } from './pages/HealthRecordEditPage';
 import { BookmarkPage } from './pages/BookmarkPage';
 import { SupportPage } from './pages/SupportPage';
+import { NotificationPage } from './pages/NotificationPage';
+import { TermsAndConditionsPage } from './pages/TermsAndConditionsPage';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 
 function AppContent() {
   const { isDrawerOpen, closeDrawer, openDrawer, isLoggedIn, login, logout } = useLayout();
   const location = useLocation();
 
-  const noLayoutPages = ['/login', '/signup', '/main'];
+  const noLayoutPages = ['/login', '/signup', '/home'];
   const isNoLayoutPage = noLayoutPages.includes(location.pathname);
 
   const handleLogin = () => {
@@ -46,7 +51,7 @@ function AppContent() {
   if (isNoLayoutPage) {
     return (
       <Routes>
-        <Route path="/main" element={<MainPage />} />
+        <Route path="/home" element={<MainPage />} />
         <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
         <Route path="/signup" element={<SignupPage />} />
       </Routes>
@@ -73,7 +78,7 @@ function AppContent() {
         style={{ background: '#F9FAFB' }}
       >
         <Routes>
-          <Route path="/" element={<Navigate to="/main" replace />} />
+          <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/diet-care" element={<DietCarePage />} />
@@ -91,11 +96,13 @@ function AppContent() {
           <Route path="/mypage/profile" element={isLoggedIn ? <ProfilePage /> : <Navigate to="/login" />} />
           <Route path="/mypage/profile/kidney-disease-stage" element={<KidneyDiseaseStagePage />} />
           <Route path="/mypage/test-results" element={<HealthRecordsPage />} />
+          <Route path="/mypage/test-results/add" element={<HealthRecordAddPage />} />
+          <Route path="/mypage/test-results/edit/:id" element={<HealthRecordEditPage />} />
           <Route path="/mypage/bookmark" element={<BookmarkPage />} />
-          <Route path="/notification" element={<div className="p-6">알림 페이지</div>} />
+          <Route path="/notifications" element={<NotificationPage />} />
           <Route path="/support" element={<SupportPage />} />
-          <Route path="/terms-and-conditions" element={<div className="p-6 max-w-4xl mx-auto"><h2 className="mb-4">이용약관</h2><p>이용약관 내용이 표시됩니다.</p></div>} />
-          <Route path="/privacy-policy" element={<div className="p-6 max-w-4xl mx-auto"><h2 className="mb-4">개인정보처리방침</h2><p>개인정보처리방침 내용이 표시됩니다.</p></div>} />
+          <Route path="/terms-and-conditions" element={<TermsAndConditionsPage />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
           <Route path="/cookie-consent" element={<div className="p-6 max-w-4xl mx-auto"><h2 className="mb-4">쿠키 정책</h2><p>쿠키 정책 내용이 표시됩니다.</p></div>} />
         </Routes>
       </main>

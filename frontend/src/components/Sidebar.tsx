@@ -7,10 +7,10 @@ import { useLayout } from './LayoutContext';
 function ChatbotIcon({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none">
-      <path 
+      <path
         d="M5.33333 4.33333H5.34M8.66667 4.33333H8.67333M11 1C11.5304 1 12.0391 1.21071 12.4142 1.58579C12.7893 1.96086 13 2.46957 13 3V8.33333C13 8.86377 12.7893 9.37247 12.4142 9.74755C12.0391 10.1226 11.5304 10.3333 11 10.3333H7.66667L4.33333 12.3333V10.3333H3C2.46957 10.3333 1.96086 10.1226 1.58579 9.74755C1.21071 9.37247 1 8.86377 1 8.33333V3C1 2.46957 1.21071 1.96086 1.58579 1.58579C1.96086 1.21071 2.46957 1 3 1H11Z"
         stroke="currentColor"
-        strokeWidth="1.25"
+        strokeWidth="1"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -28,7 +28,7 @@ const menuItems = [
 
 // Footer links with icons
 const footerLinks = [
-  { id: 'notification', label: '알림', icon: Bell, path: '/notification' },
+  { id: 'notification', label: '알림', icon: Bell, path: '/notifications' },
   { id: 'support', label: '고객지원', icon: HelpCircle, path: '/support' },
   { id: 'terms', label: '이용약관', icon: FileText, path: '/terms-and-conditions' },
   { id: 'privacy', label: '개인정보 처리방침', icon: Shield, path: '/privacy-policy' }

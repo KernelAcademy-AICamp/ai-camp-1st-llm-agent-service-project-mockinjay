@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronLeft } from 'lucide-react';
 import { Logo } from '../components/Logo';
 
 export function LoginPage(props: { onLogin?: () => void }) {
@@ -16,10 +17,19 @@ export function LoginPage(props: { onLogin?: () => void }) {
   };
 
   return (
-    <div 
-      className="min-h-screen flex flex-col items-center justify-center p-6"
+    <div
+      className="min-h-screen flex flex-col items-center justify-center p-6 relative"
       style={{ background: 'var(--color-bg-white)' }}
     >
+      {/* Back Button - Top Left */}
+      <button
+        onClick={() => navigate('/chat')}
+        className="absolute top-6 left-6 p-2 hover:bg-gray-100 rounded-full transition-colors"
+        aria-label="메인으로 돌아가기"
+      >
+        <ChevronLeft className="text-[#1F2937]" size={24} strokeWidth={2} />
+      </button>
+
       <div className="w-full max-w-md space-y-8">
         {/* Logo */}
         <div className="flex justify-center mb-8">
@@ -59,8 +69,8 @@ export function LoginPage(props: { onLogin?: () => void }) {
             </div>
 
             <div>
-              <label 
-                htmlFor="password" 
+              <label
+                htmlFor="password"
                 className="block mb-2"
                 style={{ fontSize: '14px', color: '#374151' }}
               >
@@ -98,22 +108,40 @@ export function LoginPage(props: { onLogin?: () => void }) {
             </button>
           </form>
 
-          <div className="text-center space-y-2">
-            <button
-              onClick={() => navigate('/signup')}
-              style={{ fontSize: '14px', color: '#6B7280' }}
-            >
-              계정이 없으신가요? <span style={{ color: '#00C8B4' }}>회원가입</span>
-            </button>
-          </div>
+          {/* 하단 링크 영역 - 아이디/비밀번호 찾기 & 회원가입 */}
+          <div className="space-y-3 pt-2">
+            {/* 아이디/비밀번호 찾기 */}
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  // TODO: 아이디/비밀번호 찾기 페이지로 이동
+                  alert('아이디/비밀번호 찾기 기능은 준비 중입니다.');
+                }}
+                style={{ fontSize: '14px', color: '#6B7280' }}
+                className="hover:underline transition-colors"
+              >
+                아이디/비밀번호 찾기
+              </button>
+            </div>
 
-          <div className="text-center">
-            <button
-              onClick={() => navigate('/')}
-              style={{ fontSize: '14px', color: '#9CA3AF' }}
-            >
-              ← 메인으로 돌아가기
-            </button>
+            {/* 구분선 */}
+            <div className="flex items-center gap-3 px-8">
+              <div className="flex-1 h-px" style={{ backgroundColor: '#E5E7EB' }}></div>
+              <span style={{ fontSize: '12px', color: '#9CA3AF' }}>또는</span>
+              <div className="flex-1 h-px" style={{ backgroundColor: '#E5E7EB' }}></div>
+            </div>
+
+            {/* 회원가입 */}
+            <div className="text-center">
+              <button
+                onClick={() => navigate('/signup')}
+                style={{ fontSize: '14px', color: '#6B7280' }}
+                className="transition-colors"
+              >
+                계정이 없으신가요? <span style={{ color: '#00C8B4', fontWeight: '500' }}>회원가입</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

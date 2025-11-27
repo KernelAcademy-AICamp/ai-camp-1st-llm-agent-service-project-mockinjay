@@ -17,7 +17,7 @@ interface QuizItem {
 const quizList: QuizItem[] = [
   {
     id: 'ox-1',
-    title: '신장병 기본 상식 O/X',
+    title: '신장병 기본 상식',
     description: '만성콩팥병의 정의와 주요 원인에 대해 알아봅니다.',
     questions: 10,
     points: 100,
@@ -27,7 +27,7 @@ const quizList: QuizItem[] = [
   },
   {
     id: 'ox-2',
-    title: '칼륨이 많은 과일 O/X',
+    title: '칼륨이 많은 과일',
     description: '어떤 과일에 칼륨이 많은지 퀴즈로 확인해보세요.',
     questions: 10,
     points: 100,
@@ -37,7 +37,7 @@ const quizList: QuizItem[] = [
   },
   {
     id: 'ox-3',
-    title: '투석 환자 식단 O/X',
+    title: '투석 환자 식단',
     description: '투석 환자에게 올바른 식단인지 O/X로 풀어보세요.',
     questions: 10,
     points: 100,
@@ -47,7 +47,7 @@ const quizList: QuizItem[] = [
   },
   {
     id: 'ox-4',
-    title: '나트륨 섭취 줄이기 O/X',
+    title: '나트륨 섭취 줄이기',
     description: '일상 생활에서 나트륨을 줄이는 올바른 방법은?',
     questions: 10,
     points: 100,
@@ -57,7 +57,7 @@ const quizList: QuizItem[] = [
   },
   {
     id: 'ox-5',
-    title: '고인산혈증 예방 O/X',
+    title: '고인산혈증 예방',
     description: '인 섭취를 줄이기 위한 올바른 식습관 O/X',
     questions: 10,
     points: 100,
@@ -87,7 +87,7 @@ export function QuizListPage() {
       {/* Desktop Header Title Removed from Body */}
 
       <div className="flex-1 overflow-y-auto p-5 lg:p-10 pb-24 lg:pb-10">
-        <div className="max-w-4xl mx-auto">
+        <div className="lg:max-w-[832px] mx-auto">
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <div className="p-5 rounded-xl border border-[#E0E0E0] bg-white" style={{ boxShadow: 'none' }}>
@@ -121,12 +121,60 @@ export function QuizListPage() {
             </div>
           </div>
           
-          {/* Quiz List Title - Kept as section title */}
-          <h2 className="text-lg font-bold text-[#1F2937] mb-4">O/X 퀴즈</h2>
-          
-          {/* Quiz List */}
+          {/* Level Test Section */}
+          <h2 className="text-lg font-bold text-[#1F2937] mb-4">레벨 테스트</h2>
+
+          {/* First Quiz - Level Test */}
+          <div className="grid gap-4 mb-8">
+            <button
+              onClick={() => navigate(`/quiz/${quizList[0].id}`)}
+              className="w-full text-left p-5 rounded-xl border border-[#E0E0E0] bg-white hover:bg-gray-50 transition-colors relative group"
+              style={{ boxShadow: 'none' }}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="text-[16px] font-bold text-[#1F2937]">
+                      {quizList[0].title}
+                    </h3>
+                    {quizList[0].completed && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#E6F9F7] text-[#00C9B7] text-[11px] font-medium">
+                        <CheckCircle size={12} strokeWidth={2} />
+                        완료
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-[#666666] mb-3 leading-relaxed">
+                    {quizList[0].description}
+                  </p>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="px-2 py-1 rounded-md bg-[#F2FFFD] text-[#00C9B7] font-medium">
+                      {quizList[0].level}
+                    </span>
+                    <span className="text-[#999999]">
+                      문제 {quizList[0].questions}개
+                    </span>
+                    <span className="flex items-center gap-1 text-[#9F7AEA] font-medium">
+                      <Star size={12} strokeWidth={2} />
+                      {quizList[0].points}P
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight
+                  size={24}
+                  className="text-[#CCCCCC] group-hover:text-[#00C9B7] transition-colors"
+                  strokeWidth={2}
+                />
+              </div>
+            </button>
+          </div>
+
+          {/* Daily Quiz Section */}
+          <h2 className="text-lg font-bold text-[#1F2937] mb-4">오늘의 한입 퀴즈</h2>
+
+          {/* Remaining Quizzes */}
           <div className="grid gap-4">
-            {quizList.map((quiz) => (
+            {quizList.slice(1).map((quiz) => (
               <button
                 key={quiz.id}
                 onClick={() => navigate(`/quiz/${quiz.id}`)}
@@ -162,10 +210,10 @@ export function QuizListPage() {
                       </span>
                     </div>
                   </div>
-                  <ChevronRight 
-                    size={24} 
-                    className="text-[#CCCCCC] group-hover:text-[#00C9B7] transition-colors" 
-                    strokeWidth={2} 
+                  <ChevronRight
+                    size={24}
+                    className="text-[#CCCCCC] group-hover:text-[#00C9B7] transition-colors"
+                    strokeWidth={2}
                   />
                 </div>
               </button>

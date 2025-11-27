@@ -45,7 +45,8 @@ export default function Home() {
           CareGuide
         </h1>
         <p className="text-center text-gray-600 mb-8">
-          만성콩팥병(CKD) 환자를 위한 종합 케어 플랫폼
+          케어플러스는 신장병을 앓고 계신 분들, 소중한 가족을 돌보시는 보호자님들, 그리고 신장병 연구에 헌신하시는 분들을 위해 만들어진 따뜻한 AI 파트너입니다. 신장병 식이·영양, 의료·복지 정보를 누구나 쉽게 이해하고, 편하게 찾을 수 있도록 정성껏 도와드려요.<br />
+          당신의 신장 건강 여정, 케어플러스가 함께합니다.
         </p>
 
         <div className="bg-white rounded-lg shadow-md p-6 space-y-4">

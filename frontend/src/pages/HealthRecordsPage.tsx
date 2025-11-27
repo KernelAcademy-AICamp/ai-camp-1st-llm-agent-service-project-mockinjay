@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Calendar, X, ChevronDown } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 // Mock Data
 const initialRecords = [
@@ -11,6 +12,12 @@ const initialRecords = [
     hospital: '서울대학병원',
     creatinine: 1.2,
     gfr: 65,
+    potassium: 4.2,
+    phosphorus: 3.8,
+    hemoglobin: 12.5,
+    albumin: 4.0,
+    pth: 45,
+    hco3: 24,
     memo: '수치가 조금 좋아졌다.'
   },
   {
@@ -19,6 +26,12 @@ const initialRecords = [
     hospital: '신촌세브란스',
     creatinine: 1.4,
     gfr: 58,
+    potassium: 4.5,
+    phosphorus: 4.1,
+    hemoglobin: 11.8,
+    albumin: 3.9,
+    pth: 52,
+    hco3: 22,
     memo: ''
   }
 ];
@@ -26,74 +39,16 @@ const initialRecords = [
 export function HealthRecordsPage() {
   const navigate = useNavigate();
   const [records, setRecords] = useState(initialRecords);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
 
-  // Form State
-  const [formData, setFormData] = useState({
-    date: '',
-    hospital: '',
-    creatinine: '',
-    gfr: '',
-    systolic: '',
-    diastolic: '',
-    hemoglobin: '',
-    potassium: '',
-    phosphorus: '',
-    calcium: '',
-    memo: ''
-  });
-
-  const iconStyle = { strokeWidth: 2 };
-
-  const handleEdit = (record: any) => {
-    setFormData({
-      date: record.date,
-      hospital: record.hospital,
-      creatinine: record.creatinine.toString(),
-      gfr: record.gfr.toString(),
-      systolic: '',
-      diastolic: '',
-      hemoglobin: '',
-      potassium: '',
-      phosphorus: '',
-      calcium: '',
-      memo: record.memo
-    });
-    setEditingId(record.id);
-    setIsFormOpen(true);
+  const handleEdit = (id: number) => {
+    navigate(`/mypage/test-results/edit/${id}`);
   };
 
   const handleDelete = (id: number) => {
     if (window.confirm('정말 삭제하시겠습니까?')) {
+      // TODO: Backend API 연동
       setRecords(records.filter(r => r.id !== id));
     }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Validation logic here
-    
-    const newRecord = {
-      id: editingId || Date.now(),
-      date: formData.date,
-      hospital: formData.hospital,
-      creatinine: parseFloat(formData.creatinine),
-      gfr: parseFloat(formData.gfr),
-      memo: formData.memo
-    };
-
-    if (editingId) {
-      setRecords(records.map(r => r.id === editingId ? newRecord : r));
-    } else {
-      setRecords([newRecord, ...records]);
-    }
-
-    setIsFormOpen(false);
-    setEditingId(null);
-    setFormData({
-       date: '', hospital: '', creatinine: '', gfr: '', systolic: '', diastolic: '', hemoglobin: '', potassium: '', phosphorus: '', calcium: '', memo: ''
-    });
   };
 
   return (
@@ -101,23 +56,81 @@ export function HealthRecordsPage() {
       <MobileHeader title="병원 검진 기록" />
 
       <div className="flex-1 overflow-y-auto p-5 pb-24 lg:pb-10">
-        {!isFormOpen ? (
-          <>
-            <div className="flex items-center justify-between mb-6">
+        <div className="max-w-4xl mx-auto">
+            {/* Trend Chart */}
+            <div className="mb-6">
+              <h2 className="text-[18px] font-bold text-[#1F2937] mb-4">나의 신장 건강 그래프</h2>
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={[...records].reverse()}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#9CA3AF"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <YAxis
+                      stroke="#9CA3AF"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: 'white',
+                        border: '1px solid #E5E7EB',
+                        borderRadius: '12px',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
+                    <Legend
+                      wrapperStyle={{ paddingTop: '20px' }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="creatinine"
+                      stroke="#00C8B4"
+                      strokeWidth={3}
+                      name="크레아티닌"
+                      dot={{ fill: '#00C8B4', r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="gfr"
+                      stroke="#9F7AEA"
+                      strokeWidth={3}
+                      name="eGFR"
+                      dot={{ fill: '#9F7AEA', r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="potassium"
+                      stroke="#FFB84D"
+                      strokeWidth={3}
+                      name="칼륨"
+                      dot={{ fill: '#FFB84D', r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="phosphorus"
+                      stroke="#EF4444"
+                      strokeWidth={3}
+                      name="인"
+                      dot={{ fill: '#EF4444', r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="hemoglobin"
+                      stroke="#3B82F6"
+                      strokeWidth={3}
+                      name="헤모글로빈"
+                      dot={{ fill: '#3B82F6', r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="mb-6">
               <h2 className="text-[18px] font-bold text-[#1F2937]">검진 기록</h2>
-              <button 
-                onClick={() => {
-                  setEditingId(null);
-                  setFormData({
-                     date: '', hospital: '', creatinine: '', gfr: '', systolic: '', diastolic: '', hemoglobin: '', potassium: '', phosphorus: '', calcium: '', memo: ''
-                  });
-                  setIsFormOpen(true);
-                }}
-                className="flex items-center gap-1 text-[#00C9B7] font-medium"
-              >
-                <Plus size={20} style={iconStyle} />
-                <span>기록 추가</span>
-              </button>
             </div>
 
             <div className="space-y-4">
@@ -133,13 +146,13 @@ export function HealthRecordsPage() {
                       <p className="text-sm text-[#666666]">{record.hospital}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button 
-                        onClick={() => handleEdit(record)}
+                      <button
+                        onClick={() => handleEdit(record.id)}
                         className="text-xs px-2 py-1 border border-[#E0E0E0] rounded text-[#666666]"
                       >
                         수정
                       </button>
-                      <button 
+                      <button
                         onClick={() => handleDelete(record.id)}
                         className="text-xs px-2 py-1 border border-[#E0E0E0] rounded text-[#EF4444]"
                       >
@@ -157,6 +170,42 @@ export function HealthRecordsPage() {
                       <div className="text-xs text-[#999999] mb-1">eGFR</div>
                       <div className="text-[16px] font-bold text-[#1F2937]">{record.gfr}</div>
                     </div>
+                    {record.potassium && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-[#999999] mb-1">칼륨(K)</div>
+                        <div className="text-[16px] font-bold text-[#1F2937]">{record.potassium}</div>
+                      </div>
+                    )}
+                    {record.phosphorus && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-[#999999] mb-1">인(Phosphorus)</div>
+                        <div className="text-[16px] font-bold text-[#1F2937]">{record.phosphorus}</div>
+                      </div>
+                    )}
+                    {record.hemoglobin && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-[#999999] mb-1">헤모글로빈(Hb)</div>
+                        <div className="text-[16px] font-bold text-[#1F2937]">{record.hemoglobin}</div>
+                      </div>
+                    )}
+                    {record.albumin && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-[#999999] mb-1">알부민(Albumin)</div>
+                        <div className="text-[16px] font-bold text-[#1F2937]">{record.albumin}</div>
+                      </div>
+                    )}
+                    {record.pth && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-[#999999] mb-1">PTH(부갑상선호르몬)</div>
+                        <div className="text-[16px] font-bold text-[#1F2937]">{record.pth}</div>
+                      </div>
+                    )}
+                    {record.hco3 && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-[#999999] mb-1">중탄산염(HCO3)</div>
+                        <div className="text-[16px] font-bold text-[#1F2937]">{record.hco3}</div>
+                      </div>
+                    )}
                   </div>
 
                   {record.memo && (
@@ -167,104 +216,16 @@ export function HealthRecordsPage() {
                 </div>
               ))}
             </div>
-          </>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto">
-             <div>
-               <h2 className="text-[18px] font-bold text-[#1F2937] mb-6">
-                 {editingId ? '기록 수정' : '새 기록 추가'}
-               </h2>
-               
-               <div className="space-y-4">
-                 {/* Date */}
-                 <div>
-                   <label className="block text-sm font-medium text-[#1F2937] mb-2">검진 날짜</label>
-                   <div className="relative">
-                     <input 
-                       type="date"
-                       required
-                       value={formData.date}
-                       onChange={(e) => setFormData({...formData, date: e.target.value})}
-                       className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7] bg-white"
-                       style={{ boxShadow: 'none' }}
-                     />
-                   </div>
-                 </div>
 
-                 {/* Hospital */}
-                 <div>
-                   <label className="block text-sm font-medium text-[#1F2937] mb-2">병원명</label>
-                   <input 
-                     type="text"
-                     placeholder="병원 이름을 입력하세요"
-                     value={formData.hospital}
-                     onChange={(e) => setFormData({...formData, hospital: e.target.value})}
-                     className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
-                     style={{ boxShadow: 'none' }}
-                   />
-                 </div>
-
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   <div>
-                     <label className="block text-sm font-medium text-[#1F2937] mb-2">크레아티닌</label>
-                     <input 
-                       type="number"
-                       step="0.01"
-                       placeholder="0.00"
-                       value={formData.creatinine}
-                       onChange={(e) => setFormData({...formData, creatinine: e.target.value})}
-                       className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
-                       style={{ boxShadow: 'none' }}
-                     />
-                   </div>
-                   <div>
-                     <label className="block text-sm font-medium text-[#1F2937] mb-2">eGFR</label>
-                     <input 
-                       type="number"
-                       placeholder="0"
-                       value={formData.gfr}
-                       onChange={(e) => setFormData({...formData, gfr: e.target.value})}
-                       className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
-                       style={{ boxShadow: 'none' }}
-                     />
-                   </div>
-                 </div>
-
-                 {/* More fields can be added here following the wireframe */}
-                 
-                 <div>
-                   <label className="block text-sm font-medium text-[#1F2937] mb-2">메모</label>
-                   <textarea 
-                     rows={3}
-                     placeholder="특이사항을 입력하세요"
-                     value={formData.memo}
-                     onChange={(e) => setFormData({...formData, memo: e.target.value})}
-                     className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7] resize-none"
-                     style={{ boxShadow: 'none' }}
-                   />
-                 </div>
-               </div>
-             </div>
-
-             <div className="flex gap-3 pt-4">
-               <button 
-                 type="button"
-                 onClick={() => setIsFormOpen(false)}
-                 className="flex-1 h-[52px] rounded-xl border border-[#E0E0E0] bg-white text-[#666666] font-medium"
-                 style={{ boxShadow: 'none' }}
-               >
-                 취소
-               </button>
-               <button 
-                 type="submit"
-                 className="flex-1 h-[52px] rounded-xl bg-[#00C9B7] text-white font-medium hover:bg-[#00B3A3]"
-                 style={{ boxShadow: 'none' }}
-               >
-                 저장하기
-               </button>
-             </div>
-          </form>
-        )}
+            {/* FAB Button */}
+            <button
+              onClick={() => navigate('/mypage/test-results/add')}
+              className="fixed bottom-24 lg:bottom-8 right-8 w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:shadow-xl transition-all z-50"
+              style={{ background: 'linear-gradient(135deg, rgb(0, 200, 180) 0%, rgb(159, 122, 234) 100%)' }}
+            >
+              <Plus size={28} color="white" strokeWidth={2} />
+            </button>
+        </div>
       </div>
     </div>
   );
