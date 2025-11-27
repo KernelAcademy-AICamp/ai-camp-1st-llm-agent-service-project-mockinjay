@@ -26,6 +26,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({
     email: true,
     push: true,
     community: true,
+    trends: true,
     healthTips: true,
     paperUpdates: true,
   });
@@ -40,7 +41,14 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({
       if (currentPreferences) {
         setTheme(currentPreferences.theme);
         setLanguage(currentPreferences.language);
-        setNotifications(currentPreferences.notifications);
+        setNotifications({
+          email: currentPreferences.notifications.email,
+          push: currentPreferences.notifications.push,
+          community: currentPreferences.notifications.community,
+          trends: currentPreferences.notifications.trends,
+          healthTips: currentPreferences.notifications.healthTips ?? true,
+          paperUpdates: currentPreferences.notifications.paperUpdates ?? true,
+        });
       } else {
         resetForm();
       }
@@ -76,6 +84,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({
       email: true,
       push: true,
       community: true,
+      trends: true,
       healthTips: true,
       paperUpdates: true,
     });

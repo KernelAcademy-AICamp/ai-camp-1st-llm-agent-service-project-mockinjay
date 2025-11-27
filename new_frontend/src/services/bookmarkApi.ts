@@ -60,10 +60,12 @@ function paperToBookmark(
   tags?: string[],
   notes?: string
 ): BookmarkedPaper {
+  const timestamp = new Date().toISOString();
   return {
     id: `bookmark_${paper.pmid}_${Date.now()}`,
     userId,
     paperId: paper.pmid,
+    createdAt: timestamp,
     title: paper.title,
     authors: paper.authors || [],
     journal: paper.journal || '',
@@ -72,7 +74,7 @@ function paperToBookmark(
     url: paper.url || `https://pubmed.ncbi.nlm.nih.gov/${paper.pmid}/`,
     tags: tags || paper.keywords?.slice(0, 3) || [],
     notes: notes || '',
-    bookmarkedAt: new Date().toISOString(),
+    bookmarkedAt: timestamp,
   };
 }
 

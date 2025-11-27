@@ -18,29 +18,33 @@ import type {
   PointsHistoryFilters,
   NotificationSettings,
   NotificationSettingsUpdateRequest,
+  BookmarksResponse,
+  PostsResponse,
+  Post,
 } from '../types/mypage';
 
 const MYPAGE_BASE = '/api/mypage';
-const USER_BASE = '/api/user';
 
 // ==================== Profile API ====================
 
 /**
  * Get user profile
+ * @param _userId - User ID (used for auth context, actual ID from JWT)
  */
-export const getUserProfile = async (userId: string): Promise<UserProfile> => {
-  const { data } = await api.get<UserProfile>(`${USER_BASE}/${userId}/profile`);
+export const getUserProfile = async (_userId: string): Promise<UserProfile> => {
+  const { data } = await api.get<UserProfile>(`${MYPAGE_BASE}/profile`);
   return data;
 };
 
 /**
  * Update user profile
+ * @param _userId - User ID (used for auth context, actual ID from JWT)
  */
 export const updateUserProfile = async (
-  userId: string,
+  _userId: string,
   updates: ProfileUpdateRequest
 ): Promise<UserProfile> => {
-  const { data } = await api.patch<UserProfile>(`${USER_BASE}/${userId}/profile`, updates);
+  const { data } = await api.put<UserProfile>(`${MYPAGE_BASE}/profile`, updates);
   return data;
 };
 
@@ -63,7 +67,7 @@ export const updateHealthProfile = async (
   _userId: string,
   updates: HealthProfileUpdateRequest
 ): Promise<HealthProfile> => {
-  const { data } = await api.patch<HealthProfile>(`${MYPAGE_BASE}/health-profile`, updates);
+  const { data } = await api.put<HealthProfile>(`${MYPAGE_BASE}/health-profile`, updates);
   return data;
 };
 
@@ -86,7 +90,7 @@ export const updateUserPreferences = async (
   _userId: string,
   updates: PreferencesUpdateRequest
 ): Promise<UserPreferences> => {
-  const { data } = await api.patch<UserPreferences>(`${MYPAGE_BASE}/preferences`, updates);
+  const { data } = await api.put<UserPreferences>(`${MYPAGE_BASE}/preferences`, updates);
   return data;
 };
 
@@ -141,8 +145,8 @@ export const getBookmarkedPapers = async (
   _userId: string,
   limit = 20,
   offset = 0
-): Promise<BookmarkedPaper[]> => {
-  const { data } = await api.get<BookmarkedPaper[]>(`${MYPAGE_BASE}/bookmarks`, {
+): Promise<BookmarksResponse> => {
+  const { data } = await api.get<BookmarksResponse>(`${MYPAGE_BASE}/bookmarks`, {
     params: { limit, offset },
   });
   return data;
@@ -245,6 +249,23 @@ export const updateNotificationSettings = async (
   return data;
 };
 
+// ==================== User Posts API (MYP-004) ====================
+
+/**
+ * Get user's posts
+ * @param _userId - User ID (used for auth context, actual ID from JWT)
+ */
+export const getUserPosts = async (
+  _userId: string,
+  limit = 20,
+  offset = 0
+): Promise<PostsResponse> => {
+  const { data } = await api.get<PostsResponse>(`${MYPAGE_BASE}/posts`, {
+    params: { limit, offset },
+  });
+  return data;
+};
+
 // ==================== Utility Functions ====================
 
 /**
@@ -281,4 +302,6 @@ export type {
   UserLevelData,
   PointsData,
   NotificationSettings,
+  Post,
+  PostsResponse,
 };

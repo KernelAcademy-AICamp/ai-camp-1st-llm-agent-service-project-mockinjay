@@ -147,8 +147,8 @@ const BookmarkedPapersPanel: React.FC<BookmarkedPapersPanelProps> = ({
                     <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-3">
                       <span className="flex items-center gap-1">
                         <Users size={14} />
-                        {bookmark.authors.slice(0, 3).join(', ')}
-                        {bookmark.authors.length > 3 && ` 외 ${bookmark.authors.length - 3}명`}
+                        {bookmark.authors?.slice(0, 3).join(', ')}
+                        {(bookmark.authors?.length ?? 0) > 3 && ` 외 ${(bookmark.authors?.length ?? 0) - 3}명`}
                       </span>
                       <span className="flex items-center gap-1">
                         <Calendar size={14} />
