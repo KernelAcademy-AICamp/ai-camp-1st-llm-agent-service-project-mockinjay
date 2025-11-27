@@ -468,7 +468,9 @@ class OptimizedMongoDBManager:
             try:
                 coll_stats = await self.db.command("collStats", coll_name, indexDetails=True)
                 index_sizes = coll_stats.get("indexSizes", {})
-            except:
+            except Exception as e:
+                # 관리자 권한 필요, 인덱스 크기 정보 건너뛰기 (Admin privileges required, skip index sizes)
+                logger.warning(f"Failed to get index sizes for {coll_name}: {e}")
                 index_sizes = {}
 
             stats[coll_name] = {

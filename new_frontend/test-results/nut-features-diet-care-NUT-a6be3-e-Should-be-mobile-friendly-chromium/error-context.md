@@ -1,0 +1,79 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - navigation [ref=e4]:
+    - button "AI챗봇" [ref=e5] [cursor=pointer]:
+      - img [ref=e6]
+      - generic [ref=e8]: AI챗봇
+    - button "식단케어" [ref=e9] [cursor=pointer]:
+      - img [ref=e10]
+      - generic [ref=e13]: 식단케어
+    - button "퀴즈미션" [ref=e14] [cursor=pointer]:
+      - img [ref=e15]
+      - generic [ref=e21]: 퀴즈미션
+    - button "커뮤니티" [ref=e22] [cursor=pointer]:
+      - img [ref=e23]
+      - generic [ref=e28]: 커뮤니티
+    - button "더보기" [ref=e29] [cursor=pointer]:
+      - img [ref=e30]
+      - generic [ref=e34]: 더보기
+  - main [ref=e35]:
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - heading "식단케어" [level=1] [ref=e39]
+        - paragraph [ref=e40]: 만성콩팥병 환자를 위한 식단 관리 및 영양 정보
+      - generic [ref=e41]:
+        - link "뉴트리 코치" [ref=e42] [cursor=pointer]:
+          - /url: /nutri-coach
+          - img [ref=e43]
+          - text: 뉴트리 코치
+        - link "식단 로그" [ref=e45] [cursor=pointer]:
+          - /url: /diet-log
+          - img [ref=e46]
+          - text: 식단 로그
+      - generic [ref=e48]:
+        - generic [ref=e49]:
+          - heading "질환식 정보" [level=2] [ref=e50]:
+            - img [ref=e51]
+            - text: 질환식 정보
+          - paragraph [ref=e54]: 만성콩팥병 단계별 맞춤 식단 정보와 영양 가이드를 제공합니다.
+          - generic [ref=e55]:
+            - generic [ref=e56]:
+              - heading "저염식 (Low Sodium)" [level=3] [ref=e57]
+              - paragraph [ref=e58]: 하루 나트륨 섭취량 2,000mg 이하
+              - list [ref=e59]:
+                - listitem [ref=e60]: • 신선한 재료 사용
+                - listitem [ref=e61]: • 가공식품 피하기
+                - listitem [ref=e62]: • 천연 향신료 활용
+            - generic [ref=e63]:
+              - heading "저단백식 (Low Protein)" [level=3] [ref=e64]
+              - paragraph [ref=e65]: 체중 1kg당 0.6-0.8g 단백질
+              - list [ref=e66]:
+                - listitem [ref=e67]: • 양질의 단백질 섭취
+                - listitem [ref=e68]: • 식물성 단백질 제한
+                - listitem [ref=e69]: • 영양사 상담 권장
+            - generic [ref=e70]:
+              - heading "저칼륨식 (Low Potassium)" [level=3] [ref=e71]
+              - paragraph [ref=e72]: 하루 칼륨 섭취량 2,000mg 이하
+              - list [ref=e73]:
+                - listitem [ref=e74]: • 과일/채소 데치기
+                - listitem [ref=e75]: • 고칼륨 식품 피하기
+                - listitem [ref=e76]: • 조리수 2회 이상 교체
+            - generic [ref=e77]:
+              - heading "저인식 (Low Phosphorus)" [level=3] [ref=e78]
+              - paragraph [ref=e79]: 하루 인 섭취량 800-1,000mg
+              - list [ref=e80]:
+                - listitem [ref=e81]: • 유제품 제한
+                - listitem [ref=e82]: • 견과류/잡곡 주의
+                - listitem [ref=e83]: • 인 결합제 복용
+        - generic [ref=e84]:
+          - heading "음식 사진 분석" [level=3] [ref=e85]:
+            - img [ref=e86]
+            - text: 음식 사진 분석
+          - paragraph [ref=e89]: 음식 사진을 업로드하면 AI가 영양 성분을 분석해드립니다.
+          - generic [ref=e91] [cursor=pointer]:
+            - img [ref=e92]
+            - paragraph [ref=e95]: 클릭하여 업로드 또는 드래그 앤 드롭
+            - paragraph [ref=e96]: PNG, JPG, GIF (MAX. 10MB)
+```

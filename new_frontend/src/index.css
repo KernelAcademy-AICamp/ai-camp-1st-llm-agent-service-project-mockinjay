@@ -1,0 +1,502 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Splash Animation Keyframes */
+@keyframes splash-expand {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+@keyframes splash-ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(8);
+    opacity: 0;
+  }
+}
+
+@layer base {
+  :root {
+    /* CarePlus Colors */
+    --color-primary: #00C9B7;
+    --color-primary-hover: #00B3A3;
+    --color-primary-pressed: #008C80;
+    --color-primary-dark: #00A899;
+    --color-accent-purple: #9F7AEA;
+    --color-success: #00A8E8;
+    --color-warning: #F59E0B;
+    --color-error: #EF4444;
+
+    /* Text Colors */
+    --color-text-primary: #1F2937;
+    --color-text-secondary: #4B5563;
+    --color-text-tertiary: #6B7280;
+    --color-disabled: #CCCCCC;
+
+    /* Line/Border Colors */
+    --color-line-strong: #D1D5DB;
+    --color-line-medium: #E5E7EB;
+    --color-line-light: #F3F4F6;
+    --color-line-subtle: #F9FAFB;
+
+    /* Background Colors */
+    --color-background: #FFFFFF;
+    --color-surface: #F8FAFC;
+    --color-input-bar: #F2FFFD;
+
+    /* Navigation */
+    --color-nav-unselected: #666666;
+    --color-nav-selected: #00C8B4;
+
+    /* Chat Bubbles */
+    --color-bubble-user: #E6F7F5;
+    --color-bubble-ai: #FFFFFF;
+    --color-bubble-ai-border: #E0E0E0;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, #00C8B4 0%, #9F7AEA 100%);
+  }
+
+  html {
+    font-family: 'Noto Sans KR', 'Inter', system-ui, sans-serif;
+  }
+
+  body {
+    background-color: #FAFBFC;
+    color: #1F2937;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Typography Hierarchy - CarePlus */
+  h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  h4 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  p {
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.6;
+  }
+}
+
+@layer components {
+  /* Gradient Primary Action Button - CarePlus */
+  .btn-primary-action {
+    @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+    background: var(--gradient-primary);
+    color: white;
+  }
+
+  .btn-primary-action:hover {
+    @apply opacity-90;
+  }
+
+  /* Primary Button - Solid - CarePlus */
+  .btn-primary {
+    @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background-color: var(--color-primary-hover);
+  }
+
+  .btn-primary:active {
+    background-color: var(--color-primary-pressed);
+  }
+
+  .btn-primary:disabled {
+    background-color: var(--color-disabled);
+    cursor: not-allowed;
+  }
+
+  /* Secondary Button - CarePlus */
+  .btn-secondary {
+    @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+    background-color: white;
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+  }
+
+  .btn-secondary:hover {
+    background-color: var(--color-input-bar);
+  }
+
+  /* Ghost Button - CarePlus */
+  .btn-ghost {
+    @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+    background-color: transparent;
+    color: var(--color-text-secondary);
+  }
+
+  .btn-ghost:hover {
+    background-color: var(--color-line-light);
+  }
+
+  /* Legacy support - keep for backward compatibility */
+  .btn-outline {
+    @apply px-4 py-2 border border-primary-500 text-primary-500
+           font-medium rounded-full
+           hover:bg-primary-50
+           transition-all duration-200 ease-in-out;
+  }
+
+  /* Card Styles */
+  .card {
+    @apply bg-white rounded-2xl border border-gray-200
+           shadow-sm hover:shadow-md
+           transition-shadow duration-200;
+  }
+
+  .card-interactive {
+    @apply bg-white rounded-2xl border border-gray-200
+           shadow-sm hover:shadow-md hover:border-cyan-200
+           transition-all duration-200 cursor-pointer;
+  }
+
+  /* Input Field - CarePlus */
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl transition-all duration-200;
+    background-color: white;
+    border: 1px solid var(--color-line-medium);
+    color: var(--color-text-primary);
+  }
+
+  .input-field:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    background-color: var(--color-input-bar);
+  }
+
+  .input-field:disabled {
+    background-color: var(--color-line-light);
+    color: var(--color-disabled);
+    cursor: not-allowed;
+  }
+
+  /* Badge Styles */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-free {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .badge-challenge {
+    @apply bg-violet-100 text-violet-700;
+  }
+
+  .badge-survey {
+    @apply bg-cyan-100 text-cyan-700;
+  }
+
+  .badge-patient {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .badge-researcher {
+    @apply bg-blue-100 text-blue-700;
+  }
+
+  .badge-level {
+    @apply bg-gray-100 text-gray-600;
+  }
+
+  /* Navigation Item */
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl
+           text-gray-600 font-medium
+           hover:bg-cyan-50 hover:text-cyan-600
+           transition-all duration-200;
+  }
+
+  .nav-item-active {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl
+           bg-cyan-50 text-cyan-600 font-medium;
+  }
+
+  /* Agent Selectors - CarePlus */
+  .agent-selector-selected {
+    @apply px-4 py-3 rounded-xl font-medium transition-all duration-200;
+    background: white;
+    border: 2px solid transparent;
+    border-image: var(--gradient-primary) 1;
+    color: var(--color-primary);
+  }
+
+  .agent-selector-unselected {
+    @apply px-4 py-3 rounded-xl font-medium transition-all duration-200;
+    background: white;
+    border: 1px solid var(--color-line-medium);
+    color: var(--color-text-secondary);
+  }
+
+  .agent-selector-unselected:hover {
+    border-color: var(--color-primary);
+  }
+
+  /* Tabs - CarePlus */
+  .tab-selected {
+    @apply px-4 py-2 text-sm font-medium transition-all duration-200;
+    color: var(--color-primary);
+    border-bottom: 2px solid var(--color-accent-purple);
+  }
+
+  .tab-unselected {
+    @apply px-4 py-2 text-sm font-medium transition-all duration-200;
+    color: var(--color-text-secondary);
+    border-bottom: 2px solid transparent;
+  }
+
+  .tab-unselected:hover {
+    color: var(--color-primary);
+  }
+
+  /* Legacy Tab Styles - keep for backward compatibility */
+  .tab {
+    @apply px-4 py-2 text-sm font-medium text-gray-500
+           border-b-2 border-transparent
+           hover:text-primary-600
+           transition-all duration-200;
+  }
+
+  .tab-active {
+    @apply px-4 py-2 text-sm font-medium text-primary-600
+           border-b-2;
+    border-color: var(--color-accent-purple);
+  }
+
+  /* Legacy Agent Button (Chat tabs) - keep for backward compatibility */
+  .agent-btn {
+    @apply flex items-center gap-2 px-6 py-3 rounded-full border
+           text-gray-600 font-medium
+           hover:bg-primary-50
+           transition-all duration-200;
+    border-color: var(--color-line-medium);
+  }
+
+  .agent-btn:hover {
+    border-color: var(--color-primary);
+  }
+
+  .agent-btn-active {
+    @apply flex items-center gap-2 px-6 py-3 rounded-full font-medium;
+    border: 1px solid var(--color-primary);
+    background-color: var(--color-input-bar);
+    color: var(--color-primary);
+  }
+
+  /* Food Guide Card */
+  .food-guide-card {
+    @apply bg-white rounded-2xl border border-gray-200 p-6
+           flex flex-col items-start gap-3
+           shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  .food-guide-icon {
+    @apply w-12 h-12 flex items-center justify-center
+           bg-gray-50 rounded-xl text-2xl;
+  }
+
+  /* Recipe Card */
+  .recipe-card {
+    @apply bg-white rounded-2xl border border-gray-200 overflow-hidden
+           shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  .recipe-image {
+    @apply w-full h-48 object-cover;
+  }
+
+  /* Post Card */
+  .post-card {
+    @apply bg-white rounded-2xl border border-gray-200 p-6
+           shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  /* Quiz Card */
+  .quiz-card {
+    @apply bg-white rounded-2xl border border-gray-200 p-5
+           flex items-center justify-between cursor-pointer
+           shadow-sm hover:shadow-md hover:border-cyan-200
+           transition-all duration-200;
+  }
+
+  /* Stat Card */
+  .stat-card {
+    @apply bg-white rounded-2xl border border-gray-200 p-5
+           flex flex-col gap-2 shadow-sm;
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold text-gray-800;
+  }
+
+  .stat-label {
+    @apply text-sm text-gray-500 flex items-center gap-2;
+  }
+
+  /* Chat Bubbles - CarePlus */
+  .chat-bubble-user {
+    @apply max-w-[80%] px-4 py-3 rounded-xl rounded-tr-md;
+    background: var(--gradient-primary);
+    color: white;
+  }
+
+  .chat-bubble-ai {
+    @apply max-w-[80%] px-4 py-3 rounded-xl rounded-tl-md;
+    background-color: var(--color-line-subtle);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-bubble-ai-border);
+  }
+
+  /* Category Tag - CarePlus */
+  .category-tag {
+    @apply px-3 py-1 rounded-full text-xs font-medium;
+    background-color: var(--color-input-bar);
+    color: var(--color-primary);
+  }
+
+  /* Hide Scrollbar - CarePlus */
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Message Content - Overflow 방지 */
+  .overflow-wrap-anywhere {
+    overflow-wrap: anywhere;
+  }
+
+  .word-break-break-word {
+    word-break: break-word;
+  }
+
+  /* Splash Animation for MainPage buttons */
+  @keyframes splash-expand {
+    0% {
+      opacity: 0;
+      transform: scale(0);
+    }
+    50% {
+      opacity: 0.8;
+      transform: scale(1.2);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(3);
+    }
+  }
+
+  @keyframes splash-ripple {
+    0% {
+      transform: scale(0);
+      opacity: 0.8;
+    }
+    100% {
+      transform: scale(8);
+      opacity: 0;
+    }
+  }
+}
+
+  /* Legacy Message Bubble - keep for backward compatibility */
+  .message-bubble {
+    @apply max-w-[80%] px-4 py-3 rounded-2xl;
+  }
+
+  .message-bot {
+    @apply max-w-[80%] px-4 py-3 rounded-2xl rounded-tl-md;
+    background-color: var(--color-line-subtle);
+    color: var(--color-text-primary);
+  }
+
+  .message-user {
+    @apply max-w-[80%] px-4 py-3 rounded-2xl rounded-tr-md;
+    background: var(--gradient-primary);
+    color: white;
+  }
+
+  /* Avatar */
+  .avatar {
+    @apply w-10 h-10 rounded-full flex items-center justify-center
+           bg-gradient-to-br from-cyan-400 to-cyan-500
+           text-white font-semibold text-sm;
+  }
+
+  .avatar-sm {
+    @apply w-8 h-8 text-xs;
+  }
+
+  .avatar-lg {
+    @apply w-12 h-12 text-base;
+  }
+
+  /* Floating Action Button */
+  .fab {
+    @apply fixed bottom-6 right-6 w-14 h-14
+           bg-gradient-to-r from-cyan-500 to-cyan-400
+           text-white rounded-full shadow-lg
+           flex items-center justify-center
+           hover:shadow-xl hover:scale-105
+           transition-all duration-200;
+  }
+
+  /* Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-gray-200 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-300;
+  }

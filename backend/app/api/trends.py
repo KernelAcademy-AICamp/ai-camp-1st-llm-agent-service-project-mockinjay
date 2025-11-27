@@ -17,6 +17,7 @@ if str(backend_path) not in sys.path:
 from Agent.trend_visualization.agent import TrendVisualizationAgent
 from app.services.summarization import PaperSummarizationService
 from Agent.api.pubmed_client import PubMedClient
+from Agent.core.contracts import AgentRequest
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,18 @@ class SummarizeRequest(BaseModel):
     summary_type: str = Field("multiple", description="Summary type (single/multiple)")
 
 
+class OneLineSummaryRequest(BaseModel):
+    """Request for one-line summaries"""
+    papers: List[Dict[str, Any]] = Field(..., description="List of papers")
+    language: str = Field("ko", description="Summary language (ko/en)")
+
+
+class TranslateRequest(BaseModel):
+    """Request for abstract translation"""
+    papers: List[Dict[str, Any]] = Field(..., description="List of papers to translate")
+    target_language: str = Field("ko", description="Target language code")
+
+
 # ==================== API Endpoints ====================
 
 @router.post("/temporal")
@@ -104,13 +117,16 @@ async def analyze_temporal_trends(request: TemporalTrendsRequest) -> Dict[str, A
             'language': request.language
         }
 
-        result = await trend_agent.process(
-            user_input=request.query,
+        agent_request = AgentRequest(
+            query=request.query,
             session_id=request.session_id,
             context=context
         )
 
-        return result
+        result = await trend_agent.process(agent_request)
+
+        # Convert AgentResponse to dict for FastAPI validation
+        return result.model_dump()
 
     except Exception as e:
         logger.error(f"Temporal trends error: {e}", exc_info=True)
@@ -137,13 +153,15 @@ async def analyze_geographic_distribution(request: GeographicDistributionRequest
             'language': request.language
         }
 
-        result = await trend_agent.process(
-            user_input=request.query,
+        agent_request = AgentRequest(
+            query=request.query,
             session_id=request.session_id,
             context=context
         )
 
-        return result
+        result = await trend_agent.process(agent_request)
+
+        return result.model_dump()
 
     except Exception as e:
         logger.error(f"Geographic distribution error: {e}", exc_info=True)
@@ -169,13 +187,15 @@ async def analyze_mesh_categories(request: MeshCategoryRequest) -> Dict[str, Any
             'language': request.language
         }
 
-        result = await trend_agent.process(
-            user_input=request.query,
+        agent_request = AgentRequest(
+            query=request.query,
             session_id=request.session_id,
             context=context
         )
 
-        return result
+        result = await trend_agent.process(agent_request)
+
+        return result.model_dump()
 
     except Exception as e:
         logger.error(f"MeSH category error: {e}", exc_info=True)
@@ -204,13 +224,15 @@ async def compare_keywords(request: CompareKeywordsRequest) -> Dict[str, Any]:
             'language': request.language
         }
 
-        result = await trend_agent.process(
-            user_input=request.keywords[0],  # Use first keyword as main query
+        agent_request = AgentRequest(
+            query=request.keywords[0],  # Use first keyword as main query
             session_id=request.session_id,
             context=context
         )
 
-        return result
+        result = await trend_agent.process(agent_request)
+
+        return result.model_dump()
 
     except Exception as e:
         logger.error(f"Keyword comparison error: {e}", exc_info=True)
@@ -281,6 +303,58 @@ async def summarize_papers(request: SummarizeRequest) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Summarization error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/one-line-summaries")
+async def generate_one_line_summaries(request: OneLineSummaryRequest) -> Dict[str, Any]:
+    """
+    Generate one-line summaries for each paper
+
+    Returns:
+        - Papers with one_line_summary field added
+    """
+    try:
+        logger.info(f"One-line summaries request: {len(request.papers)} papers")
+
+        papers_with_summaries = await summarization_service.generate_one_line_summaries(
+            papers=request.papers,
+            language=request.language
+        )
+
+        return {
+            'papers': papers_with_summaries,
+            'status': 'success'
+        }
+
+    except Exception as e:
+        logger.error(f"One-line summaries error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/translate")
+async def translate_abstracts(request: TranslateRequest) -> Dict[str, Any]:
+    """
+    Translate paper abstracts to target language
+
+    Returns:
+        - Papers with abstract_translated field added
+    """
+    try:
+        logger.info(f"Translation request: {len(request.papers)} papers to {request.target_language}")
+
+        papers_with_translation = await summarization_service.translate_papers_abstracts(
+            papers=request.papers,
+            target_lang=request.target_language
+        )
+
+        return {
+            'papers': papers_with_translation,
+            'status': 'success'
+        }
+
+    except Exception as e:
+        logger.error(f"Translation error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,0 +1,76 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "CarePlus" [ref=e5] [cursor=pointer]:
+      - /url: /main
+      - img [ref=e7]
+      - generic [ref=e9]: CarePlus
+    - navigation [ref=e10]:
+      - list [ref=e11]:
+        - listitem [ref=e12]:
+          - link "AI챗봇" [ref=e13] [cursor=pointer]:
+            - /url: /chat
+            - img [ref=e14]
+            - generic [ref=e16]: AI챗봇
+        - listitem [ref=e17]:
+          - link "식단케어" [ref=e18] [cursor=pointer]:
+            - /url: /diet-care
+            - img [ref=e19]
+            - generic [ref=e22]: 식단케어
+        - listitem [ref=e23]:
+          - link "퀴즈미션" [ref=e24] [cursor=pointer]:
+            - /url: /quiz
+            - img [ref=e25]
+            - generic [ref=e31]: 퀴즈미션
+        - listitem [ref=e32]:
+          - link "커뮤니티" [ref=e33] [cursor=pointer]:
+            - /url: /community
+            - img [ref=e34]
+            - generic [ref=e39]: 커뮤니티
+        - listitem [ref=e40]:
+          - link "트렌드" [ref=e41] [cursor=pointer]:
+            - /url: /trends
+            - img [ref=e42]
+            - generic [ref=e45]: 트렌드
+        - listitem [ref=e46]:
+          - link "대시보드" [ref=e47] [cursor=pointer]:
+            - /url: /dashboard
+            - img [ref=e48]
+            - generic [ref=e50]: 대시보드
+    - generic [ref=e51]:
+      - link "로그인" [ref=e52] [cursor=pointer]:
+        - /url: /login
+        - img [ref=e53]
+        - generic [ref=e56]: 로그인
+      - link "회원가입" [ref=e57] [cursor=pointer]:
+        - /url: /signup
+        - img [ref=e58]
+        - generic [ref=e61]: 회원가입
+      - generic [ref=e62]:
+        - paragraph [ref=e63]: © 2025 CareGuide
+        - generic [ref=e64]:
+          - link "도움말" [ref=e65] [cursor=pointer]:
+            - /url: /support
+          - link "약관" [ref=e66] [cursor=pointer]:
+            - /url: /terms-conditions
+          - link "개인정보 처리방침" [ref=e67] [cursor=pointer]:
+            - /url: /privacy-policy
+  - banner [ref=e68]:
+    - heading "식단 관리" [level=1] [ref=e70]
+  - main [ref=e71]:
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - heading "식단케어" [level=1] [ref=e75]
+        - paragraph [ref=e76]: 만성콩팥병 환자를 위한 식단 관리 및 영양 정보
+      - generic [ref=e77]:
+        - link "뉴트리 코치" [ref=e78] [cursor=pointer]:
+          - /url: /nutri-coach
+          - img [ref=e79]
+          - text: 뉴트리 코치
+        - link "식단 로그" [ref=e81] [cursor=pointer]:
+          - /url: /diet-log
+          - img [ref=e82]
+          - text: 식단 로그
+```

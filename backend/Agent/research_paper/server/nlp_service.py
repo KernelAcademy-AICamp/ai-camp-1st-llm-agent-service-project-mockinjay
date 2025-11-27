@@ -198,7 +198,7 @@ class EmbeddingCache:
         """Get disk cache file path"""
         # Use subdirectories to avoid too many files in one directory
         subdir = cache_key[:2]
-        (self.cache_dir / subdir).mkdir(exist_ok=True)
+        (self.cache_dir / subdir).mkdir(parents=True, exist_ok=True)
         return self.cache_dir / subdir / f"{cache_key}.pkl"
 
     def get(self, text: str, model: str) -> Optional[np.ndarray]:

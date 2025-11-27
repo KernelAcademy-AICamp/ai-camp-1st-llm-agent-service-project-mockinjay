@@ -1,0 +1,79 @@
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronLeft, Menu, User, LogIn } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+
+export function MobileHeader({
+  title,
+  onBack,
+  rightAction,
+  showMenu = false,
+  showProfile = false,
+  onMenuClick
+}: {
+  title: string;
+  onBack?: () => void;
+  rightAction?: React.ReactNode;
+  showMenu?: boolean;
+  showProfile?: boolean;
+  onMenuClick?: () => void;
+}) {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+    } else {
+      navigate(-1);
+    }
+  };
+
+  const handleProfileClick = () => {
+    if (isAuthenticated) {
+      navigate('/mypage');
+    } else {
+      navigate('/login');
+    }
+  };
+
+  const handleMenuClick = () => {
+    if (onMenuClick) {
+      onMenuClick();
+    }
+  };
+
+  return (
+    <div className="lg:hidden px-4 py-3 flex items-center justify-between border-b border-[#E0E0E0] bg-white sticky top-0 z-50 h-[52px]">
+      <div className="flex items-center w-10">
+        {showMenu ? (
+          <button onClick={handleMenuClick} className="p-1 -ml-1" aria-label="메뉴 열기">
+            <Menu size={24} className="text-[#1F2937]" strokeWidth={2} />
+          </button>
+        ) : (
+          <button onClick={handleBack} className="p-1 -ml-1" aria-label="뒤로가기">
+            <ChevronLeft size={24} className="text-[#1F2937]" strokeWidth={2} />
+          </button>
+        )}
+      </div>
+
+      <h1 className="text-[16px] font-bold text-[#1F2937] absolute left-1/2 transform -translate-x-1/2 text-center truncate max-w-[60%]">
+        {title}
+      </h1>
+
+      <div className="flex items-center justify-end w-10">
+        {rightAction ? (
+          rightAction
+        ) : showProfile ? (
+          <button onClick={handleProfileClick} className="p-1 -mr-1" aria-label={isAuthenticated ? "마이페이지" : "로그인"}>
+            {isAuthenticated ? (
+               <User size={24} color="#999999" strokeWidth={2} />
+            ) : (
+               <LogIn size={24} color="#999999" strokeWidth={2} />
+            )}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
