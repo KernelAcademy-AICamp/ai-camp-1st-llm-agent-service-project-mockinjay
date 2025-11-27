@@ -30,6 +30,7 @@ class UserProfileResponse(BaseModel):
     fullName: Optional[str] = Field(None, description="Full name (이름)")
     bio: Optional[str] = Field(None, description="User bio/description (소개)")
     profileImage: Optional[str] = Field(None, description="Profile image URL (프로필 이미지 URL)")
+    profileImageUrl: Optional[str] = Field(None, description="Alias for profileImage (Frontend compatibility)")
     profile: str = Field(..., description="Profile type: general/patient/researcher")
     role: str = Field(..., description="User role: user/admin")
     createdAt: datetime = Field(..., description="Account creation date (가입일)")
@@ -70,6 +71,7 @@ class HealthProfileResponse(BaseModel):
     """Health profile response model (건강 프로필 응답 모델)"""
     userId: str = Field(..., description="User ID")
     conditions: List[str] = Field(default=[], description="Health conditions (질환)")
+    healthConditions: List[str] = Field(default=[], description="Alias for conditions (Frontend compatibility)")
     allergies: List[str] = Field(default=[], description="Allergies (알레르기)")
     dietaryRestrictions: List[str] = Field(default=[], description="Dietary restrictions (식이 제한)")
     age: Optional[int] = Field(None, description="Age (나이)")
@@ -254,14 +256,16 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
     try:
         user_id = str(current_user["_id"])
 
-        # Return user profile data
+        # Return user profile data (with alias fields for Frontend compatibility)
+        profile_image = current_user.get("profileImage")
         profile_data = {
             "id": user_id,
             "username": current_user.get("username", ""),
             "email": current_user.get("email", ""),
             "fullName": current_user.get("fullName"),
             "bio": current_user.get("bio"),
-            "profileImage": current_user.get("profileImage"),
+            "profileImage": profile_image,
+            "profileImageUrl": profile_image,  # Alias for Frontend
             "profile": current_user.get("profile", "general"),
             "role": current_user.get("role", "user"),
             "createdAt": current_user.get("created_at", datetime.utcnow())
@@ -332,6 +336,7 @@ async def update_user_profile(
 
         # Fetch updated user
         updated_user = await users_collection.find_one({"_id": user_id})
+        profile_image = updated_user.get("profileImage")
 
         profile_data = {
             "id": str(updated_user["_id"]),
@@ -339,7 +344,8 @@ async def update_user_profile(
             "email": updated_user.get("email", ""),
             "fullName": updated_user.get("fullName"),
             "bio": updated_user.get("bio"),
-            "profileImage": updated_user.get("profileImage"),
+            "profileImage": profile_image,
+            "profileImageUrl": profile_image,  # Alias for Frontend
             "profile": updated_user.get("profile", "general"),
             "role": updated_user.get("role", "user"),
             "createdAt": updated_user.get("created_at", datetime.utcnow())
@@ -386,6 +392,7 @@ async def get_health_profile(current_user: dict = Depends(get_current_user)):
             return HealthProfileResponse(
                 userId=user_id,
                 conditions=[],
+                healthConditions=[],  # Alias for Frontend
                 allergies=[],
                 dietaryRestrictions=[],
                 age=None,
@@ -396,6 +403,10 @@ async def get_health_profile(current_user: dict = Depends(get_current_user)):
         # Serialize and return
         health_profile = serialize_object_id(health_profile)
         health_profile = serialize_datetime(health_profile, ["updatedAt"])
+
+        # Add healthConditions alias for Frontend compatibility
+        conditions = health_profile.get("conditions", [])
+        health_profile["healthConditions"] = conditions
 
         return HealthProfileResponse(**health_profile)
 
@@ -454,6 +465,10 @@ async def update_health_profile(
         updated_profile = await health_profiles_collection.find_one({"userId": user_id})
         updated_profile = serialize_object_id(updated_profile)
         updated_profile = serialize_datetime(updated_profile, ["updatedAt"])
+
+        # Add healthConditions alias for Frontend compatibility
+        conditions = updated_profile.get("conditions", [])
+        updated_profile["healthConditions"] = conditions
 
         logger.info(f"Health profile updated for user: {user_id}")
         return HealthProfileResponse(**updated_profile)
@@ -820,6 +835,419 @@ async def get_user_posts(
 # Health Check Endpoint
 # ============================================================================
 
+# ============================================================================
+# Level & Points Endpoints (레벨 & 포인트 시스템)
+# ============================================================================
+
+# Level system configuration (레벨 시스템 설정)
+LEVEL_CONFIG = [
+    {"level": 1, "name": "새싹", "min_xp": 0, "max_xp": 100},
+    {"level": 2, "name": "초보", "min_xp": 100, "max_xp": 300},
+    {"level": 3, "name": "중급", "min_xp": 300, "max_xp": 600},
+    {"level": 4, "name": "고수", "min_xp": 600, "max_xp": 1000},
+    {"level": 5, "name": "전문가", "min_xp": 1000, "max_xp": None},  # Max level
+]
+
+# Points earned by action type (행동별 포인트 획득량)
+POINTS_BY_ACTION = {
+    "quiz_completion": 10,
+    "daily_login": 5,
+    "community_post": 15,
+    "community_comment": 5,
+    "community_like_received": 2,
+    "bookmark_paper": 3,
+    "diet_log": 10,
+    "health_check": 5,
+}
+
+
+def calculate_level_from_xp(xp: int) -> dict:
+    """
+    Calculate user level from XP points
+    XP 포인트로부터 사용자 레벨 계산
+    """
+    for i, config in enumerate(LEVEL_CONFIG):
+        if config["max_xp"] is None or xp < config["max_xp"]:
+            next_level = LEVEL_CONFIG[i + 1] if i + 1 < len(LEVEL_CONFIG) else None
+            return {
+                "level": config["level"],
+                "title": config["name"],
+                "min_xp": config["min_xp"],
+                "max_xp": config["max_xp"],
+                "next_level_title": next_level["name"] if next_level else None,
+                "required_xp": config["max_xp"] if config["max_xp"] else config["min_xp"]
+            }
+    # Default to max level
+    return {
+        "level": 5,
+        "title": "전문가",
+        "min_xp": 1000,
+        "max_xp": None,
+        "next_level_title": None,
+        "required_xp": 1000
+    }
+
+
+class UserLevelResponse(BaseModel):
+    """User level response model (사용자 레벨 응답 모델)"""
+    userId: str = Field(..., description="User ID")
+    level: int = Field(..., ge=1, le=5, description="Current level (1-5)")
+    currentXp: int = Field(..., ge=0, description="Current XP points")
+    requiredXp: int = Field(..., description="XP required for current/next level")
+    title: str = Field(..., description="Level title (e.g., '새싹', '전문가')")
+    nextLevelTitle: Optional[str] = Field(None, description="Next level title")
+    badges: List[Dict[str, Any]] = Field(default=[], description="Earned badges")
+    updatedAt: Optional[datetime] = Field(None, description="Last update timestamp")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "userId": "507f1f77bcf86cd799439011",
+                "level": 2,
+                "currentXp": 150,
+                "requiredXp": 300,
+                "title": "초보",
+                "nextLevelTitle": "중급",
+                "badges": [
+                    {"id": "first_quiz", "name": "첫 퀴즈 완료", "description": "첫 퀴즈를 완료했습니다", "icon": "trophy", "earnedAt": "2024-01-15T10:00:00Z"}
+                ],
+                "updatedAt": "2024-01-20T14:30:00Z"
+            }
+        }
+
+
+class PointsDataResponse(BaseModel):
+    """Points data response model (포인트 데이터 응답 모델)"""
+    userId: str = Field(..., description="User ID")
+    totalPoints: int = Field(..., ge=0, description="Total earned points")
+    availablePoints: int = Field(..., ge=0, description="Available (spendable) points")
+    usedPoints: int = Field(..., ge=0, description="Used/spent points")
+    updatedAt: Optional[datetime] = Field(None, description="Last update timestamp")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "userId": "507f1f77bcf86cd799439011",
+                "totalPoints": 250,
+                "availablePoints": 200,
+                "usedPoints": 50,
+                "updatedAt": "2024-01-20T14:30:00Z"
+            }
+        }
+
+
+class PointsHistoryItemResponse(BaseModel):
+    """Points history item response model (포인트 히스토리 항목 응답 모델)"""
+    id: str = Field(..., description="Transaction ID")
+    userId: str = Field(..., description="User ID")
+    amount: int = Field(..., description="Points amount (positive=earn, negative=spend)")
+    type: str = Field(..., description="Transaction type: earn/spend/expire")
+    source: str = Field(..., description="Source of points (e.g., quiz_completion)")
+    description: str = Field(..., description="Human-readable description")
+    createdAt: datetime = Field(..., description="Transaction timestamp")
+
+
+class PointsHistoryResponse(BaseModel):
+    """Points history response model (포인트 히스토리 응답 모델)"""
+    history: List[PointsHistoryItemResponse] = Field(..., description="History items")
+    total: int = Field(..., description="Total count of transactions")
+    limit: int = Field(..., description="Page size")
+    offset: int = Field(..., description="Page offset")
+    hasMore: bool = Field(..., description="Whether more items exist")
+
+
+@router.get("/level", response_model=UserLevelResponse)
+async def get_user_level(current_user: dict = Depends(get_current_user)):
+    """
+    Get current user's level and XP information
+    현재 사용자의 레벨 및 경험치 정보 조회
+
+    Returns:
+        UserLevelResponse: Level data including XP, title, badges
+
+    Raises:
+        HTTPException: 500 for internal errors
+    """
+    try:
+        user_levels_collection = db["user_levels"]
+        badges_collection = db["user_badges"]
+        user_id = str(current_user["_id"])
+
+        # Find or create user level data
+        user_level = await user_levels_collection.find_one({"userId": user_id})
+
+        if not user_level:
+            # Create default level data for new users
+            default_level = {
+                "userId": user_id,
+                "currentXp": 0,
+                "totalXp": 0,
+                "level": 1,
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow()
+            }
+            await user_levels_collection.insert_one(default_level)
+            user_level = default_level
+
+        # Calculate level info from XP
+        current_xp = user_level.get("currentXp", 0)
+        level_info = calculate_level_from_xp(current_xp)
+
+        # Fetch user badges
+        badges_cursor = badges_collection.find({"userId": user_id}).sort("earnedAt", -1)
+        badges = await badges_cursor.to_list(length=50)
+
+        serialized_badges = []
+        for badge in badges:
+            serialized_badges.append({
+                "id": badge.get("badgeId", str(badge.get("_id", ""))),
+                "name": badge.get("name", ""),
+                "description": badge.get("description", ""),
+                "icon": badge.get("icon", "award"),
+                "earnedAt": badge.get("earnedAt", datetime.utcnow()).isoformat() if isinstance(badge.get("earnedAt"), datetime) else badge.get("earnedAt", "")
+            })
+
+        return UserLevelResponse(
+            userId=user_id,
+            level=level_info["level"],
+            currentXp=current_xp,
+            requiredXp=level_info["required_xp"],
+            title=level_info["title"],
+            nextLevelTitle=level_info["next_level_title"],
+            badges=serialized_badges,
+            updatedAt=user_level.get("updatedAt")
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching user level: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="레벨 정보 조회 중 오류가 발생했습니다"
+        )
+
+
+@router.get("/points", response_model=PointsDataResponse)
+async def get_user_points(current_user: dict = Depends(get_current_user)):
+    """
+    Get current user's points summary
+    현재 사용자의 포인트 요약 조회
+
+    Returns:
+        PointsDataResponse: Points summary including total, available, used
+
+    Raises:
+        HTTPException: 500 for internal errors
+    """
+    try:
+        user_points_collection = db["user_points"]
+        user_id = str(current_user["_id"])
+
+        # Find or create user points data
+        user_points = await user_points_collection.find_one({"userId": user_id})
+
+        if not user_points:
+            # Create default points data for new users
+            default_points = {
+                "userId": user_id,
+                "totalPoints": 0,
+                "availablePoints": 0,
+                "usedPoints": 0,
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow()
+            }
+            await user_points_collection.insert_one(default_points)
+            user_points = default_points
+
+        return PointsDataResponse(
+            userId=user_id,
+            totalPoints=user_points.get("totalPoints", 0),
+            availablePoints=user_points.get("availablePoints", 0),
+            usedPoints=user_points.get("usedPoints", 0),
+            updatedAt=user_points.get("updatedAt")
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching user points: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="포인트 정보 조회 중 오류가 발생했습니다"
+        )
+
+
+@router.get("/points/history", response_model=PointsHistoryResponse)
+async def get_points_history(
+    limit: int = 20,
+    offset: int = 0,
+    type_filter: Optional[str] = None,
+    source_filter: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get current user's points transaction history
+    현재 사용자의 포인트 거래 내역 조회
+
+    Args:
+        limit: Number of items to return (default: 20, max: 50)
+        offset: Number of items to skip (default: 0)
+        type_filter: Filter by type: earn/spend/expire (optional)
+        source_filter: Filter by source (optional)
+
+    Returns:
+        PointsHistoryResponse: History items with pagination
+
+    Raises:
+        HTTPException: 500 for internal errors
+    """
+    try:
+        points_history_collection = db["points_history"]
+        user_id = str(current_user["_id"])
+
+        # Validate pagination parameters
+        limit = min(max(1, limit), 50)
+        offset = max(0, offset)
+
+        # Build query
+        query = {"userId": user_id}
+        if type_filter and type_filter in ["earn", "spend", "expire"]:
+            query["type"] = type_filter
+        if source_filter:
+            query["source"] = source_filter
+
+        # Get total count
+        total_count = await points_history_collection.count_documents(query)
+
+        # Fetch history with pagination
+        cursor = points_history_collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        history_items = await cursor.to_list(length=limit)
+
+        # Serialize history items
+        serialized_history = []
+        for item in history_items:
+            serialized_history.append(PointsHistoryItemResponse(
+                id=str(item.get("_id", "")),
+                userId=item.get("userId", user_id),
+                amount=item.get("amount", 0),
+                type=item.get("type", "earn"),
+                source=item.get("source", "unknown"),
+                description=item.get("description", ""),
+                createdAt=item.get("createdAt", datetime.utcnow())
+            ))
+
+        return PointsHistoryResponse(
+            history=serialized_history,
+            total=total_count,
+            limit=limit,
+            offset=offset,
+            hasMore=(offset + limit) < total_count
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching points history: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="포인트 내역 조회 중 오류가 발생했습니다"
+        )
+
+
+# ============================================================================
+# Internal Points Service Functions (내부 포인트 서비스 함수)
+# ============================================================================
+
+async def add_points_to_user(
+    user_id: str,
+    amount: int,
+    source: str,
+    description: str
+) -> dict:
+    """
+    Add points to a user and record the transaction
+    사용자에게 포인트 추가 및 거래 기록
+
+    This is an internal function for use by other modules.
+
+    Args:
+        user_id: User ID
+        amount: Points to add (positive) or deduct (negative)
+        source: Source of points (e.g., 'quiz_completion')
+        description: Human-readable description
+
+    Returns:
+        dict: Updated points data
+    """
+    user_points_collection = db["user_points"]
+    points_history_collection = db["points_history"]
+    user_levels_collection = db["user_levels"]
+
+    # Determine transaction type
+    tx_type = "earn" if amount > 0 else "spend" if amount < 0 else "expire"
+
+    # Update user points
+    user_points = await user_points_collection.find_one({"userId": user_id})
+    if not user_points:
+        user_points = {
+            "userId": user_id,
+            "totalPoints": 0,
+            "availablePoints": 0,
+            "usedPoints": 0,
+            "createdAt": datetime.utcnow()
+        }
+
+    if amount > 0:
+        user_points["totalPoints"] = user_points.get("totalPoints", 0) + amount
+        user_points["availablePoints"] = user_points.get("availablePoints", 0) + amount
+    else:
+        user_points["availablePoints"] = max(0, user_points.get("availablePoints", 0) + amount)
+        user_points["usedPoints"] = user_points.get("usedPoints", 0) + abs(amount)
+
+    user_points["updatedAt"] = datetime.utcnow()
+
+    await user_points_collection.update_one(
+        {"userId": user_id},
+        {"$set": user_points},
+        upsert=True
+    )
+
+    # Record transaction history
+    history_item = {
+        "userId": user_id,
+        "amount": amount,
+        "type": tx_type,
+        "source": source,
+        "description": description,
+        "createdAt": datetime.utcnow()
+    }
+    await points_history_collection.insert_one(history_item)
+
+    # Update XP for leveling (1 point = 1 XP for earn transactions)
+    if amount > 0:
+        user_level = await user_levels_collection.find_one({"userId": user_id})
+        if not user_level:
+            user_level = {
+                "userId": user_id,
+                "currentXp": 0,
+                "level": 1,
+                "createdAt": datetime.utcnow()
+            }
+
+        user_level["currentXp"] = user_level.get("currentXp", 0) + amount
+        level_info = calculate_level_from_xp(user_level["currentXp"])
+        user_level["level"] = level_info["level"]
+        user_level["updatedAt"] = datetime.utcnow()
+
+        await user_levels_collection.update_one(
+            {"userId": user_id},
+            {"$set": user_level},
+            upsert=True
+        )
+
+    logger.info(f"Points updated for user {user_id}: {amount} ({source})")
+    return user_points
+
+
+# ============================================================================
+# Health Check Endpoint
+# ============================================================================
+
 @router.get("/health")
 async def health_check():
     """Health check endpoint for MyPage API"""
@@ -831,6 +1259,9 @@ async def health_check():
             "health_profile": "ready",
             "preferences": "ready",
             "bookmarks": "ready",
-            "posts": "ready"
+            "posts": "ready",
+            "level": "ready",
+            "points": "ready",
+            "points_history": "ready"
         }
     }

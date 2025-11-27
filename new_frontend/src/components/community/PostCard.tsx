@@ -5,7 +5,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare, ThumbsUp, Clock, Edit2, Trash2, ImageIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import { deletePost } from '../../services/communityApi';
+import { ConfirmDialog } from '../ui/confirm-dialog';
 import type { PostCard as PostCardType, PostType } from '../../types/community';
 
 interface PostCardProps {
@@ -18,6 +20,7 @@ interface PostCardProps {
 const PostCardComponent: React.FC<PostCardProps> = ({ post, onClick, onDelete, language }) => {
   const navigate = useNavigate();
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Safe localStorage access with fallback
   let currentUserId: string | null = null;
@@ -106,24 +109,23 @@ const PostCardComponent: React.FC<PostCardProps> = ({ post, onClick, onDelete, l
     navigate(`/community/${post.id}`);
   };
 
-  const handleDelete = async (e: React.MouseEvent) => {
+  const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setShowDeleteDialog(true);
+  };
 
-    const confirmMsg = language === 'ko' ? '정말 삭제하시겠습니까?' : 'Are you sure you want to delete this post?';
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
-
+  const handleDeleteConfirm = async () => {
     try {
       setIsDeleting(true);
       await deletePost(post.id);
+      setShowDeleteDialog(false);
+      toast.success(language === 'ko' ? '게시글이 삭제되었습니다' : 'Post deleted');
       if (onDelete) {
         onDelete(post.id);
       }
-      alert(language === 'ko' ? '게시글이 삭제되었습니다' : 'Post deleted');
     } catch (err: unknown) {
       const errorMsg = language === 'ko' ? '삭제 중 오류가 발생했습니다' : 'Error deleting post';
-      alert(errorMsg);
+      toast.error(errorMsg);
       console.error('Error deleting post:', err);
     } finally {
       setIsDeleting(false);
@@ -204,7 +206,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({ post, onClick, onDelete, l
               {t.edit}
             </button>
             <button
-              onClick={handleDelete}
+              onClick={handleDeleteClick}
               disabled={isDeleting}
               className="px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400
                 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors
@@ -217,6 +219,19 @@ const PostCardComponent: React.FC<PostCardProps> = ({ post, onClick, onDelete, l
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title={language === 'ko' ? '게시글 삭제' : 'Delete Post'}
+        description={language === 'ko' ? '정말 이 게시글을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.' : 'Are you sure you want to delete this post? This action cannot be undone.'}
+        confirmText={language === 'ko' ? '삭제' : 'Delete'}
+        cancelText={language === 'ko' ? '취소' : 'Cancel'}
+        onConfirm={handleDeleteConfirm}
+        variant="destructive"
+        isLoading={isDeleting}
+      />
     </div>
   );
 };

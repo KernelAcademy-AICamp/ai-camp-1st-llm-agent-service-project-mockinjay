@@ -1,12 +1,12 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MessageSquare, Utensils, Trophy, Users, TrendingUp } from 'lucide-react';
+import { MessageSquare, Utensils, Trophy, Users, User } from 'lucide-react';
 
 const navItems = [
   { id: 'chat', label: 'AI챗봇', icon: MessageSquare, path: '/chat' },
   { id: 'diet', label: '식단케어', icon: Utensils, path: '/diet-care' },
   { id: 'quiz', label: '퀴즈미션', icon: Trophy, path: '/quiz' },
   { id: 'community', label: '커뮤니티', icon: Users, path: '/community' },
-  { id: 'trends', label: '트렌드', icon: TrendingUp, path: '/trends' }
+  { id: 'mypage', label: '마이페이지', icon: User, path: '/mypage' }
 ];
 
 export function MobileNav() {
@@ -22,7 +22,8 @@ export function MobileNav() {
       className="lg:hidden fixed bottom-0 left-0 right-0 bg-white z-40 flex items-center justify-around px-2 py-2"
       style={{
         borderTop: '1px solid #E0E0E0',
-        height: '64px'
+        paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+        minHeight: '64px'
       }}
     >
       {navItems.map((item) => {
