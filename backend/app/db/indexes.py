@@ -26,6 +26,30 @@ async def create_indexes(db: AsyncIOMotorDatabase):
         # Notification Settings Collection Indexes
         await create_notification_settings_indexes(db)
 
+        # Health Profiles Collection Indexes
+        await create_health_profiles_indexes(db)
+
+        # User Preferences Collection Indexes
+        await create_user_preferences_indexes(db)
+
+        # Bookmarks Collection Indexes
+        await create_bookmarks_indexes(db)
+
+        # Posts Collection Indexes
+        await create_posts_indexes(db)
+
+        # User Levels Collection Indexes
+        await create_user_levels_indexes(db)
+
+        # User Badges Collection Indexes
+        await create_user_badges_indexes(db)
+
+        # User Points Collection Indexes
+        await create_user_points_indexes(db)
+
+        # Points History Collection Indexes
+        await create_points_history_indexes(db)
+
         logger.info("All database indexes created successfully")
 
     except Exception as e:
@@ -130,40 +154,162 @@ async def create_notification_settings_indexes(db: AsyncIOMotorDatabase):
     logger.info(f"Created {len(indexes)} indexes for notification_settings collection")
 
 
-async def create_community_posts_indexes(db: AsyncIOMotorDatabase):
-    """Create indexes for community posts collection (if exists)"""
+async def create_health_profiles_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for health_profiles collection"""
+    health_profiles_collection = db["health_profiles"]
+
+    indexes = [
+        # Unique index on userId for fast lookup and ensuring uniqueness
+        IndexModel(
+            [("userId", ASCENDING)],
+            unique=True,
+            name="idx_health_profiles_userId"
+        ),
+    ]
+
+    await health_profiles_collection.create_indexes(indexes)
+    logger.info(f"Created {len(indexes)} indexes for health_profiles collection")
+
+
+async def create_user_preferences_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for user_preferences collection"""
+    user_preferences_collection = db["user_preferences"]
+
+    indexes = [
+        # Unique index on userId for fast lookup and ensuring uniqueness
+        IndexModel(
+            [("userId", ASCENDING)],
+            unique=True,
+            name="idx_user_preferences_userId"
+        ),
+    ]
+
+    await user_preferences_collection.create_indexes(indexes)
+    logger.info(f"Created {len(indexes)} indexes for user_preferences collection")
+
+
+async def create_bookmarks_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for bookmarks collection"""
+    bookmarks_collection = db["bookmarks"]
+
+    indexes = [
+        # Compound index for user bookmarks sorted by creation date
+        IndexModel(
+            [("userId", ASCENDING), ("createdAt", DESCENDING)],
+            name="idx_bookmarks_userId_createdAt"
+        ),
+        # Unique compound index to prevent duplicate bookmarks
+        IndexModel(
+            [("userId", ASCENDING), ("paperId", ASCENDING)],
+            unique=True,
+            name="idx_bookmarks_userId_paperId"
+        ),
+    ]
+
+    await bookmarks_collection.create_indexes(indexes)
+    logger.info(f"Created {len(indexes)} indexes for bookmarks collection")
+
+
+async def create_posts_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for posts collection"""
     posts_collection = db["posts"]
 
     indexes = [
+        # Compound index for user posts filtered by deletion status and sorted by date
+        IndexModel(
+            [("userId", ASCENDING), ("isDeleted", ASCENDING), ("createdAt", DESCENDING)],
+            name="idx_posts_userId_isDeleted_createdAt"
+        ),
         # Index on created_at for sorting posts by date
         IndexModel(
-            [("created_at", DESCENDING)],
-            name="idx_posts_created_at"
+            [("createdAt", DESCENDING)],
+            name="idx_posts_createdAt"
         ),
         # Index on category for filtering posts by category
         IndexModel(
-            [("category", ASCENDING), ("created_at", DESCENDING)],
-            name="idx_posts_category_created"
-        ),
-        # Index on author for user's posts
-        IndexModel(
-            [("author_id", ASCENDING), ("created_at", DESCENDING)],
-            name="idx_posts_author_created"
-        ),
-        # Index on status (if posts have draft/published status)
-        IndexModel(
-            [("status", ASCENDING), ("created_at", DESCENDING)],
-            name="idx_posts_status_created"
-        ),
-        # Text index for search functionality (if needed)
-        IndexModel(
-            [("title", "text"), ("content", "text")],
-            name="idx_posts_text_search"
+            [("category", ASCENDING), ("createdAt", DESCENDING)],
+            name="idx_posts_category_createdAt"
         ),
     ]
 
     await posts_collection.create_indexes(indexes)
     logger.info(f"Created {len(indexes)} indexes for posts collection")
+
+
+async def create_user_levels_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for user_levels collection"""
+    user_levels_collection = db["user_levels"]
+
+    indexes = [
+        # Unique index on userId for fast lookup and ensuring uniqueness
+        IndexModel(
+            [("userId", ASCENDING)],
+            unique=True,
+            name="idx_user_levels_userId"
+        ),
+    ]
+
+    await user_levels_collection.create_indexes(indexes)
+    logger.info(f"Created {len(indexes)} indexes for user_levels collection")
+
+
+async def create_user_badges_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for user_badges collection"""
+    user_badges_collection = db["user_badges"]
+
+    indexes = [
+        # Compound index for user badges sorted by earned date
+        IndexModel(
+            [("userId", ASCENDING), ("earnedAt", DESCENDING)],
+            name="idx_user_badges_userId_earnedAt"
+        ),
+    ]
+
+    await user_badges_collection.create_indexes(indexes)
+    logger.info(f"Created {len(indexes)} indexes for user_badges collection")
+
+
+async def create_user_points_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for user_points collection"""
+    user_points_collection = db["user_points"]
+
+    indexes = [
+        # Unique index on userId for fast lookup and ensuring uniqueness
+        IndexModel(
+            [("userId", ASCENDING)],
+            unique=True,
+            name="idx_user_points_userId"
+        ),
+    ]
+
+    await user_points_collection.create_indexes(indexes)
+    logger.info(f"Created {len(indexes)} indexes for user_points collection")
+
+
+async def create_points_history_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for points_history collection"""
+    points_history_collection = db["points_history"]
+
+    indexes = [
+        # Compound index for user points history sorted by creation date
+        IndexModel(
+            [("userId", ASCENDING), ("createdAt", DESCENDING)],
+            name="idx_points_history_userId_createdAt"
+        ),
+        # Compound index for filtering by type and sorting by date
+        IndexModel(
+            [("userId", ASCENDING), ("type", ASCENDING), ("createdAt", DESCENDING)],
+            name="idx_points_history_userId_type_createdAt"
+        ),
+        # Compound index for filtering by source and sorting by date
+        IndexModel(
+            [("userId", ASCENDING), ("source", ASCENDING), ("createdAt", DESCENDING)],
+            name="idx_points_history_userId_source_createdAt"
+        ),
+    ]
+
+    await points_history_collection.create_indexes(indexes)
+    logger.info(f"Created {len(indexes)} indexes for points_history collection")
 
 
 async def drop_all_indexes(db: AsyncIOMotorDatabase):
@@ -172,7 +318,19 @@ async def drop_all_indexes(db: AsyncIOMotorDatabase):
 
     WARNING: This will drop all indexes except _id index
     """
-    collections = ["users", "notifications", "notification_settings", "posts"]
+    collections = [
+        "users",
+        "notifications",
+        "notification_settings",
+        "health_profiles",
+        "user_preferences",
+        "bookmarks",
+        "posts",
+        "user_levels",
+        "user_badges",
+        "user_points",
+        "points_history"
+    ]
 
     for collection_name in collections:
         try:
@@ -197,7 +355,19 @@ async def list_all_indexes(db: AsyncIOMotorDatabase):
     Returns:
         dict: Dictionary of collection names and their indexes
     """
-    collections = ["users", "notifications", "notification_settings", "posts"]
+    collections = [
+        "users",
+        "notifications",
+        "notification_settings",
+        "health_profiles",
+        "user_preferences",
+        "bookmarks",
+        "posts",
+        "user_levels",
+        "user_badges",
+        "user_points",
+        "points_history"
+    ]
     all_indexes = {}
 
     for collection_name in collections:
