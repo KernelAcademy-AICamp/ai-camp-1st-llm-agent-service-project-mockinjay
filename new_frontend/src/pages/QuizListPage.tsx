@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Star, Clock, ChevronRight, CheckCircle, Zap, Target } from 'lucide-react';
 import { MobileHeader } from '../components/layout/MobileHeader';
-import { ROUTES } from '../types/careguide-ia';
 
 interface QuizItem {
   id: string;
@@ -76,7 +75,7 @@ export default function QuizListPage() {
 
   // 레벨 퀴즈 시작 - 레벨 ID에 따른 난이도 매핑
   const handleLevelQuizStart = (quizId: string, quizTitle: string, quizLevel: string) => {
-    navigate(`${ROUTES.QUIZ_LEVEL}/${quizId}`, {
+    navigate(`/quiz/play`, {
       state: {
         mode: 'level',
         quizTitle,
@@ -88,7 +87,7 @@ export default function QuizListPage() {
 
   // 일일 퀴즈 시작
   const handleDailyQuizStart = () => {
-    navigate(ROUTES.QUIZ_DAILY, {
+    navigate('/quiz/play', {
       state: { mode: 'daily' }
     });
   };

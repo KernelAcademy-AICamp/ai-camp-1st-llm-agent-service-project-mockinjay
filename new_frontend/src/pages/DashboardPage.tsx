@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TrendingUp, TrendingDown, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import {
   LineChart,
@@ -23,6 +23,18 @@ const CHART_COLORS = [
   '#F59E0B', // 주황
 ];
 
+// 캐시 키 및 유효 시간 (24시간)
+const CACHE_KEY = 'dashboard_trend_cache';
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간 (밀리초)
+
+interface CachedData {
+  timestamp: number;
+  trendData: TrendDataPoint[];
+  keywords: { text: string; change: number; trending: 'up' | 'down' }[];
+  chartConfig: ChartConfig | null;
+  answerText: string;
+}
+
 interface TrendDataPoint {
   year: string;
   [key: string]: string | number;
@@ -35,25 +47,81 @@ export function DashboardPage() {
   const [keywords, setKeywords] = useState<{ text: string; change: number; trending: 'up' | 'down' }[]>([]);
   const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null);
   const [answerText, setAnswerText] = useState<string>('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // API에서 트렌드 데이터 로드
-  const loadTrendData = async () => {
+  // 캐시에서 데이터 로드
+  const loadFromCache = useCallback((): CachedData | null => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (!cached) return null;
+
+      const data: CachedData = JSON.parse(cached);
+      const now = Date.now();
+
+      // 24시간 이내인지 확인
+      if (now - data.timestamp < CACHE_DURATION) {
+        return data;
+      }
+
+      // 만료된 캐시 삭제
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    } catch {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+  }, []);
+
+  // 캐시에 데이터 저장
+  const saveToCache = useCallback((data: Omit<CachedData, 'timestamp'>) => {
+    try {
+      const cacheData: CachedData = {
+        ...data,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+    } catch (err) {
+      console.warn('캐시 저장 실패:', err);
+    }
+  }, []);
+
+  // API에서 트렌드 데이터 로드 (강제 새로고침 옵션)
+  const loadTrendData = useCallback(async (forceRefresh = false) => {
+    // 강제 새로고침이 아니면 캐시 확인
+    if (!forceRefresh) {
+      const cached = loadFromCache();
+      if (cached) {
+        setTrendData(cached.trendData);
+        setKeywords(cached.keywords);
+        setChartConfig(cached.chartConfig);
+        setAnswerText(cached.answerText);
+        setLastUpdated(new Date(cached.timestamp));
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       setError(null);
 
       const response: TrendResponse = await compareKeywords(DEFAULT_KEYWORDS, 2018, 2024);
 
+      let newTrendData: TrendDataPoint[] = [];
+      let newKeywords: { text: string; change: number; trending: 'up' | 'down' }[] = [];
+      let newChartConfig: ChartConfig | null = null;
+      let newAnswerText = '';
+
       // 차트 데이터 변환
       if (response.sources && response.sources.length > 0) {
         const chart = response.sources[0];
-        setChartConfig(chart);
+        newChartConfig = chart;
 
         // recharts 형식으로 변환
         const labels = chart.data.labels || [];
         const datasets = chart.data.datasets || [];
 
-        const transformedData: TrendDataPoint[] = labels.map((year, index) => {
+        newTrendData = labels.map((year, index) => {
           const point: TrendDataPoint = { year: String(year) };
           datasets.forEach((dataset) => {
             point[dataset.label] = dataset.data[index] || 0;
@@ -61,10 +129,8 @@ export function DashboardPage() {
           return point;
         });
 
-        setTrendData(transformedData);
-
         // 키워드 트렌드 계산 (최근 2년 대비 변화율)
-        const keywordStats = datasets.map((dataset) => {
+        newKeywords = datasets.map((dataset) => {
           const data = dataset.data;
           const recent = data[data.length - 1] || 0;
           const previous = data[data.length - 2] || 1;
@@ -76,14 +142,28 @@ export function DashboardPage() {
             trending: (changePercent >= 0 ? 'up' : 'down') as 'up' | 'down',
           };
         });
-
-        setKeywords(keywordStats);
       }
 
       // AI 분석 텍스트 저장
       if (response.answer) {
-        setAnswerText(response.answer);
+        newAnswerText = response.answer;
       }
+
+      // 상태 업데이트
+      setTrendData(newTrendData);
+      setKeywords(newKeywords);
+      setChartConfig(newChartConfig);
+      setAnswerText(newAnswerText);
+      setLastUpdated(new Date());
+
+      // 캐시에 저장
+      saveToCache({
+        trendData: newTrendData,
+        keywords: newKeywords,
+        chartConfig: newChartConfig,
+        answerText: newAnswerText,
+      });
+
     } catch (err) {
       console.error('Failed to load trend data:', err);
       setError(err instanceof Error ? err.message : '트렌드 데이터를 불러오는데 실패했습니다.');
@@ -98,11 +178,16 @@ export function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadFromCache, saveToCache]);
+
+  // 강제 새로고침 핸들러
+  const handleForceRefresh = useCallback(() => {
+    loadTrendData(true);
+  }, [loadTrendData]);
 
   useEffect(() => {
-    loadTrendData();
-  }, []);
+    loadTrendData(false);
+  }, [loadTrendData]);
 
   // 한글 키워드 매핑
   const getKoreanLabel = (label: string): string => {
@@ -125,14 +210,21 @@ export function DashboardPage() {
             <p className="text-sm text-gray-600 dark:text-gray-400">
               신장병 관련 PubMed 연구 트렌드를 확인하세요
             </p>
+            {lastUpdated && (
+              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                마지막 업데이트: {lastUpdated.toLocaleDateString('ko-KR')} {lastUpdated.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                {' '}(24시간마다 자동 갱신)
+              </p>
+            )}
           </div>
 
           <button
-            onClick={loadTrendData}
+            onClick={handleForceRefresh}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300
               bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700
               transition-colors disabled:opacity-50"
+            title="캐시를 무시하고 새로운 데이터를 가져옵니다"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             새로고침

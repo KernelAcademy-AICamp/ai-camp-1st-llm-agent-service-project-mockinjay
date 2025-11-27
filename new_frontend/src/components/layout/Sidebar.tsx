@@ -8,6 +8,7 @@ import {
   Trophy,
   Users,
   TrendingUp,
+  BarChart3,
   User,
   LogOut,
   LogIn,
@@ -26,6 +27,7 @@ const mainNavItems: NavItem[] = [
   { path: '/quiz', icon: <Trophy size={20} />, label: '퀴즈미션' },
   { path: ROUTES.COMMUNITY, icon: <Users size={20} />, label: '커뮤니티' },
   { path: ROUTES.TRENDS, icon: <TrendingUp size={20} />, label: '트렌드' },
+  { path: '/dashboard', icon: <BarChart3 size={20} />, label: '대시보드' },
 ];
 
 const Sidebar: React.FC = () => {

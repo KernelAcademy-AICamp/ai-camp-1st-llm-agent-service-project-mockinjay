@@ -16,7 +16,8 @@ import QuizCompletionPage from '../pages/QuizCompletionPage';
 import TrendsPageEnhanced from '../pages/TrendsPageEnhanced';
 import LoginPageFull from '../pages/LoginPageFull';
 import SignupPageFull from '../pages/SignupPageFull';
-import MyPage from '../pages/MyPage';
+import MyPageEnhanced from '../pages/MyPageEnhanced';
+import { DashboardPage } from '../pages/DashboardPage';
 
 // Detail/Subpages
 import NewsDetailPage from '../pages/NewsDetailPage';
@@ -43,6 +44,7 @@ const AppRoutes: React.FC = () => {
         <Route path={ROUTES.DIET_CARE} element={<DietCarePageEnhanced />} />
         <Route path={ROUTES.NUTRI_COACH} element={<DietCarePageEnhanced />} />
         <Route path={ROUTES.DIET_LOG} element={<DietCarePageEnhanced />} />
+        <Route path={ROUTES.DIET_TYPE_DETAIL} element={<DietCarePageEnhanced />} />
 
         {/* Community Routes */}
         <Route path={ROUTES.COMMUNITY} element={<CommunityPageEnhanced />} />
@@ -54,13 +56,17 @@ const AppRoutes: React.FC = () => {
         <Route path={ROUTES.TRENDS_LIST} element={<TrendsPageEnhanced />} />
         <Route path={ROUTES.TRENDS_DETAIL} element={<TrendsPageEnhanced />} />
 
+        {/* Dashboard Route */}
+        <Route path="/dashboard" element={<DashboardPage />} />
+
         {/* News Detail Route */}
         <Route path="/news/detail/:id" element={<NewsDetailPage />} />
 
         {/* Quiz Routes */}
-        <Route path="/quiz" element={<QuizPage />} />
-        <Route path="/quiz/list" element={<QuizListPage />} />
-        <Route path="/quiz/:id" element={<QuizPage />} />
+        <Route path="/quiz" element={<QuizListPage />} />
+        <Route path="/quiz/list" element={<Navigate to="/quiz" replace />} />
+        <Route path="/quiz/play" element={<QuizPage />} />
+        <Route path="/quiz/play/:id" element={<QuizPage />} />
         <Route path="/quiz/level/:levelId" element={<QuizPage />} />
         <Route path="/quiz/daily" element={<QuizPage />} />
         <Route path="/quiz/completion" element={<QuizCompletionPage />} />
@@ -69,7 +75,7 @@ const AppRoutes: React.FC = () => {
         <Route path={ROUTES.LOGIN} element={<LoginPageFull />} />
         <Route path={ROUTES.SIGNUP} element={<SignupPageFull />} />
         <Route path={ROUTES.CHANGE_PASSWORD} element={<PlaceholderPage title="비밀번호 변경" />} />
-        <Route path={ROUTES.MY_PAGE} element={<MyPage />} />
+        <Route path={ROUTES.MY_PAGE} element={<MyPageEnhanced />} />
 
         {/* MyPage Subpages */}
         <Route path="/mypage/profile" element={<PlaceholderPage title="프로필 정보" />} />

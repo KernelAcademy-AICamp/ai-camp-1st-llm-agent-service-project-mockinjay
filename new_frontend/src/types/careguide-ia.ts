@@ -108,6 +108,7 @@ export const ROUTES = {
   DIET_CARE: '/diet-care',
   NUTRI_COACH: '/nutri-coach',
   DIET_LOG: '/diet-log',
+  DIET_TYPE_DETAIL: '/diet-care/diet-type/:dietType',
 
   // Community
   COMMUNITY: '/community',
