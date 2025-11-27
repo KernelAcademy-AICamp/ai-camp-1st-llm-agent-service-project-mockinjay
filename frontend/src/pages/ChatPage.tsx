@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Image as ImageIcon, Stethoscope, Utensils, FileText, ChevronDown } from 'lucide-react';
+import { Send, Image as ImageIcon, Stethoscope, Utensils, FileText, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { MobileHeader } from '../components/MobileHeader';
 import axios from 'axios';
@@ -34,6 +34,8 @@ export function ChatPage() {
   const [context, setContext] = useState<SessionContext>({});
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+  const [showScrollButtons, setShowScrollButtons] = useState(false);
 
   const tabs = [
     { id: 'medical' as AgentTab, label: '의료 복지', icon: Stethoscope },
@@ -62,6 +64,19 @@ export function ChatPage() {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Check if suggestions need scroll buttons
+  useEffect(() => {
+    const checkScroll = () => {
+      if (suggestionsRef.current) {
+        const { scrollWidth, clientWidth } = suggestionsRef.current;
+        setShowScrollButtons(scrollWidth > clientWidth);
+      }
+    };
+    checkScroll();
+    window.addEventListener('resize', checkScroll);
+    return () => window.removeEventListener('resize', checkScroll);
   }, [messages]);
 
   // Initialize session
@@ -209,6 +224,17 @@ export function ChatPage() {
     return suggestions[activeTab] || suggestions.nutrition;
   };
 
+  // Scroll suggestions
+  const scrollSuggestions = (direction: 'left' | 'right') => {
+    if (suggestionsRef.current) {
+      const scrollAmount = 200;
+      suggestionsRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] bg-white relative">
       {/* Mobile Header */}
@@ -221,8 +247,8 @@ export function ChatPage() {
       </div>
 
       {/* Desktop Tabs - Agent Selection (Fixed to selected agent) */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 lg:h-[68.5px] lg:px-[28.5px] lg:pt-[12px]">
-        <div className="flex w-full gap-2 lg:gap-4 overflow-x-auto scrollbar-hide">
+      <div className="bg-white border-b border-gray-200 px-4 py-3 lg:h-[68.5px] lg:pt-[12px] flex justify-center">
+        <div className="w-full lg:max-w-[832px] flex gap-2 lg:gap-4 overflow-x-auto scrollbar-hide">
           {tabs.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -268,7 +294,8 @@ export function ChatPage() {
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto bg-white p-6 lg:p-[28.5px] pb-[180px]">
+      <div className="flex-1 overflow-y-auto bg-white flex justify-center">
+        <div className="w-full lg:max-w-[832px] p-6 lg:p-[28.5px] pb-[180px]">
         {/* Welcome Message */}
         {messages.length === 0 && (
           <div className="mb-6">
@@ -285,17 +312,41 @@ export function ChatPage() {
              </div>
 
              {/* Suggestions */}
-             <div className="flex gap-3 mt-4">
+             <div className="relative mt-4">
+               {showScrollButtons && (
+                 <button
+                   onClick={() => scrollSuggestions('left')}
+                   className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center hover:bg-gray-50"
+                   style={{ border: '1px solid #E5E7EB' }}
+                 >
+                   <ChevronLeft size={14} color="#666666" />
+                 </button>
+               )}
+               <div
+                 ref={suggestionsRef}
+                 className="flex gap-3 overflow-x-auto scrollbar-hide scroll-smooth"
+                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+               >
                 {getSuggestions().map((suggestion, idx) => (
                   <button
                     key={idx}
                     onClick={() => handleSendMessage(suggestion)}
-                    className="bg-white border border-[#ebebeb] rounded-[8px] px-4 py-2 text-[10px] font-medium text-[#1f1f1f] hover:bg-gray-50"
+                    className="bg-white border border-[#ebebeb] rounded-[8px] px-4 py-2 text-[10px] font-medium text-[#1f1f1f] hover:bg-gray-50 whitespace-nowrap text-left flex-shrink-0"
                     disabled={isLoading}
                   >
                     {suggestion}
                   </button>
                 ))}
+               </div>
+               {showScrollButtons && (
+                 <button
+                   onClick={() => scrollSuggestions('right')}
+                   className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center hover:bg-gray-50"
+                   style={{ border: '1px solid #E5E7EB' }}
+                 >
+                   <ChevronRight size={14} color="#666666" />
+                 </button>
+               )}
              </div>
           </div>
         )}
@@ -347,10 +398,11 @@ export function ChatPage() {
         )}
 
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Input Area - Positioned at the bottom with enough spacing from content */}
-      <div className="absolute bottom-6 left-[28.5px] right-[28.5px] z-20">
+      <div className="absolute bottom-6 left-4 right-4 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[832px] z-20">
         <div className="bg-white rounded-[16px] border border-[#e0e0e0] p-[9px] shadow-sm w-full">
            {/* Top Row: Icon + Input + Send Button */}
            <form onSubmit={handleSubmit} className="flex items-center gap-2 mb-2 relative h-[40px]">
@@ -376,7 +428,7 @@ export function ChatPage() {
                   disabled={!message.trim() || isLoading}
                   className="w-8 h-8 flex items-center justify-center rounded-full transition-colors flex-shrink-0"
                   style={{
-                     background: message.trim() && !isLoading ? '#00C9B7' : '#F3F4F6'
+                     background: message.trim() && !isLoading ? 'linear-gradient(135deg, rgb(0, 200, 180) 0%, rgb(159, 122, 234) 100%)' : '#F3F4F6'
                   }}
                >
                   <Send size={14} color={message.trim() && !isLoading ? '#FFFFFF' : '#9CA3AF'} />

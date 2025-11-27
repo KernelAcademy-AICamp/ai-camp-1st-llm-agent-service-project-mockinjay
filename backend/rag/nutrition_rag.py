@@ -70,6 +70,32 @@ class NutritionRAG:
             self.pc = None
             self.index = None
 
+    def _unflatten_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Pinecone 메타데이터에서 nutrition 필드를 복원
+
+        Args:
+            metadata: Flattened metadata from Pinecone
+
+        Returns:
+            Unflattened metadata with nutrition dict
+        """
+        nutrition = {}
+        result = {}
+
+        for key, value in metadata.items():
+            if key.startswith("nutrition_"):
+                # Extract nutrition field
+                field_name = key.replace("nutrition_", "")
+                nutrition[field_name] = value
+            else:
+                result[key] = value
+
+        if nutrition:
+            result["nutrition"] = nutrition
+
+        return result
+
     def encode_image(self, image_input: Union[str, Image.Image]) -> torch.Tensor:
         """
         이미지를 CLIP 임베딩으로 변환
@@ -114,7 +140,11 @@ class NutritionRAG:
             CLIP text embedding (512-dim)
         """
         try:
-            inputs = self.processor(text=[text], return_tensors="pt", padding=True)
+            # Truncate text to fit CLIP's 77 token limit (~200 chars for Korean)
+            if len(text) > 200:
+                text = text[:200]
+
+            inputs = self.processor(text=[text], return_tensors="pt", padding=True, truncation=True, max_length=77)
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
             with torch.no_grad():
@@ -160,11 +190,12 @@ class NutritionRAG:
 
             foods = []
             for match in results.matches:
+                unflattened = self._unflatten_metadata(match.metadata)
                 foods.append({
-                    "dish_name": match.metadata.get("dish_name", "Unknown"),
-                    "ingredients": match.metadata.get("ingredients", []),
-                    "recipe": match.metadata.get("recipe", ""),
-                    "nutrition": match.metadata.get("nutrition", {}),
+                    "dish_name": unflattened.get("dish_name", "Unknown"),
+                    "ingredients": unflattened.get("ingredients", []),
+                    "recipe": unflattened.get("recipe", ""),
+                    "nutrition": unflattened.get("nutrition", {}),
                     "score": match.score
                 })
 
@@ -206,11 +237,12 @@ class NutritionRAG:
 
             foods = []
             for match in results.matches:
+                unflattened = self._unflatten_metadata(match.metadata)
                 foods.append({
-                    "dish_name": match.metadata.get("dish_name", "Unknown"),
-                    "ingredients": match.metadata.get("ingredients", []),
-                    "recipe": match.metadata.get("recipe", ""),
-                    "nutrition": match.metadata.get("nutrition", {}),
+                    "dish_name": unflattened.get("dish_name", "Unknown"),
+                    "ingredients": unflattened.get("ingredients", []),
+                    "recipe": unflattened.get("recipe", ""),
+                    "nutrition": unflattened.get("nutrition", {}),
                     "score": match.score
                 })
 
@@ -325,17 +357,24 @@ class NutritionRAG:
                 text = f"{dish_name} {' '.join(ingredients)} {recipe}"
                 embedding = self.encode_text(text)
 
+            # Flatten nutrition metadata (Pinecone doesn't support nested dicts)
+            metadata = {
+                "dish_name": dish_name,
+                "ingredients": ingredients,
+                "recipe": recipe[:500] if recipe else "",  # Truncate long recipes
+            }
+
+            # Add flattened nutrition fields
+            if nutrition:
+                for key, value in nutrition.items():
+                    metadata[f"nutrition_{key}"] = float(value) if value else 0.0
+
             # Upsert to Pinecone
             self.index.upsert(
                 vectors=[(
                     food_id,
                     embedding.tolist(),
-                    {
-                        "dish_name": dish_name,
-                        "ingredients": ingredients,
-                        "recipe": recipe,
-                        "nutrition": nutrition
-                    }
+                    metadata
                 )]
             )
 

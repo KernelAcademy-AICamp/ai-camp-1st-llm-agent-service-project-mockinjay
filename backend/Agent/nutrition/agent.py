@@ -6,14 +6,9 @@ Nutrition Agent Implementation
 import os
 import logging
 import json
-import asyncio
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 from openai import AsyncOpenAI
-
-from ..core.local_agent import LocalAgent
-from ..core.agent_registry import AgentRegistry
-from ..core.contracts import AgentRequest, AgentResponse
-from ..core.types import AgentType
+from ..base_agent import BaseAgent
 from .prompts import (
     NUTRITION_SYSTEM_PROMPT,
     IMAGE_CLASSIFICATION_PROMPT,
@@ -24,18 +19,6 @@ from .prompts import (
     get_profile_instructions
 )
 
-# Import image converter utility
-import sys
-from pathlib import Path
-backend_path = Path(__file__).parent.parent.parent
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
-from app.utils.image_converter import (
-    convert_image_to_supported_format,
-    is_supported_format,
-    get_image_info
-)
-
 # Lazy import RAG (only if needed)
 try:
     from rag.nutrition_rag import NutritionRAG
@@ -43,50 +26,59 @@ try:
 except ImportError:
     RAG_AVAILABLE = False
 
+# MongoDB nutrition lookup
+try:
+    from tools.mongodb_nutrition_lookup import get_nutrition_lookup
+    MONGODB_AVAILABLE = True
+except ImportError:
+    MONGODB_AVAILABLE = False
+
+# Recipe generator
+try:
+    from tools.recipe_generator import get_recipe_generator
+    RECIPE_GENERATOR_AVAILABLE = True
+except ImportError:
+    RECIPE_GENERATOR_AVAILABLE = False
+
+# Recipe handler
+try:
+    from Agent.nutrition.recipe_handler import RecipeHandler
+    RECIPE_HANDLER_AVAILABLE = True
+except ImportError:
+    RECIPE_HANDLER_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
-@AgentRegistry.register("nutrition")
-class NutritionAgent(LocalAgent):
+class NutritionAgent(BaseAgent):
     """영양 관리 Agent - CKD 환자 맞춤형 식단 분석 (5가지 이미지 케이스 완벽 지원)"""
 
     def __init__(self):
         super().__init__(agent_type="nutrition")
-        self.client = None  # Lazy initialization
-        
+        self.client = None
+        self._client_initialized = False
+
         # RAG 시스템 (lazy initialization)
         self.rag = None
         self._rag_initialized = False
 
+        # Recipe handler
+        self.recipe_handler = None
+
         # 멀티턴 대화 상태 저장 (session_id -> state)
         self.conversation_states = {}
-    
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        """에이전트 메타데이터"""
-        return {
-            "name": "Nutrition Agent",
-            "description": "CKD 환자를 위한 영양 분석 및 식단 추천",
-            "version": "2.0",
-            "capabilities": [
-                "image_analysis",
-                "multi_turn_dialog",
-                "dish_recommendation",
-                "ingredient_analysis",
-                "alternative_suggestions",
-                "rag_search"
-            ],
-            "supported_profiles": ["general", "patient", "researcher"]
-        }
 
     async def _ensure_client(self):
-        """Initialize OpenAI client lazily."""
-        if not self.client:
+        """OpenAI 클라이언트 lazy initialization"""
+        if not self._client_initialized:
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable is not set")
-            self.client = AsyncOpenAI(api_key=api_key)
-            logger.info("✅ OpenAI client initialized for nutrition agent")
+                logger.warning("⚠️ OPENAI_API_KEY not found in environment")
+                raise ValueError("OPENAI_API_KEY not configured")
+            else:
+                self.client = AsyncOpenAI(api_key=api_key)
+                self._client_initialized = True
+                logger.info("✅ OpenAI client initialized")
 
     def _ensure_rag(self):
         """RAG 시스템 lazy initialization"""
@@ -118,52 +110,13 @@ class NutritionAgent(LocalAgent):
         state.update(updates)
         self.conversation_states[session_id] = state
 
-    async def process(self, request: AgentRequest) -> AgentResponse:
-        """
-        통일된 계약 기반 처리 (새 인터페이스)
-        
-        Args:
-            request: AgentRequest
-            
-        Returns:
-            AgentResponse: 통일된 응답 형식
-        """
-        # 기존 메서드 호출 (어댑터 패턴)
-        legacy_result = await self._process_legacy(
-            request.query,
-            request.session_id,
-            request.context
-        )
-        
-        # Dict -> AgentResponse 변환
-        return AgentResponse(
-            answer=legacy_result.get("response", ""),
-            sources=[],
-            papers=[],
-            tokens_used=legacy_result.get("tokens_used", 0),
-            status=legacy_result.get("status", "success"),
-            agent_type=self.agent_type,
-            metadata={
-                "type": legacy_result.get("type"),
-                "nutritionData": legacy_result.get("nutritionData"),
-                "dishCandidates": legacy_result.get("dishCandidates"),
-                "ingredientCandidates": legacy_result.get("ingredientCandidates"),
-                "recommendedDishes": legacy_result.get("recommendedDishes"),
-                "analysisType": legacy_result.get("analysisType"),
-                "session_id": request.session_id,
-                "has_image": request.context.get("has_image", False) if request.context else False
-            }
-        )
-    
-    async def _process_legacy(
+    async def process(
         self,
         user_input: str,
         session_id: str,
         context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        기존 process 메서드 (하위 호환성 유지)
-        
         영양 분석 처리 - 5가지 이미지 케이스 완벽 지원
 
         Args:
@@ -211,8 +164,8 @@ class NutritionAgent(LocalAgent):
                 )
 
             else:
-                # 텍스트만 있는 경우 → 직접 분석 또는 RAG 검색
-                result = await self._handle_text_query(
+                # 텍스트만 있는 경우 → 레시피 요청 확인 후 처리
+                result = await self._handle_text_input(
                     user_input, session_id, conv_state, user_profile
                 )
 
@@ -255,15 +208,6 @@ class NutritionAgent(LocalAgent):
         케이스 5: irrelevant - 무관 이미지 → 에러 메시지
         """
         logger.info(f"🖼️ Image upload - classifying into 5 cases")
-
-        # Step 0: AVIF/HEIC 등 지원되지 않는 포맷을 JPEG로 변환
-        image_info = get_image_info(image_data)
-        logger.info(f"📷 Image info: {image_info}")
-
-        if not image_info.get('is_supported'):
-            logger.info(f"🔄 Converting unsupported format '{image_info.get('format')}' to JPEG...")
-            image_data = convert_image_to_supported_format(image_data, target_format='jpeg', quality=85)
-            logger.info(f"✅ Image converted successfully")
 
         # Step 1: 이미지 분류 (5가지 케이스)
         classification = await self._classify_image(image_data)
@@ -316,31 +260,29 @@ class NutritionAgent(LocalAgent):
             }
         """
         try:
-            # image_data가 이미 data:image/...;base64,... 형식인지 확인
-            if image_data.startswith('data:image/'):
-                image_url = image_data
-            else:
-                # Base64만 있는 경우 data URI로 변환
-                image_url = f"data:image/jpeg;base64,{image_data}"
-
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": IMAGE_CLASSIFICATION_PROMPT},
+                            {
+                                "type": "text",
+                                "text": IMAGE_CLASSIFICATION_PROMPT
+                            },
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": image_url
+                                    "url": f"data:image/jpeg;base64,{image_data}"
                                 }
                             }
                         ]
                     }
                 ],
-                max_tokens=500
+                max_tokens=500,
+                temperature=0.3
             )
+
             content = response.choices[0].message.content
             logger.info(f"🔍 Classification response: {content[:200]}")
 
@@ -362,12 +304,11 @@ class NutritionAgent(LocalAgent):
         session_id: str
     ) -> Dict[str, Any]:
         """
-        케이스 1: 단일 요리 이미지 처리 - 바로 영양 분석 결과 제공
+        케이스 1: 단일 요리 이미지 처리
 
         Returns:
             {
-                "response": "영양 분석 결과",
-                "nutritionData": 영양 데이터,
+                "response": "확인 메시지",
                 "dishCandidates": [Top-5 요리 후보],
                 "analysisType": "dish"
             }
@@ -392,36 +333,29 @@ class NutritionAgent(LocalAgent):
                     for r in search_results
                 ]
 
-                # 바로 영양 분석 수행 (확인 절차 생략)
-                analysis_result = await self._analyze_dish_with_rag_data(dish_name, top_dish)
-
-                # 대화 상태 초기화 (멀티턴 필요 없음)
+                # 대화 상태 업데이트
                 self._update_conversation_state(session_id, {
-                    "state": "initial",
-                    "pending_candidates": None,
-                    "last_image_data": None,
-                    "last_analysis_type": None
+                    "state": "awaiting_dish_selection",
+                    "pending_candidates": candidates,
+                    "last_image_data": image_data,
+                    "last_analysis_type": "dish"
                 })
 
                 return {
                     "response": (
-                        f"📷 **{dish_name}**(으)로 분석했습니다 (유사도: {round(confidence * 100, 1)}%).\n\n"
-                        f"{analysis_result['response']}"
+                        f"업로드하신 것은 **{dish_name}**(으)로 보입니다 (유사도: {round(confidence * 100, 1)}%).\n\n"
+                        f"맞다면 '네'라고 해주세요."
                     ),
-                    "nutritionData": analysis_result.get("nutritionData"),
+                    "nutritionData": None,
                     "dishCandidates": candidates,
                     "analysisType": "dish"
                 }
 
         # RAG 실패 시 OpenAI Vision으로 대체 (fallback)
         primary_item = classification.get("primaryItem", "분석된 요리")
-
-        # OpenAI로 영양 분석
-        fallback_result = await self._analyze_text_query(f"{primary_item} 영양 분석", "patient")
-
         return {
-            "response": f"📷 **{primary_item}**(으)로 분석했습니다.\n\n{fallback_result['response']}",
-            "nutritionData": fallback_result.get("nutritionData"),
+            "response": f"업로드하신 것은 **{primary_item}**(으)로 보입니다. 맞다면 '네'라고 해주세요.",
+            "nutritionData": None,
             "dishCandidates": [
                 {
                     "dish_name": primary_item,
@@ -515,16 +449,17 @@ class NutritionAgent(LocalAgent):
         """단일 식재료로 만들 수 있는 CKD 친화적 요리 추천"""
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
                         "content": INGREDIENT_TO_DISH_PROMPT.format(ingredient_name=ingredient_name)
                     }
                 ],
-                temperature=0.7,
-                max_tokens=1500
+                max_tokens=1500,
+                temperature=0.7
             )
+
             content = response.choices[0].message.content
             data = self._extract_json(content)
             return data.get("recommendedDishes", [])[:5]
@@ -538,16 +473,17 @@ class NutritionAgent(LocalAgent):
         try:
             ingredients_str = ", ".join(ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
                         "content": MULTIPLE_INGREDIENTS_ANALYSIS_PROMPT.format(ingredients_list=ingredients_str)
                     }
                 ],
-                temperature=0.5,
-                max_tokens=1000
+                max_tokens=1000,
+                temperature=0.5
             )
+
             content = response.choices[0].message.content
             data = self._extract_json(content)
             return data.get("ingredients", [])
@@ -561,16 +497,17 @@ class NutritionAgent(LocalAgent):
         try:
             ingredients_str = ", ".join(ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
                         "content": MULTIPLE_INGREDIENTS_TO_DISH_PROMPT.format(ingredients_list=ingredients_str)
                     }
                 ],
-                temperature=0.7,
-                max_tokens=1500
+                max_tokens=1500,
+                temperature=0.7
             )
+
             content = response.choices[0].message.content
             data = self._extract_json(content)
             return data.get("recommendedDishes", [])[:5]
@@ -747,7 +684,7 @@ class NutritionAgent(LocalAgent):
         dish_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        RAG 데이터로 영양 분석 생성 + 대체 재료 추천
+        RAG 데이터로 영양 분석 생성 + MongoDB 영양소 조회 + 대체 재료/레시피 추천
 
         Args:
             dish_name: 요리명
@@ -756,15 +693,92 @@ class NutritionAgent(LocalAgent):
         Returns:
             영양 분석 결과
         """
-        nutrition = dish_data.get("nutrition", {})
+        # Step 1: MongoDB에서 영양소 정보 조회 (우선)
+        mongodb_nutrition = None
+        if MONGODB_AVAILABLE:
+            try:
+                mongo_lookup = get_nutrition_lookup()
+                mongodb_nutrition = mongo_lookup.lookup_food_nutrients(dish_name)
+                if mongodb_nutrition:
+                    logger.info(f"✅ Found nutrition data in MongoDB for: {dish_name}")
+            except Exception as e:
+                logger.warning(f"MongoDB lookup failed: {e}")
+
+        # MongoDB 데이터가 있으면 우선 사용, 없으면 RAG 데이터 사용
+        if mongodb_nutrition:
+            nutrition = mongodb_nutrition["nutrients"]
+            logger.info(f"📊 Using MongoDB nutrition data: {nutrition}")
+        else:
+            nutrition = dish_data.get("nutrition", {})
+            logger.info(f"📊 Using RAG nutrition data: {nutrition}")
+
         ingredients = dish_data.get("ingredients", [])
         recipe = dish_data.get("recipe", "")
 
-        # CKD 제한 영양소 초과 재료 찾기
-        high_risk_ingredients = self._find_high_risk_ingredients(nutrition, ingredients)
+        # Step 2: 1일 1식 제한량 초과 여부 확인
+        limit_check = None
+        if MONGODB_AVAILABLE and nutrition:
+            try:
+                mongo_lookup = get_nutrition_lookup()
+                limit_check = mongo_lookup.check_daily_limits(nutrition, meal_fraction=1/3)
+                logger.info(f"🔍 Limit check: {limit_check['is_safe']}, exceeded: {limit_check['exceeded_nutrients']}")
+            except Exception as e:
+                logger.warning(f"Limit check failed: {e}")
 
-        # 대체 재료 추천 (간장 반복 방지, 웹 검색 활용)
-        alternatives = await self._recommend_alternative_ingredients(dish_name, high_risk_ingredients)
+        # Step 3: 제한량 초과 시 대체 식재료 및 레시피 추천
+        alternatives = []
+        alternative_recipes = []
+
+        if limit_check and not limit_check["is_safe"]:
+            # 초과된 영양소가 있는 경우
+            exceeded = limit_check["exceeded_nutrients"]
+            logger.info(f"⚠️ Exceeded nutrients: {exceeded}")
+
+            # MongoDB에서 대체 식재료 검색
+            if MONGODB_AVAILABLE:
+                try:
+                    mongo_lookup = get_nutrition_lookup()
+                    alt_ingredients = mongo_lookup.search_alternative_ingredients(
+                        exceeded_nutrients=exceeded,
+                        exclude_foods=[dish_name]
+                    )
+
+                    if alt_ingredients:
+                        logger.info(f"✅ Found {len(alt_ingredients)} alternative ingredients from MongoDB")
+
+                        # Pinecone RAG에서 대체 식재료를 사용한 레시피 검색
+                        if self.rag:
+                            for alt_ing in alt_ingredients[:3]:  # 상위 3개만
+                                alt_name = alt_ing["food_name"]
+                                # RAG에서 해당 식재료를 사용하는 레시피 검색
+                                alt_recipes = self.rag.search_by_text(alt_name, top_k=2)
+
+                                for recipe_result in alt_recipes:
+                                    alternative_recipes.append({
+                                        "dish_name": recipe_result["dish_name"],
+                                        "reason": f"{', '.join(exceeded)} 함량이 낮은 {alt_name} 사용",
+                                        "nutrients": recipe_result.get("nutrition", {}),
+                                        "ingredients": recipe_result.get("ingredients", [])
+                                    })
+
+                        # 대체 식재료 목록
+                        alternatives = [
+                            {
+                                "original": dish_name,
+                                "replacement": alt_ing["food_name"],
+                                "reason": f"{', '.join(exceeded)} 함량이 낮음",
+                                "nutrients": alt_ing["nutrients"]
+                            }
+                            for alt_ing in alt_ingredients[:5]  # 상위 5개
+                        ]
+
+                except Exception as e:
+                    logger.error(f"Alternative search failed: {e}")
+
+        # Fallback: 기존 방식으로도 대체 재료 추천
+        if not alternatives:
+            high_risk_ingredients = self._find_high_risk_ingredients(nutrition, ingredients)
+            alternatives = await self._recommend_alternative_ingredients(dish_name, high_risk_ingredients)
 
         # Nutrition data 생성
         nutrition_data = {
@@ -807,6 +821,7 @@ class NutritionAgent(LocalAgent):
                 }
             ],
             "alternatives": alternatives,
+            "alternative_recipes": alternative_recipes,  # 대체 레시피 추가
             "guideline": f"신장병 환자 식사 원칙: 나트륨·칼륨·인 최대한 줄이기, 단백질은 적당히, 수분도 조심!\n\n주재료: {', '.join(ingredients[:5]) if ingredients else '정보 없음'}\n조리 팁: {recipe[:100] if recipe else '데치기나 삶기로 조리하면 칼륨이 줄어들어요'}...\n\n⚠️ 반드시 전문 영양사나 의료진과 상담하세요"
         }
 
@@ -950,7 +965,7 @@ class NutritionAgent(LocalAgent):
         try:
             high_risk_str = ", ".join(high_risk_ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
@@ -960,9 +975,10 @@ class NutritionAgent(LocalAgent):
                         )
                     }
                 ],
-                temperature=0.7,
-                max_tokens=1500
+                max_tokens=1500,
+                temperature=0.7
             )
+
             content = response.choices[0].message.content
             data = self._extract_json(content)
 
@@ -999,6 +1015,63 @@ class NutritionAgent(LocalAgent):
         else:
             return "danger"
 
+    async def _handle_text_input(
+        self,
+        user_input: str,
+        session_id: str,
+        conv_state: Dict[str, Any],
+        user_profile: str = "general"
+    ) -> Dict[str, Any]:
+        """
+        텍스트 입력 처리 - 레시피 요청 vs 일반 질문 구분
+
+        Args:
+            user_input: 사용자 입력
+            session_id: 세션 ID
+            conv_state: 대화 상태
+            user_profile: 사용자 프로필
+
+        Returns:
+            처리 결과
+        """
+        # 레시피 요청 확인
+        recipe_keywords = ["레시피", "만들기", "만드는법", "만드는 법", "요리법", "조리법"]
+        is_recipe_request = any(keyword in user_input for keyword in recipe_keywords)
+
+        if is_recipe_request and RECIPE_HANDLER_AVAILABLE:
+            logger.info("🍽️  Detected recipe request - routing to recipe handler")
+
+            # RecipeHandler 초기화 (lazy)
+            if self.recipe_handler is None:
+                self.recipe_handler = RecipeHandler(self.client, self.rag)
+
+            # 레시피 요청 처리
+            result = await self.recipe_handler.handle_recipe_request(
+                user_input, session_id, conv_state, user_profile
+            )
+
+            if result:
+                return result
+
+            # RecipeHandler 실패 시 일반 텍스트 쿼리로 fallback
+            logger.warning("Recipe handler failed - falling back to text query")
+
+        # 일반 텍스트 쿼리 처리
+        return await self._analyze_text_query(user_input, user_profile)
+
+    async def _handle_text_query(
+        self,
+        user_input: str,
+        session_id: str,
+        conv_state: Dict[str, Any],
+        user_profile: str = "general"
+    ) -> Dict[str, Any]:
+        """
+        텍스트 쿼리 처리 (레거시 메서드 - _handle_text_input으로 대체됨)
+        호환성을 위해 _analyze_text_query 호출
+        """
+        return await self._analyze_text_query(user_input, user_profile)
+
     async def _analyze_text_query(self, user_query: str, user_profile: str = "general") -> Dict[str, Any]:
         """
         텍스트 기반 영양 질문 분석
@@ -1016,7 +1089,7 @@ class NutritionAgent(LocalAgent):
             system_prompt = NUTRITION_SYSTEM_PROMPT.format(profile_specific_instructions=profile_instructions)
 
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -1029,9 +1102,10 @@ class NutritionAgent(LocalAgent):
 한국어로 자세하고 친절하게 답변해주세요."""
                     }
                 ],
-                temperature=0.7,
-                max_tokens=1500
+                max_tokens=1500,
+                temperature=0.7
             )
+
             answer = response.choices[0].message.content
             logger.info(f"✅ Text analysis response received: {len(answer)} chars")
 

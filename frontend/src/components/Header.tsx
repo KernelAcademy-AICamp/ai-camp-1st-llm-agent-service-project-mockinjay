@@ -37,7 +37,7 @@ export function Header({ onMenuClick, isLoggedIn = false, userType }: HeaderProp
   }, [location]);
   
   const handleLogoClick = () => {
-    navigate('/main');
+    navigate('/home');
   };
   
   return (
@@ -49,8 +49,8 @@ export function Header({ onMenuClick, isLoggedIn = false, userType }: HeaderProp
       >
         {/* Desktop Logo */}
         <div className="flex-shrink-0">
-          <a 
-            href="/main" 
+          <a
+            href="/home"
             onClick={(e) => {
               e.preventDefault();
               handleLogoClick();

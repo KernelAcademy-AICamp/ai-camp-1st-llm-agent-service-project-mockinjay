@@ -1,19 +1,34 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, MessageSquare, Utensils, HelpCircle, Users, BarChart2, Bell, Shield, FileText, LogIn } from 'lucide-react';
+import { ChevronLeft, UtensilsCrossed, Trophy, Users, TrendingUp, Bell, Shield, FileText, LogIn, HelpCircle, User } from 'lucide-react';
 import { useLayout } from './LayoutContext';
+
+// Chat icon SVG component from Figma (same as MobileNav)
+function ChatbotIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none">
+      <path
+        d="M5.33333 4.33333H5.34M8.66667 4.33333H8.67333M11 1C11.5304 1 12.0391 1.21071 12.4142 1.58579C12.7893 1.96086 13 2.46957 13 3V8.33333C13 8.86377 12.7893 9.37247 12.4142 9.74755C12.0391 10.1226 11.5304 10.3333 11 10.3333H7.66667L4.33333 12.3333V10.3333H3C2.46957 10.3333 1.96086 10.1226 1.58579 9.74755C1.21071 9.37247 1 8.86377 1 8.33333V3C1 2.46957 1.21071 1.96086 1.58579 1.58579C1.96086 1.21071 2.46957 1 3 1H11Z"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 // Icon components for better control if needed
 const menuItems = [
-  { id: 'chat', label: 'AI챗봇', icon: MessageSquare, path: '/chat' },
-  { id: 'diet', label: '식단케어', icon: Utensils, path: '/diet-care' },
-  { id: 'quiz', label: '퀴즈미션', icon: HelpCircle, path: '/quiz/list' },
+  { id: 'chat', label: 'AI챗봇', icon: ChatbotIcon, path: '/chat' },
+  { id: 'diet', label: '식단케어', icon: UtensilsCrossed, path: '/diet-care' },
+  { id: 'quiz', label: '퀴즈미션', icon: Trophy, path: '/quiz/list' },
   { id: 'community', label: '커뮤니티', icon: Users, path: '/community' },
-  { id: 'trends', label: '트렌드', icon: BarChart2, path: '/trends' }
+  { id: 'trends', label: '트렌드', icon: TrendingUp, path: '/trends' }
 ];
 
 const secondaryItems = [
-  { id: 'notification', label: '알림', path: '/notification', icon: Bell },
+  { id: 'notification', label: '알림', path: '/notifications', icon: Bell },
   { id: 'support', label: '고객지원', path: '/support', icon: HelpCircle },
   { id: 'terms', label: '이용약관', path: '/terms-and-conditions', icon: FileText },
   { id: 'privacy', label: '개인정보 처리방침', path: '/privacy-policy', icon: Shield }
@@ -76,15 +91,15 @@ export function Drawer({ isOpen, onClose, isLoggedIn: propIsLoggedIn, onLogout: 
         <nav className="px-6 pt-8 pb-4 space-y-6">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            
+
             return (
               <button
                 key={item.id}
                 onClick={() => handleNavigate(item.path)}
                 className="w-full flex items-center gap-4 transition-opacity hover:opacity-70"
               >
-                <Icon size={24} color="#000000" strokeWidth={1.5} />
-                <span className="text-[16px] text-[#1F2937]">{item.label}</span>
+                <Icon size={20} color="#000000" strokeWidth={1.5} />
+                <span className="text-[15px] text-[#1F2937]">{item.label}</span>
               </button>
             );
           })}
@@ -101,7 +116,7 @@ export function Drawer({ isOpen, onClose, isLoggedIn: propIsLoggedIn, onLogout: 
               onClick={() => handleNavigate('/mypage')}
               className="w-full flex items-center gap-4 text-[15px] text-[#1F2937] transition-opacity hover:opacity-70"
             >
-               <Users size={20} strokeWidth={1.5} />
+               <User size={20} color="#000000" strokeWidth={1.5} />
                <span>마이 페이지</span>
             </button>
           )}
@@ -114,7 +129,7 @@ export function Drawer({ isOpen, onClose, isLoggedIn: propIsLoggedIn, onLogout: 
                 onClick={() => handleNavigate(item.path)}
                 className="w-full flex items-center gap-4 text-[15px] text-[#1F2937] transition-opacity hover:opacity-70"
                 >
-                <Icon size={20} strokeWidth={1.5} />
+                <Icon size={20} color="#000000" strokeWidth={1.5} />
                 <span>{item.label}</span>
                 </button>
              );
@@ -130,7 +145,7 @@ export function Drawer({ isOpen, onClose, isLoggedIn: propIsLoggedIn, onLogout: 
               onClick={() => handleNavigate('/login')}
               className="w-full flex items-center gap-4 text-[15px] text-[#1F2937] transition-opacity hover:opacity-70 pt-4 border-t border-gray-100"
             >
-              <LogIn size={20} strokeWidth={1.5} />
+              <LogIn size={20} color="#000000" strokeWidth={1.5} />
               <span>로그인 / 회원가입</span>
             </button>
           )}

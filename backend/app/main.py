@@ -5,11 +5,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from typing import Optional
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,6 +23,8 @@ from app.db.connection import Database, check_connection, init_legacy_collection
 from app.db.indexes import create_indexes
 from app.api.chat import close_parlant_server
 from app.api.careguide import router as careguide_router
+from app.api.clinical_trials import router as clinical_trials_router
+from app.api.terms import router as terms_router
 from app.api.error_handlers import (
     not_found_handler,
     internal_server_error_handler,
@@ -30,7 +33,7 @@ from app.api.error_handlers import (
 from app.middleware.auth import AuthenticationMiddleware
 
 # Import NutritionAgent for nutrition endpoint
-# Import NutritionAgent for nutrition endpoint (Moved to diet.py)
+from Agent.nutrition.agent import NutritionAgent
 from Agent.session_manager import SessionManager
 
 # Setup logging
@@ -97,11 +100,17 @@ app.add_middleware(AuthenticationMiddleware)
 from app.core.context_system import context_system
 session_manager = context_system.session_manager
 
+# Global nutrition agent instance
+nutrition_agent = NutritionAgent()
 
 
 # Include routers
-# Include CareGuide Master Router
+# Include CareGuide Master Router (contains all main API routes)
 app.include_router(careguide_router)
+
+# Include additional routers from PR #25
+app.include_router(clinical_trials_router)
+app.include_router(terms_router)
 
 # Error handlers (UTI-005)
 app.add_exception_handler(StarletteHTTPException, not_found_handler)
@@ -120,9 +129,10 @@ def health_check():
 
 
 @app.get("/db-check")
-async def database_check():
+def database_check():
     """MongoDB 연결 상태 확인"""
-    return await check_connection()
+    return check_connection()
+
 
 @app.get("/test/error/500")
 def test_server_error():
@@ -131,4 +141,71 @@ def test_server_error():
 
 
 # Session endpoints moved to app.api.session
-# Nutrition analysis endpoint moved to app.api.diet
+# Nutrition analysis endpoint - kept for backward compatibility
+@app.post("/api/session/create")
+async def create_session(user_id: str = "default_user"):
+    """새로운 세션 생성"""
+    session_id = session_manager.create_session(user_id)
+    session = session_manager.get_session(session_id)
+    return {
+        "session_id": session_id,
+        "user_id": user_id,
+        "status": "created",
+        "created_at": session["created_at"].isoformat() if session else None
+    }
+
+
+@app.post("/api/nutrition/analyze")
+async def analyze_nutrition(
+    text: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    session_id: str = Form(...),
+    user_profile: str = Form("general")  # Add user profile parameter (general, patient, researcher)
+):
+    """영양 분석 API - 텍스트 또는 이미지 분석"""
+
+    logger.info(f"📝 Nutrition analysis request: session={session_id}, profile={user_profile}, has_text={bool(text)}, has_image={bool(image)}")
+
+    if not text and not image:
+        raise HTTPException(status_code=400, detail="Either text or image is required")
+
+    # Check session
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    # 이미지가 있으면 base64로 인코딩
+    image_data = None
+    if image:
+        import base64
+        contents = await image.read()
+        image_data = base64.b64encode(contents).decode('utf-8')
+        logger.info(f"🖼️ Image uploaded: {len(image_data)} bytes (base64)")
+
+    context = {
+        "image_data": image_data,
+        "has_image": image is not None,
+        "user_profile": user_profile  # Pass user profile to agent
+    }
+
+    user_input = text or "음식 이미지 분석 요청"
+
+    try:
+        # Call nutrition agent
+        result = await nutrition_agent.process(
+            user_input=user_input,
+            session_id=session_id,
+            context=context
+        )
+
+        logger.info(f"✅ Nutrition analysis complete: {result.get('status')}")
+
+        return {
+            "success": True,
+            "agent_type": "nutrition",
+            "result": result
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Nutrition analysis error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

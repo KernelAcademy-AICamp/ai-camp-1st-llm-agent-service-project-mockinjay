@@ -57,9 +57,13 @@ export function MobileHeader({
         {rightAction ? (
           rightAction
         ) : showProfile ? (
-          <button onClick={handleProfileClick} className="p-1 -mr-1" aria-label={isLoggedIn ? "마이페이지" : "로그인"}>
+          <button onClick={handleProfileClick} className="p-1 -mr-1 relative" aria-label={isLoggedIn ? "마이페이지" : "로그인"}>
             {isLoggedIn ? (
-               <User size={24} color="#999999" strokeWidth={2} />
+              <>
+                <User size={24} color="#999999" strokeWidth={2} />
+                {/* Notification Badge */}
+                <span className="absolute top-0 right-0 w-2 h-2 rounded-full" style={{ background: '#00C9B7' }}></span>
+              </>
             ) : (
                <LogIn size={24} color="#999999" strokeWidth={2} />
             )}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { HelpCircle, MessageCircle, Mail, Phone, FileText } from 'lucide-react';
+import { MobileHeader } from '../components/MobileHeader';
 
 type TabType = 'faq' | 'contact' | 'guide';
 
@@ -43,14 +44,19 @@ export function SupportPage() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto pb-24 lg:pb-6">
-      <div className="mb-8">
-        <h2 style={{ color: 'var(--color-text-primary)' }}>도움말 및 지원</h2>
-        <p style={{ color: 'var(--color-text-secondary)' }}>
-          자주 묻는 질문과 고객지원 정보를 확인하세요
-        </p>
+    <div className="flex flex-col h-full bg-white">
+      {/* Mobile Header */}
+      <div className="lg:hidden">
+        <MobileHeader
+          title="고객지원"
+          showProfile={true}
+          showMenu={true}
+        />
       </div>
 
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10">
+        <div className="max-w-4xl mx-auto w-full">
+          <h1 className="text-xl sm:text-2xl font-bold text-[#1F2937] mb-6 hidden lg:block">고객지원</h1>
       {/* Tabs */}
       <div className="bg-white border-b" style={{ borderColor: '#E5E7EB' }}>
         <div className="max-w-4xl mx-auto px-6">
@@ -292,6 +298,8 @@ export function SupportPage() {
               </div>
             </div>
           )}
+        </div>
+      </div>
         </div>
       </div>
     </div>

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, MessageCircle, Share2, Plus } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Plus, Edit2, Trash2 } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
 
 interface Post {
   id: string;
   category: '자유' | '챌린지' | '설문조사' | '질문' | '정보';
   author: string;
+  authorId: string;
   authorType: '일반인' | '환우' | '연구자';
   knowledgeLevel: number;
   title: string;
@@ -23,6 +24,7 @@ const mockPosts: Post[] = [
     id: '1',
     category: '자유',
     author: '건강지킴이',
+    authorId: 'user123',
     authorType: '환우',
     knowledgeLevel: 3,
     title: '저칼륨 식단 1주일 도전 후기',
@@ -37,6 +39,7 @@ const mockPosts: Post[] = [
     id: '2',
     category: '챌린지',
     author: '김연구',
+    authorId: 'user456',
     authorType: '연구자',
     knowledgeLevel: 5,
     title: '신장병 환자를 위한 운동 가이드',
@@ -50,6 +53,7 @@ const mockPosts: Post[] = [
     id: '3',
     category: '설문조사',
     author: '희망이',
+    authorId: 'currentUser',
     authorType: '환우',
     knowledgeLevel: 2,
     title: '투석 5년차, 긍정적인 마음가짐의 중요성',
@@ -65,13 +69,28 @@ export function CommunityPage() {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<Post[]>(mockPosts);
   const [selectedCategory, setSelectedCategory] = useState<'전체' | '자유' | '챌린지' | '설문조사'>('전체');
-  
+
+  // Mock user data - In real app, this would come from auth context
+  const currentUserId = 'currentUser'; // ID of logged-in user
+  const userType: 'guest' | 'user' | 'admin' = 'user'; // 'guest', 'user', or 'admin'
+
   const handleLike = (postId: string) => {
-    setPosts(prev => prev.map(post => 
-      post.id === postId 
+    setPosts(prev => prev.map(post =>
+      post.id === postId
         ? { ...post, likes: post.likes + 1 }
         : post
     ));
+  };
+
+  const handleEdit = (postId: string) => {
+    // Navigate to edit page or open edit modal
+    navigate(`/community/edit/${postId}`);
+  };
+
+  const handleDelete = (postId: string) => {
+    if (confirm('정말로 이 게시글을 삭제하시겠습니까?')) {
+      setPosts(prev => prev.filter(post => post.id !== postId));
+    }
   };
   
   const filteredPosts = posts.filter(post =>
@@ -89,7 +108,7 @@ export function CommunityPage() {
         />
       </div>
 
-      <div className="p-6 max-w-6xl mx-auto pb-24 lg:pb-6">
+      <div className="p-6 lg:max-w-[832px] mx-auto pb-24 lg:pb-6">
         {/* Desktop Title Removed */}
         
         {/* Category Tabs - Moved directly under header area */}
@@ -122,7 +141,7 @@ export function CommunityPage() {
         </div>
         
         {/* Posts */}
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {filteredPosts.map((post) => (
             <article 
               key={post.id}
@@ -130,7 +149,7 @@ export function CommunityPage() {
               className="card hover:shadow-md transition-shadow cursor-pointer"
             >
               <div className="flex items-start gap-3 mb-3">
-                <div 
+                <div
                   className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium"
                   style={{ background: '#D1D5DB' }}
                 >
@@ -141,30 +160,60 @@ export function CommunityPage() {
                     <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
                       {post.author}
                     </span>
-                    <span 
+                    <span
                       className="text-xs px-2 py-1 rounded"
-                      style={{ 
+                      style={{
                         background: '#F3F4F6',
                         color: '#6B7280',
                         fontSize: '11px'
                       }}
                     >
-                      레벨 {post.knowledgeLevel}
-                    </span>
-                    <span 
-                      className="text-xs px-2 py-1 rounded"
-                      style={{ 
-                        background: 'var(--color-bg-input)',
-                        color: 'var(--color-primary)'
-                      }}
-                    >
-                      {post.authorType}
+                      {post.authorType} | 레벨 {post.knowledgeLevel}
                     </span>
                   </div>
                   <span className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
                     {getTimeAgo(post.timestamp)}
                   </span>
                 </div>
+                {/* Edit/Delete Buttons */}
+                {(userType === 'user' && post.authorId === currentUserId) && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEdit(post.id);
+                      }}
+                      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      title="수정"
+                    >
+                      <Edit2 size={16} color="#6B7280" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(post.id);
+                      }}
+                      className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                      title="삭제"
+                    >
+                      <Trash2 size={16} color="#EF4444" />
+                    </button>
+                  </div>
+                )}
+                {userType === 'admin' && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(post.id);
+                      }}
+                      className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                      title="삭제"
+                    >
+                      <Trash2 size={16} color="#EF4444" />
+                    </button>
+                  </div>
+                )}
               </div>
               
               <div className="flex items-center gap-2 mb-2">
