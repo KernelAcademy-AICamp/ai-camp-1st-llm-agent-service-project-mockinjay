@@ -1,5 +1,6 @@
+import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { UtensilsCrossed, Trophy, Users, TrendingUp, User, Bell, HelpCircle, FileText, Shield } from 'lucide-react';
+import { UtensilsCrossed, Trophy, Users, TrendingUp, User, LogOut, LogIn, Bell, HelpCircle, FileText, Shield } from 'lucide-react';
 import { useLayout } from './LayoutContext';
 
 // Chat icon SVG component from Figma
@@ -38,10 +39,10 @@ interface SidebarProps {
   onLogout?: () => void;
 }
 
-export function Sidebar(_: SidebarProps) {
+export function Sidebar({ isLoggedIn: propIsLoggedIn, onLogout: propOnLogout }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isLoggedIn } = useLayout();
+  const { isLoggedIn, logout } = useLayout();
   
   // Use context value if available, otherwise prop (though context should be primary)
   const authenticated = isLoggedIn;

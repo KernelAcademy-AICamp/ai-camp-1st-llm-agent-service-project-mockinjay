@@ -1,3 +1,4 @@
+import React from 'react';
 import { Heart } from 'lucide-react';
 
 export function Logo({ size = 'md', showTextOnMobile = true }: { size?: 'sm' | 'md' | 'lg'; showTextOnMobile?: boolean }) {

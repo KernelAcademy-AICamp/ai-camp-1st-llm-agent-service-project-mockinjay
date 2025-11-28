@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Trophy, Star, CheckCircle, XCircle } from 'lucide-react';
 
 interface Quiz {
@@ -43,13 +43,13 @@ export function QuizPage() {
   const [showResult, setShowResult] = useState(false);
   const [score, setScore] = useState(0);
   const [totalPoints, setTotalPoints] = useState(0);
-  const [_completedQuizzes, setCompletedQuizzes] = useState<Set<string>>(new Set());
+  const [completedQuizzes, setCompletedQuizzes] = useState<Set<string>>(new Set());
   
-  const currentQuiz = quizzes[currentQuizIndex] ?? null;
-  const isCorrect = currentQuiz ? selectedAnswer === currentQuiz.correctAnswer : false;
+  const currentQuiz = quizzes[currentQuizIndex];
+  const isCorrect = selectedAnswer === currentQuiz.correctAnswer;
   
   const handleAnswer = (optionIndex: number) => {
-    if (showResult || !currentQuiz) return;
+    if (showResult) return;
     setSelectedAnswer(optionIndex);
     setShowResult(true);
     
@@ -77,14 +77,6 @@ export function QuizPage() {
     }
   };
   
-  if (!currentQuiz) {
-    return (
-      <div className="p-6 max-w-3xl mx-auto text-center text-[#9CA3AF]">
-        퀴즈 데이터를 준비 중입니다.
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 max-w-3xl mx-auto">
       {/* Score Header */}
@@ -151,6 +143,7 @@ export function QuizPage() {
         <div className="space-y-3 mb-6">
           {currentQuiz.options.map((option, index) => {
             let buttonStyle = 'border-2 transition-all duration-200';
+            let iconColor = 'var(--color-text-tertiary)';
             let icon = null;
             
             if (showResult) {

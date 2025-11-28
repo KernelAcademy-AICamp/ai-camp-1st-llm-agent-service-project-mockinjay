@@ -1,742 +1,271 @@
-/**
- * ========================================
- * CareGuide Design System - Global Styles
- * ========================================
- * Version: 2.0.0
- *
- * Table of Contents:
- * 1. Font Imports
- * 2. Tailwind Directives
- * 3. CSS Variables (Light/Dark Mode)
- * 4. Base Layer Styles
- * 5. Component Layer Styles
- * 6. Utility Layer Styles
- * 7. Global Overrides
- */
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
 
-/* ========================================
-   1. FONT IMPORTS
-   ======================================== */
-@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap");
-
-/* ========================================
-   2. TAILWIND DIRECTIVES
-   ======================================== */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ========================================
-   3. CSS VARIABLES - DESIGN TOKENS
-   ======================================== */
 @layer base {
-  /* ----- Light Mode (Default) ----- */
   :root {
-    /* Core semantic colors */
-    --background: 0 0% 100%;
-    --foreground: 220 13% 13%;
+    /* Primary Colors */
+    --color-primary: #00c9b7;
+    --color-primary-hover: #00b3a3;
+    --color-primary-pressed: #008c80;
+    --color-primary-dark: #00a899;
+    --color-accent-purple: #9f7aea;
 
-    /* Card */
-    --card: 0 0% 100%;
-    --card-foreground: 220 13% 13%;
+    /* Semantic Colors */
+    --color-success: #00a8e8;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
 
-    /* Popover */
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 13% 13%;
+    /* Text Colors */
+    --color-text-primary: #1f2937;
+    --color-text-secondary: #4b5563;
+    --color-text-tertiary: #6b7280;
+    --color-disabled: #ccc;
 
-    /* Primary - Mint/Teal */
-    --primary: 174 100% 39%;
-    --primary-foreground: 0 0% 100%;
+    /* Line Colors */
+    --color-line-strong: #d1d5db;
+    --color-line-medium: #e5e7eb;
+    --color-line-light: #f3f4f6;
+    --color-line-subtle: #f9fafb;
 
-    /* Secondary - Purple */
-    --secondary: 262 48% 70%;
-    --secondary-foreground: 0 0% 100%;
+    /* Background Colors */
+    --color-background: #fff;
+    --color-surface: #f8fafc;
+    --color-input-bar: #f2fffd;
 
-    /* Muted */
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    /* Navigation Colors */
+    --color-nav-unselected: #666;
+    --color-nav-selected: #00c8b4;
 
-    /* Accent */
-    --accent: 220 14% 96%;
-    --accent-foreground: 220 13% 13%;
+    /* Chat Bubble Colors */
+    --color-bubble-user: #e6f7f5;
+    --color-bubble-ai: #fff;
+    --color-bubble-ai-border: #e0e0e0;
 
-    /* Destructive */
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, #00c8b4 0%, #9f7aea 100%);
 
-    /* Border, Input, Ring */
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 174 100% 39%;
-    --input-background: 0 0% 100%;
-
-    /* Radius */
-    --radius: 0.5rem;
-
-    /* Glassmorphism */
-    --glass-bg: rgba(255, 255, 255, 0.8);
-    --glass-border: rgba(255, 255, 255, 0.3);
-    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
-
-    /* Safe area insets for mobile notch/home indicator */
-    --safe-area-inset-top: env(safe-area-inset-top, 0px);
-    --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
-    --safe-area-inset-left: env(safe-area-inset-left, 0px);
-    --safe-area-inset-right: env(safe-area-inset-right, 0px);
-
-    /* Sidebar specific */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 174 100% 39%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 174 100% 39%;
+    /* Shadows */
+    --shadow-default: none;
   }
 
-  /* ----- Dark Mode ----- */
-  .dark {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 98%;
-
-    --card: 222 47% 10%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222 47% 12%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 174 100% 42%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 262 48% 65%;
-    --secondary-foreground: 0 0% 100%;
-
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62% 50%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217 33% 20%;
-    --input: 217 33% 22%;
-    --ring: 174 100% 42%;
-    --input-background: 217 33% 17%;
-
-    /* Glassmorphism Dark */
-    --glass-bg: rgba(30, 41, 59, 0.8);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-
-    /* Sidebar Dark */
-    --sidebar-background: 222 47% 6%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 174 100% 42%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 20%;
-    --sidebar-ring: 174 100% 42%;
-  }
-
-  /* ----- Global Element Resets ----- */
   * {
-    @apply border-border;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-shadow: none !important;
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
-    scroll-behavior: smooth;
-    /* Prevent overscroll bounce on iOS */
-    overscroll-behavior: none;
-    /* Prevent text size adjustment on orientation change */
-    -webkit-text-size-adjust: 100%;
+    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
   }
 
   body {
-    @apply bg-background text-foreground font-sans;
-    font-feature-settings: "rlig" 1, "calt" 1;
-    /* Prevent text selection highlight on mobile */
-    -webkit-tap-highlight-color: transparent;
-    /* Better text rendering */
-    text-rendering: optimizeLegibility;
+    color: var(--color-text-primary);
+    background: var(--color-background);
+    font-weight: 400;
   }
 
-  /* ----- Typography Hierarchy ----- */
   h1 {
-    @apply text-h1 font-heading text-foreground;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
   }
 
   h2 {
-    @apply text-h2 font-heading text-foreground;
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.3;
   }
 
   h3 {
-    @apply text-h3 font-heading text-foreground;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
   }
 
   h4 {
-    @apply text-h4 font-heading text-foreground;
-  }
-
-  h5 {
-    @apply text-h5 font-heading text-foreground;
-  }
-
-  h6 {
-    @apply text-h6 font-heading text-foreground;
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.4;
   }
 
   p {
-    @apply text-body text-foreground;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.6;
   }
 
-  /* ----- Focus States (Accessibility) ----- */
-  /* Focus visible for keyboard users only */
-  *:focus-visible {
-    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  button,
+  input,
+  textarea {
+    font-family: inherit;
+  }
+}
+
+@layer components {
+  /* Primary Action Button */
+  .btn-primary-action {
+    @apply px-6 py-3 font-medium transition-all duration-200;
+    background: var(--gradient-primary);
+    color: white;
+    border-radius: 1.025rem;
   }
 
-  /* Remove default focus outline for mouse users */
-  *:focus:not(:focus-visible) {
+  .btn-primary-action:hover {
+    opacity: 0.9;
+  }
+
+  /* Primary Button */
+  .btn-primary {
+    @apply px-6 py-3 font-medium transition-all duration-200;
+    background: var(--color-primary);
+    color: white;
+    border-radius: 1.025rem;
+  }
+
+  .btn-primary:hover {
+    background: var(--color-primary-hover);
+  }
+
+  .btn-primary:active {
+    background: var(--color-primary-pressed);
+  }
+
+  .btn-primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Secondary Button */
+  .btn-secondary {
+    @apply px-6 py-3 font-medium transition-all duration-200;
+    background: var(--color-background);
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    border-radius: 1.025rem;
+  }
+
+  .btn-secondary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-secondary:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Ghost Button */
+  .btn-ghost {
+    @apply px-4 py-2 font-medium transition-all duration-200;
+    color: var(--color-text-secondary);
+    border-radius: 0.625rem;
+  }
+
+  .btn-ghost:hover {
+    background: var(--color-line-subtle);
+  }
+
+  /* Input Field */
+  .input-field {
+    @apply px-4 py-3 transition-all duration-200;
+    border: 1px solid var(--color-line-medium);
+    background: var(--color-background);
+    color: var(--color-text-primary);
+    border-radius: 1.025rem;
+  }
+
+  .input-field:focus {
+    border-color: var(--color-primary);
+    background: var(--color-input-bar);
     outline: none;
   }
 
-  /* ----- Selection ----- */
-  ::selection {
-    @apply bg-primary/20 text-foreground;
+  .input-field:disabled {
+    background: var(--color-line-subtle);
+    color: var(--color-disabled);
+    cursor: not-allowed;
   }
 
-  ::-moz-selection {
-    @apply bg-primary/20 text-foreground;
-  }
-
-  /* ----- Form Elements Reset ----- */
-  input,
-  textarea,
-  select {
-    @apply font-sans;
-  }
-
-  /* Remove autofill background color */
-  input:-webkit-autofill,
-  input:-webkit-autofill:hover,
-  input:-webkit-autofill:focus,
-  textarea:-webkit-autofill,
-  textarea:-webkit-autofill:hover,
-  textarea:-webkit-autofill:focus,
-  select:-webkit-autofill,
-  select:-webkit-autofill:hover,
-  select:-webkit-autofill:focus {
-    -webkit-box-shadow: 0 0 0 1000px white inset !important;
-    transition: background-color 5000s ease-in-out 0s;
-  }
-
-  .dark input:-webkit-autofill,
-  .dark input:-webkit-autofill:hover,
-  .dark input:-webkit-autofill:focus,
-  .dark textarea:-webkit-autofill,
-  .dark textarea:-webkit-autofill:hover,
-  .dark textarea:-webkit-autofill:focus,
-  .dark select:-webkit-autofill,
-  .dark select:-webkit-autofill:hover,
-  .dark select:-webkit-autofill:focus {
-    -webkit-box-shadow: 0 0 0 1000px hsl(217, 33%, 17%) inset !important;
-    -webkit-text-fill-color: hsl(210, 40%, 98%) !important;
-  }
-}
-
-/* ========================================
-   4. COMPONENT LAYER STYLES
-   ======================================== */
-@layer components {
-  /* ----- Glassmorphism Components ----- */
-  .glass-card {
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-    @apply rounded-2xl;
-  }
-
-  .glass-panel {
-    background: var(--glass-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--glass-border);
-  }
-
-  /* ----- Premium Buttons ----- */
-  .btn-primary {
-    @apply px-6 py-3 bg-primary text-white font-semibold rounded-button shadow-button
-           hover:bg-primary-hover hover:shadow-button-hover hover:-translate-y-0.5
-           active:bg-primary-pressed active:translate-y-0 active:shadow-button
-           transition-all duration-200 ease-smooth
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none
-           focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2;
-  }
-
-  .btn-secondary {
-    @apply px-6 py-3 bg-white text-primary border-2 border-primary/20 font-semibold rounded-button shadow-button
-           hover:bg-primary-light hover:border-primary/40 hover:-translate-y-0.5
-           active:bg-gray-50 active:translate-y-0
-           transition-all duration-200 ease-smooth
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
-           focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2;
-  }
-
-  .btn-ghost {
-    @apply px-4 py-2 text-text-secondary font-medium rounded-button-sm
-           hover:bg-gray-100 hover:text-text-primary
-           active:bg-gray-200
-           transition-colors duration-150
-           focus-visible:ring-2 focus-visible:ring-primary/30;
-  }
-
-  .btn-icon {
-    @apply p-2 rounded-button-sm text-text-secondary
-           hover:bg-gray-100 hover:text-text-primary
-           active:bg-gray-200
-           transition-colors duration-150
-           focus-visible:ring-2 focus-visible:ring-primary/30;
-  }
-
-  /* ----- Form Inputs ----- */
-  .input-field {
-    @apply w-full px-4 py-3 bg-white border-2 border-border-medium rounded-input
-           text-foreground placeholder:text-text-tertiary
-           hover:border-border-strong
-           focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none
-           disabled:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60
-           transition-all duration-200;
-  }
-
-  .input-error {
-    @apply border-error focus:border-error focus:ring-error/20;
-  }
-
-  /* ----- Card Components ----- */
+  /* Card */
   .card {
-    @apply bg-white rounded-card shadow-card border border-border-light overflow-hidden;
+    @apply p-6 transition-all duration-200;
+    background: var(--color-background);
+    border: 1px solid var(--color-line-medium);
+    border-radius: 1rem;
   }
 
-  .card-interactive {
-    @apply card cursor-pointer
-           hover:shadow-card-hover hover:-translate-y-1 hover:border-primary/20
-           active:translate-y-0
-           transition-all duration-300;
+  .card:hover {
+    box-shadow: var(--shadow-default);
   }
 
-  .card-elevated {
-    @apply bg-white rounded-card-lg shadow-medium border border-border-light overflow-hidden;
+  /* Category Tag */
+  .category-tag {
+    @apply px-3 py-1.5 text-sm font-medium;
+    background: var(--color-input-bar);
+    color: var(--color-primary);
+    border-radius: 9999px;
   }
 
-  /* ----- Mobile Touch Targets ----- */
-  .touch-target {
-    @apply min-h-touch min-w-touch;
+  /* Agent Selector - Selected */
+  .agent-selector-selected {
+    @apply px-6 py-2.5 font-medium transition-all duration-200;
+    background: var(--color-background);
+    border: 2px solid transparent;
+    border-image: var(--gradient-primary) 1;
+    color: var(--color-primary);
+    border-radius: 9999px;
   }
 
-  .touch-target-android {
-    @apply min-h-touch-android min-w-touch-android;
+  /* Agent Selector - Unselected */
+  .agent-selector-unselected {
+    @apply px-6 py-2.5 font-medium transition-all duration-200;
+    background: var(--color-background);
+    color: var(--color-nav-unselected);
+    border: 1px solid var(--color-line-medium);
+    border-radius: 9999px;
   }
 
-  /* ----- Badges ----- */
-  .badge {
-    @apply inline-flex items-center justify-center px-3 py-1 text-xs font-semibold rounded-badge;
+  /* Tab - Selected */
+  .tab-selected {
+    @apply pb-2 font-medium transition-all duration-200;
+    color: var(--color-primary);
+    border-bottom: 3px solid var(--color-accent-purple);
   }
 
-  .badge-primary {
-    @apply badge bg-primary text-white;
+  /* Tab - Unselected */
+  .tab-unselected {
+    @apply pb-2 font-medium transition-all duration-200;
+    color: var(--color-text-secondary);
   }
 
-  .badge-secondary {
-    @apply badge bg-secondary text-white;
+  /* Chat Bubble - User */
+  .chat-bubble-user {
+    @apply max-w-[80%] px-4 py-3;
+    background: var(--gradient-primary);
+    color: white;
+    border-radius: 1rem;
   }
 
-  .badge-success {
-    @apply badge bg-success text-white;
+  /* Chat Bubble - AI */
+  .chat-bubble-ai {
+    @apply max-w-[80%] px-4 py-3;
+    background: var(--color-line-subtle);
+    color: var(--color-text-primary);
+    border-radius: 1rem;
   }
 
-  .badge-warning {
-    @apply badge bg-warning text-white;
-  }
-
-  .badge-error {
-    @apply badge bg-error text-white;
-  }
-
-  .badge-soft {
-    @apply badge bg-primary-light text-primary border border-primary/20;
-  }
-
-  /* ----- Safe Area Spacing ----- */
-  .safe-area-top {
-    padding-top: var(--safe-area-inset-top);
-  }
-
-  .safe-area-bottom {
-    padding-bottom: var(--safe-area-inset-bottom);
-  }
-
-  .safe-area-left {
-    padding-left: var(--safe-area-inset-left);
-  }
-
-  .safe-area-right {
-    padding-right: var(--safe-area-inset-right);
-  }
-
-  .safe-area-all {
-    padding-top: var(--safe-area-inset-top);
-    padding-bottom: var(--safe-area-inset-bottom);
-    padding-left: var(--safe-area-inset-left);
-    padding-right: var(--safe-area-inset-right);
-  }
-
-  /* ----- Gradient Text ----- */
-  .gradient-text {
-    @apply text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary;
-  }
-
-  .gradient-text-animated {
-    @apply gradient-text bg-[length:200%_auto] animate-shimmer;
-  }
-
-  /* ----- Loading States ----- */
-  .loading-spinner {
-    @apply animate-spin rounded-full border-2 border-gray-200 border-t-primary;
-  }
-
-  .loading-dots {
-    @apply flex gap-1;
-  }
-
-  .loading-dots > span {
-    @apply w-2 h-2 bg-primary rounded-full animate-bounce;
-  }
-
-  .loading-dots > span:nth-child(2) {
-    animation-delay: 0.1s;
-  }
-
-  .loading-dots > span:nth-child(3) {
-    animation-delay: 0.2s;
-  }
-
-  /* ----- Skeleton Loading ----- */
-  .skeleton {
-    @apply bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%] animate-shimmer rounded-md;
-  }
-
-  .skeleton-text {
-    @apply skeleton h-4 w-full;
-  }
-
-  .skeleton-circle {
-    @apply skeleton rounded-full;
-  }
-
-  /* ----- Page Layouts ----- */
-  .page-container {
-    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
-  }
-
-  .page-section {
-    @apply py-8 sm:py-12 lg:py-16;
-  }
-
-  /* ----- Animation Classes ----- */
-  .animate-enter {
-    animation: enter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  @keyframes enter {
-    0% {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .page-transition {
-    @apply transition-all duration-300 ease-smooth;
-  }
-
-  /* ----- Dividers ----- */
-  .divider {
-    @apply border-t border-border;
-  }
-
-  .divider-vertical {
-    @apply border-l border-border h-full;
-  }
-
-  /* ----- Overlay ----- */
-  .overlay {
-    @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-modal-backdrop;
-  }
-
-  .overlay-light {
-    @apply fixed inset-0 bg-white/80 backdrop-blur-sm z-modal-backdrop;
-  }
-}
-
-/* ========================================
-   5. UTILITY LAYER STYLES
-   ======================================== */
-@layer utilities {
-  /* ----- Line Clamp ----- */
-  .line-clamp-1 {
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-3 {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-4 {
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-5 {
-    display: -webkit-box;
-    -webkit-line-clamp: 5;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  /* ----- Screen Reader Only ----- */
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-
-  .not-sr-only {
-    position: static;
-    width: auto;
-    height: auto;
-    padding: 0;
-    margin: 0;
-    overflow: visible;
-    clip: auto;
-    white-space: normal;
-  }
-
-  /* ----- Text Balance ----- */
-  .text-balance {
-    text-wrap: balance;
-  }
-
-  .text-pretty {
-    text-wrap: pretty;
-  }
-
-  /* ----- No Scrollbar ----- */
-  .no-scrollbar {
+  /* Hide Scrollbar */
+  .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
 
-  .no-scrollbar::-webkit-scrollbar {
+  .hide-scrollbar::-webkit-scrollbar {
     display: none;
-  }
-
-  /* ----- Custom Scrollbar ----- */
-  .custom-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: #d1d5db transparent;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 rounded-full;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-400;
-  }
-
-  /* ----- Backdrop Blur Fallback ----- */
-  @supports not (backdrop-filter: blur(12px)) {
-    .glass-card,
-    .glass-panel {
-      background: rgba(255, 255, 255, 0.95);
-    }
-
-    .dark .glass-card,
-    .dark .glass-panel {
-      background: rgba(30, 41, 59, 0.95);
-    }
-  }
-
-  /* ----- Hide on Print ----- */
-  @media print {
-    .no-print {
-      display: none !important;
-    }
-  }
-
-  /* ----- Aspect Ratios ----- */
-  .aspect-card {
-    aspect-ratio: 16 / 10;
-  }
-
-  .aspect-hero {
-    aspect-ratio: 21 / 9;
-  }
-
-  /* ----- Gradient Backgrounds ----- */
-  .bg-gradient-primary {
-    @apply bg-gradient-to-r from-primary to-primary-600;
-  }
-
-  .bg-gradient-secondary {
-    @apply bg-gradient-to-r from-secondary to-secondary-600;
-  }
-
-  .bg-gradient-mixed {
-    @apply bg-gradient-to-r from-primary via-secondary to-primary;
-  }
-
-  /* ----- Container Queries (future) ----- */
-  .container-type-inline {
-    container-type: inline-size;
-  }
-
-  .container-type-size {
-    container-type: size;
-  }
-}
-
-/* ========================================
-   6. GLOBAL SCROLLBAR STYLING
-   ======================================== */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 rounded-full;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-400;
-}
-
-/* Dark mode scrollbar */
-.dark ::-webkit-scrollbar-thumb {
-  @apply bg-gray-600;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-500;
-}
-
-/* ========================================
-   7. REDUCED MOTION PREFERENCES
-   ======================================== */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-
-  .animate-spin,
-  .animate-bounce,
-  .animate-pulse,
-  .animate-shimmer {
-    animation: none !important;
-  }
-}
-
-/* ========================================
-   8. HIGH CONTRAST MODE
-   ======================================== */
-@media (prefers-contrast: high) {
-  :root {
-    --border: 220 13% 70%;
-    --muted-foreground: 220 13% 30%;
-  }
-
-  .dark {
-    --border: 217 33% 40%;
-    --muted-foreground: 215 20% 80%;
-  }
-}
-
-/* ========================================
-   9. PRINT STYLES
-   ======================================== */
-@media print {
-  body {
-    background: white !important;
-    color: black !important;
-  }
-
-  .glass-card,
-  .glass-panel {
-    background: white !important;
-    backdrop-filter: none !important;
-    box-shadow: none !important;
-    border: 1px solid #ccc !important;
-  }
-
-  a {
-    text-decoration: underline !important;
-  }
-
-  a[href^="http"]::after {
-    content: " (" attr(href) ")";
-    font-size: 0.8em;
-    color: #666;
   }
 }

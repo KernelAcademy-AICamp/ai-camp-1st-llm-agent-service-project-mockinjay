@@ -1,4 +1,5 @@
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ChevronLeft, UtensilsCrossed, Trophy, Users, TrendingUp, Bell, Shield, FileText, LogIn, HelpCircle, User } from 'lucide-react';
 import { useLayout } from './LayoutContext';
 
@@ -36,11 +37,14 @@ const secondaryItems = [
 interface DrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  isLoggedIn?: boolean;
+  onLogout?: () => void;
 }
 
-export function Drawer({ isOpen, onClose }: DrawerProps) {
+export function Drawer({ isOpen, onClose, isLoggedIn: propIsLoggedIn, onLogout: propOnLogout }: DrawerProps) {
   const navigate = useNavigate();
-  const { isLoggedIn } = useLayout();
+  const location = useLocation();
+  const { isLoggedIn, logout } = useLayout();
   
   const handleNavigate = (path: string) => {
     navigate(path);

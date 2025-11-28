@@ -1,3 +1,4 @@
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Star, Clock, ChevronRight, CheckCircle } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
@@ -71,21 +72,7 @@ export function QuizListPage() {
   
   const totalPoints = quizList.reduce((sum, quiz) => sum + (quiz.completed ? quiz.points : 0), 0);
   const completedCount = quizList.filter(q => q.completed).length;
-  const firstQuiz = quizList[0];
   
-  if (!firstQuiz) {
-    return (
-      <div className="flex flex-col h-full bg-white">
-        <div className="lg:hidden">
-          <MobileHeader title="퀴즈미션" showMenu={true} showProfile={true} />
-        </div>
-        <div className="flex-1 flex items-center justify-center text-[#9CA3AF] text-center p-6">
-          진행 가능한 퀴즈가 없습니다.
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Mobile Header */}
@@ -140,7 +127,7 @@ export function QuizListPage() {
           {/* First Quiz - Level Test */}
           <div className="grid gap-4 mb-8">
             <button
-              onClick={() => navigate(`/quiz/${firstQuiz.id}`)}
+              onClick={() => navigate(`/quiz/${quizList[0].id}`)}
               className="w-full text-left p-5 rounded-xl border border-[#E0E0E0] bg-white hover:bg-gray-50 transition-colors relative group"
               style={{ boxShadow: 'none' }}
             >
@@ -148,9 +135,9 @@ export function QuizListPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <h3 className="text-[16px] font-bold text-[#1F2937]">
-                      {firstQuiz.title}
+                      {quizList[0].title}
                     </h3>
-                    {firstQuiz.completed && (
+                    {quizList[0].completed && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#E6F9F7] text-[#00C9B7] text-[11px] font-medium">
                         <CheckCircle size={12} strokeWidth={2} />
                         완료
@@ -158,18 +145,18 @@ export function QuizListPage() {
                     )}
                   </div>
                   <p className="text-sm text-[#666666] mb-3 leading-relaxed">
-                    {firstQuiz.description}
+                    {quizList[0].description}
                   </p>
                   <div className="flex items-center gap-3 text-xs">
                     <span className="px-2 py-1 rounded-md bg-[#F2FFFD] text-[#00C9B7] font-medium">
-                      {firstQuiz.level}
+                      {quizList[0].level}
                     </span>
                     <span className="text-[#999999]">
-                      문제 {firstQuiz.questions}개
+                      문제 {quizList[0].questions}개
                     </span>
                     <span className="flex items-center gap-1 text-[#9F7AEA] font-medium">
                       <Star size={12} strokeWidth={2} />
-                      {firstQuiz.points}P
+                      {quizList[0].points}P
                     </span>
                   </div>
                 </div>

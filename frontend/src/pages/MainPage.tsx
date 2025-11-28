@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Logo } from '../components/Logo';
-import { Send, Stethoscope, Utensils, FileText } from 'lucide-react';
+import { Send, Camera, Stethoscope, Utensils, FileText } from 'lucide-react';
 
 export function MainPage() {
   const [message, setMessage] = useState('');

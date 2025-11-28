@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, FileText, LogOut, XCircle, User, Star, Coins, CreditCard, ChevronRight, Bell } from 'lucide-react';
+import { Calendar, Check, Save, FileText, LogOut, XCircle, User, Star, Coins, CreditCard, ChevronRight, Bell } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
 import { useLayout } from '../components/LayoutContext';
 

@@ -1,8 +1,7 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { Logo } from '../components/Logo';
-import { useAuth } from '../contexts/AuthContext';
 
 type Step = 0 | 1 | 2 | 3;
 
@@ -13,20 +12,9 @@ interface TermsData {
   marketing: { title: string; required: boolean; content: string };
 }
 
-type ExpandedTermsKey = 'service' | 'privacyRequired' | 'privacyOptional' | 'marketing';
-
-const INITIAL_EXPANDED_TERMS_STATE: Record<ExpandedTermsKey, boolean> = {
-  service: false,
-  privacyRequired: false,
-  privacyOptional: false,
-  marketing: false
-};
-
 export function SignupPage() {
   const navigate = useNavigate();
-  const { signup, isLoading, error } = useAuth();
   const [currentStep, setCurrentStep] = useState<Step>(0);
-  const [formError, setFormError] = useState<string | null>(null);
 
   // Step 0: Terms Agreement
   const [termsData, setTermsData] = useState<TermsData | null>(null);
@@ -37,7 +25,7 @@ export function SignupPage() {
     privacyOptional: false,
     marketing: false
   });
-  const [expandedTerms, setExpandedTerms] = useState<Record<ExpandedTermsKey, boolean>>(INITIAL_EXPANDED_TERMS_STATE);
+  const [expandedTerms, setExpandedTerms] = useState<{[key: string]: boolean}>({});
 
   // Step 1: Account Info
   const [accountInfo, setAccountInfo] = useState({
@@ -112,7 +100,7 @@ export function SignupPage() {
   };
 
   // Toggle term content visibility
-  const toggleTermContent = (key: ExpandedTermsKey) => {
+  const toggleTermContent = (key: string) => {
     setExpandedTerms(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
@@ -132,39 +120,15 @@ export function SignupPage() {
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError(null);
-
-    if (accountInfo.password !== accountInfo.passwordConfirm) {
-      setFormError('비밀번호와 비밀번호 확인이 일치하지 않습니다.');
-      return;
-    }
-
-    const formData = {
-      username: accountInfo.id,
-      email: accountInfo.id,
-      password: accountInfo.password,
-      nickname: personalInfo.nickname,
-      userType: personalInfo.userType || accountInfo.userType,
-      gender: personalInfo.gender,
-      birthDate: personalInfo.birthDate,
-      height: personalInfo.height,
-      weight: personalInfo.weight,
-      diseaseStage: diseaseInfo
-    };
-
-    try {
-      await signup(formData);
-      navigate('/');
-    } catch (signupError) {
-      console.error('Signup failed:', signupError);
-    }
+    // Mock signup - navigate to login
+    localStorage.setItem('isLoggedIn', 'false');
+    alert('회원가입이 완료되었습니다!');
+    navigate('/login');
   };
 
   const canProceedFromTerms = agreements.service && agreements.privacyRequired;
-  const errorMessage = formError || error;
-  const isSignupLoading = currentStep === 3 && isLoading;
 
   return (
     <div
@@ -609,23 +573,16 @@ export function SignupPage() {
                 </div>
               </div>
 
-              {errorMessage && (
-                <p className="text-sm text-red-500 text-center" role="alert">
-                  {errorMessage}
-                </p>
-              )}
-
               <button
                 type="submit"
-                className="w-full py-3 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200"
-                disabled={isSignupLoading}
+                className="w-full py-3 rounded-lg"
                 style={{
                   background: 'linear-gradient(90deg, #00C9B7 0%, #9F7AEA 100%)',
                   color: 'white',
                   fontSize: '16px'
                 }}
               >
-                {isSignupLoading ? '가입 중...' : '가입 완료'}
+                가입 완료
               </button>
             </form>
           </div>

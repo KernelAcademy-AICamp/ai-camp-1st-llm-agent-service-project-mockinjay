@@ -1,8 +1,13 @@
+import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
 export function DashboardPage() {
-  // TODO: API에서 인기 키워드 데이터 로드
-  const keywords: { text: string; change: number; trending: 'up' | 'down' }[] = [];
+  const keywords = [
+    { text: '신장 이식', change: 12, trending: 'up' },
+    { text: '투석 치료', change: 8, trending: 'up' },
+    { text: '저단백 식단', change: 15, trending: 'up' },
+    { text: '신장병 식이', change: 5, trending: 'up' }
+  ];
 
   return (
     <div className="flex-1 overflow-y-auto p-6" style={{ background: '#FFFFFF' }}>

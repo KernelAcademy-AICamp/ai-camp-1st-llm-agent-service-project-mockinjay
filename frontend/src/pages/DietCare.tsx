@@ -13,7 +13,7 @@ interface MealLog {
 
 export default function DietCare() {
   const { updateLastActivity } = useSession()
-  const [mealLogs] = useState<MealLog[]>([])
+  const [mealLogs, setMealLogs] = useState<MealLog[]>([])
   const [showAddMeal, setShowAddMeal] = useState(false)
 
   const handleActivity = () => {

@@ -9,8 +9,22 @@ interface QuizQuestion {
   explanation: string
 }
 
-// TODO: API에서 퀴즈 문제 로드
-const quizQuestions: QuizQuestion[] = []
+const quizQuestions: QuizQuestion[] = [
+  {
+    id: 1,
+    question: 'CKD 환자가 가장 주의해야 할 영양소는?',
+    options: ['탄수화물', '지방', '나트륨', '비타민'],
+    correctAnswer: 2,
+    explanation: '나트륨은 혈압 상승과 부종을 유발할 수 있어 CKD 환자는 섭취를 제한해야 합니다.',
+  },
+  {
+    id: 2,
+    question: 'CKD 환자의 하루 권장 수분 섭취량은?',
+    options: ['제한 없음', '500ml', '개인별 상태에 따라 다름', '3리터 이상'],
+    correctAnswer: 2,
+    explanation: '수분 섭취량은 환자의 신장 기능, 투석 여부 등에 따라 달라지므로 의료진과 상담이 필요합니다.',
+  },
+]
 
 export default function Quiz() {
   const { updateLastActivity } = useSession()
@@ -28,8 +42,7 @@ export default function Quiz() {
     setSelectedAnswer(answerIndex)
     setShowExplanation(true)
 
-    const currentQ = quizQuestions[currentQuestion];
-    if (currentQ && answerIndex === currentQ.correctAnswer) {
+    if (answerIndex === quizQuestions[currentQuestion].correctAnswer) {
       setScore(score + 1)
     }
   }
@@ -77,15 +90,7 @@ export default function Quiz() {
     )
   }
 
-  const question = quizQuestions[currentQuestion];
-
-  if (!question) {
-    return (
-      <div className="min-h-screen bg-[var(--color-surface)] flex items-center justify-center">
-        <p style={{ color: 'var(--color-text-secondary)' }}>퀴즈를 불러오는 중...</p>
-      </div>
-    );
-  }
+  const question = quizQuestions[currentQuestion]
 
   return (
     <div className="min-h-screen bg-[var(--color-surface)]" onClick={handleActivity}>

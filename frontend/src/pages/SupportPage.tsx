@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import {  MessageCircle, Mail, Phone, FileText } from 'lucide-react';
+import { HelpCircle, MessageCircle, Mail, Phone, FileText } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
 
 type TabType = 'faq' | 'contact' | 'guide';
