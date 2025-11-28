@@ -218,7 +218,9 @@ class CacheManager:
                     "hit_rate": f"{(stats['hits'] / (stats['hits'] + stats['misses']) * 100):.2f}%"
                                 if (stats['hits'] + stats['misses']) > 0 else "0%"
                 })
-            except:
+            except Exception as e:
+                # Redis 통계 정보 가져오기 실패 (Failed to get Redis stats)
+                logger.warning(f"Failed to get Redis stats: {e}")
                 pass
 
         return stats

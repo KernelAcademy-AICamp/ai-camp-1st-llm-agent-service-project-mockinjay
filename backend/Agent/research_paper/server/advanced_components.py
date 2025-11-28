@@ -170,7 +170,9 @@ class HybridScoringSystem:
             else:
                 return 0.2
 
-        except:
+        except Exception as e:
+            # 날짜 파싱 실패, 기본값 반환 (Date parsing failed, return default)
+            logger.warning(f"Failed to parse publication date '{pub_date}': {e}")
             return 0.3
 
 

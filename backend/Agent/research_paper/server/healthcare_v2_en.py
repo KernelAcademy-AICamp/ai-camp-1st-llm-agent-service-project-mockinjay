@@ -25,28 +25,48 @@ import time
 from pathlib import Path
 import sys
 
-# 프로젝트 루트를 Python 경로에 추가 (backend 폴더)
+# Add project root to Python path (backend folder)
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
+# Shared profile utilities
+from Agent.parlant_common import (
+    get_profile,
+    convert_objectid_to_str,
+    get_default_profile
+)
 # ==================== Optimized Imports ====================
 from app.services.hybrid_search import OptimizedHybridSearchEngine
+import json
+import logging
 
 # Optional: Cache Manager (requires Redis)
 try:
     from cache_manager import CacheManager
     CACHE_AVAILABLE = True
 except ImportError:
-    print("⚠️ CacheManager not available (Redis not installed). Running without cache.")
-    CACHE_AVAILABLE = False
-    CacheManager = None
+    try:
+        from Agent.research_paper.server.cache_manager import CacheManager
+        CACHE_AVAILABLE = True
+    except ImportError:
+        print("⚠️ CacheManager not available (Redis not installed). Running without cache.")
+        CACHE_AVAILABLE = False
+        CacheManager = None
 
 # Advanced components
-from advanced_components import (
-    QueryRouter,
-    PerformanceMonitor,
-    CrossEncoderReranker,
-    HybridScoringSystem
-)
+try:
+    from advanced_components import (
+        QueryRouter,
+        PerformanceMonitor,
+        CrossEncoderReranker,
+        HybridScoringSystem
+    )
+except ImportError:
+    from Agent.research_paper.server.advanced_components import (
+        QueryRouter,
+        PerformanceMonitor,
+        CrossEncoderReranker,
+        HybridScoringSystem
+    )
 
 # ==================== Configuration ====================
 PROFILE_LIMITS = {
@@ -65,112 +85,6 @@ RERANKER = None
 
 
 # ==================== Helper Functions ====================
-
-async def get_profile(context: ToolContext) -> str:
-    """Determine profile based on plugin_data or customer tags
-
-    IMPORTANT: Profile-specific behavior is controlled by Parlant guidelines.
-    The LLM receives different instructions based on customer tags:
-    - "profile:researcher" → Academic language, max 10 results
-    - "profile:patient" → Practical advice, max 5 results
-    - "profile:general" → Simple language, max 3 results
-
-    This function reads customer tags from Parlant's internal stores to
-    determine the correct profile for result limiting.
-
-    Args:
-        context: ToolContext with customer_id and plugin_data
-
-    Returns:
-        Profile type for result limiting
-    """
-    # 1. Check if profile is in plugin_data (preferred method)
-    if hasattr(context, 'plugin_data') and context.plugin_data:
-        # Support both 'profile' and 'careguide_profile' keys
-        profile = context.plugin_data.get('profile') or context.plugin_data.get('careguide_profile')
-        if profile and profile in ["researcher", "patient", "general"]:
-            print(f"✅ Profile from plugin_data: {profile}")
-            return profile
-
-    # 2. Fetch customer and tags from Container using customer_id
-    if hasattr(context, 'customer_id') and hasattr(context, 'plugin_data'):
-        customer_id = context.customer_id
-        container = context.plugin_data.get('container')
-
-        if container and customer_id:
-            try:
-                # Import stores from Parlant core
-                from parlant.core.customers import CustomerStore
-                from parlant.core.tags import TagStore
-
-                # Get customer from store
-                customer_store = container[CustomerStore]
-                customer = await customer_store.read_customer(customer_id)
-
-                if customer and customer.tags:
-                    print(f"🔍 Fetched customer with {len(customer.tags)} tag IDs: {customer.tags}")
-
-                    # customer.tags is a list of TagId (strings)
-                    # We need to fetch the actual Tag objects to get tag names
-                    tag_store = container[TagStore]
-
-                    for tag_id in customer.tags:
-                        try:
-                            # Fetch Tag object from TagStore
-                            tag = await tag_store.read_tag(tag_id)
-                            tag_name = tag.name
-
-                            print(f"🔍 Tag ID '{tag_id}' → name '{tag_name}'")
-
-                            # Check if this is a profile tag
-                            if tag_name and tag_name.startswith('profile:'):
-                                profile = tag_name.split(':', 1)[1]
-                                if profile in ["researcher", "patient", "general"]:
-                                    print(f"✅ Profile extracted from customer tags: {profile}")
-                                    return profile
-                        except Exception as tag_error:
-                            print(f"⚠️  Failed to read tag {tag_id}: {tag_error}")
-                            continue
-
-            except Exception as e:
-                print(f"⚠️  Failed to fetch customer from store: {e}")
-                import traceback
-                traceback.print_exc()
-
-    # 3. Check customer object if directly available (unlikely but kept as fallback)
-    customer = getattr(context, 'customer', None)
-    if customer and hasattr(customer, 'tags'):
-        print(f"🔍 Customer object available directly with tags: {customer.tags}")
-        # In this case, tags might already be Tag objects or TagIds
-        for tag in customer.tags:
-            tag_name = tag if isinstance(tag, str) else (tag.name if hasattr(tag, 'name') else str(tag))
-            if tag_name and tag_name.startswith('profile:'):
-                profile = tag_name.split(':', 1)[1]
-                if profile in ["researcher", "patient", "general"]:
-                    print(f"✅ Profile extracted from customer object: {profile}")
-                    return profile
-
-    # Note: We don't fetch from REST API here to avoid deadlock
-    # The Parlant server is busy executing this tool, so HTTP requests
-    # to the same server will timeout or block.
-
-    # Default profile for result limiting
-    # The actual response style is controlled by Parlant guidelines
-    print(f"ℹ️  Using default profile limits (guidelines control actual behavior)")
-    return "general"
-
-
-def convert_objectid_to_str(data):
-    """Convert ObjectId to string (recursive)"""
-    if isinstance(data, ObjectId):
-        return str(data)
-    elif isinstance(data, dict):
-        return {key: convert_objectid_to_str(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [convert_objectid_to_str(item) for item in data]
-    else:
-        return data
-
 
 async def initialize_search_engine():
     """Initialize optimized search engine with caching and advanced components"""
@@ -251,8 +165,8 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
             if source.startswith('dataset_'):
                 source = 'AI Hub'
             qa_data.append({
-                "question": item.get('question', '')[:200],
-                "answer": item.get('answer', '')[:500],
+                "question": item.get('question', ''),
+                "answer": item.get('answer', ''),
                 "source": source
             })
     
@@ -263,25 +177,25 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
             metadata = item.get('metadata', {})
             paper_data.append({
                 "title": item.get('title', 'N/A'),
-                "abstract": item.get('abstract', 'N/A')[:400],
-                "source": item.get('source', '대한신장학회'),
-                "journal": metadata.get('journal', '')[:50] if isinstance(metadata, dict) else '',
+                "abstract": item.get('abstract', 'N/A'),
+                "source": item.get('source', 'Korean Society of Nephrology'),
+                "journal": metadata.get('journal', '') if isinstance(metadata, dict) else '',
                 "pub_date": metadata.get('publication_date', '') if isinstance(metadata, dict) else ''
             })
 
-    # 3. Medical data - encode as toon_format
-    medical_data = []
-    if raw_results["medical_results"]:
-        for item in raw_results["medical_results"][:max_results]:
-            keywords = item.get('keyword', [])
-            if isinstance(keywords, list):
-                keywords = keywords[:3]
-            else:
-                keywords = [str(keywords)[:40]]
-            medical_data.append({
-                "keywords": keywords,
-                "text": item.get('text', '')[:300]
-            })
+    # # 3. Medical data - encode as toon_format
+    # medical_data = []
+    # if raw_results["medical_results"]:
+    #     for item in raw_results["medical_results"][:max_results]:
+    #         keywords = item.get('keyword', [])
+    #         if isinstance(keywords, list):
+    #             keywords = keywords[:3]
+    #         else:
+    #             keywords = [str(keywords)[:40]]
+    #         medical_data.append({
+    #             "keywords": keywords,
+    #             "text": item.get('text', '')[:300]
+    #         })
 
     # 4. PubMed data - encode as toon_format
     pubmed_data = []
@@ -289,21 +203,31 @@ async def llm_refine_results_v2(query: str, raw_results: dict, profile: str) -> 
         for paper in raw_results["pubmed_results"][:max_results]:
             authors_list = paper.get('authors', [])[:3]
             pubmed_data.append({
-                "title": paper.get('title', 'N/A')[:200],
+                "title": paper.get('title', 'N/A'),
                 "authors": authors_list,
-                "journal": paper.get('journal', 'N/A')[:50],
+                "journal": paper.get('journal', 'N/A'),
                 "pub_date": paper.get('pub_date', 'N/A'),
                 "pmid": paper.get('pmid', 'N/A'),
-                "doi": paper.get('doi', 'N/A')[:40],
-                "abstract": paper.get('abstract', 'N/A')[:400],
+                "doi": paper.get('doi', 'N/A'),
+                "abstract": paper.get('abstract', 'N/A'),
                 "url": paper.get('url', 'N/A')
+            })
+
+    guideline_data = []
+    if raw_results["guidelines_results"]:
+        for item in raw_results["guidelines_results"][:max_results]:
+            guideline_data.append({
+                "keywords": item.get('keyword', 'N/A'),
+                "text": item.get('text', 'N/A'),
+
             })
 
     # Encode to toon_format (more compact than JSON)
     qa_summary = encode(qa_data) if qa_data else "No results"
     paper_summary = encode(paper_data) if paper_data else "No results"
-    medical_summary = encode(medical_data) if medical_data else "No results"
+    # medical_summary = encode(medical_data) if medical_data else "No results"
     pubmed_summary = encode(pubmed_data) if pubmed_data else "No results"
+    guideline_summary = encode(guideline_data) if guideline_data else "No results"
 
     # 5. Final prompt generation (using toon_format for compactness)
     prompt = f"""Question: "{query}"
@@ -311,69 +235,31 @@ Profile: {profile.upper()}
 
 Search Results ({raw_results['search_method'].upper()} method):
 
-[1] QA Database ({len(raw_results['qa_results'])} results):
+- QA Database ({len(raw_results['qa_results'])} results):
 {qa_summary}
 
-[2] Local Papers ({len(raw_results['paper_results'])} results):
+[2] Papers ({len(raw_results['paper_results']) + len(raw_results['pubmed_results'])} results):
 {paper_summary}
-
-[3] Medical Data ({len(raw_results['medical_results'])} results):
-{medical_summary}
-
-[4] PubMed ({len(raw_results['pubmed_results'])} results):
 {pubmed_summary}
 
-Note: Results are in toon_format (compact data format). 
-- Simple objects: "key: value" format
-- Arrays: "[N,]header: row1,row2..." format
-- Use decode() if needed, but you can read the format directly.
+[3] Guidelines ({len(raw_results['guidelines_results'])} results):
+{guideline_summary}
 
 Write an accurate answer in Korean. Requirements:
 - Profile: {detail_levels.get(profile, '')}
 - Integrate information from all sources
 - Cite sources properly:
-  * For QA data: "AI Hub 데이터에 따르면..." or use specific source name shown
-  * For local papers: "대한신장학회 논문에서..." or use specific source/journal name shown
-  * For medical data: "의료 특허 데이터에서는..."
-  * For PubMed: Include paper title and "Smith et al. (2024)의 연구 (PMID: [pmid], DOI: [doi])에서는..."
+  * For papers: Include paper title and "Smith et al. (2024) study (PMID: [pmid], DOI: [doi]) shows..."
 - Structure: Introduction → Main content → Conclusion → References
 - References section must include:
   * Paper titles for all PubMed and local papers cited
   * Abstract summaries (brief) for key papers
-  * Source organizations (AI Hub, 대한신장학회, etc.)
+  * Source organizations (AI Hub, Korean Society of Nephrology, etc.)
 - Add medical disclaimer: "⚠️ This is for educational purposes only. Consult healthcare professionals."
 
 Begin:"""
 
     return prompt
-
-
-def get_default_profile() -> str:
-    """Get default profile from environment variable.
-
-    This is only used when running the Parlant server directly.
-    When accessed via the UI, the profile is determined by the client.
-
-    Returns:
-        Default profile type (researcher, patient, or general)
-    """
-    profile = os.getenv("CARE_GUIDE_DEFAULT_PROFILE", "general").lower()
-
-    if profile not in ["researcher", "patient", "general"]:
-        print(f"⚠️  Invalid profile '{profile}' in environment variable, using 'general'")
-        profile = "general"
-
-    profile_names = {
-        "researcher": "Researcher/Expert",
-        "patient": "Patient/Experience Holder",
-        "general": "General Public/Novice"
-    }
-
-    print(f"\n✅ Using default profile: {profile_names[profile]}")
-    print("   (Profile can be overridden by client session metadata)\n")
-
-    return profile
-
 
 # ==================== Medical Information Tools ====================
 
@@ -402,6 +288,8 @@ async def search_medical_qa(
     - Query routing (intent classification)
     - Cross-encoder re-ranking (improved relevance)
     - Performance monitoring
+
+    **Note**: This tool may take up to 2-3 minutes to complete due to extensive search across multiple databases.
 
     **Search Methods**:
     1. MongoDB text search (parallel, connection pooled)
@@ -1074,7 +962,7 @@ async def check_emergency_keywords(context: ToolContext, text: str) -> ToolResul
     Returns:
         Emergency status and guidance message
     """
-    # 영문 응급 키워드
+    # English emergency keywords
     EMERGENCY_KEYWORDS_EN = [
         "chest pain", "difficulty breathing", "unconsciousness",
         "severe edema", "generalized edema", "fainting", "collapse",
@@ -1082,53 +970,53 @@ async def check_emergency_keywords(context: ToolContext, text: str) -> ToolResul
         "sudden vision loss", "severe headache", "numbness"
     ]
 
-    # 한글 응급 키워드
+    # Korean emergency keywords (for detecting Korean user input)
     EMERGENCY_KEYWORDS_KO = [
-        # 흉통
+        # Chest pain
         "흉통", "가슴 통증", "가슴이 아", "가슴 답답",
 
-        # 호흡곤란
+        # Difficulty breathing
         "호흡곤란", "숨쉬기 힘", "숨이 차", "숨을 쉴 수 없",
 
-        # 의식저하
+        # Altered consciousness
         "의식저하", "의식 없", "정신 없", "깨어나지 않",
 
-        # 경련
+        # Seizure
         "경련", "발작", "몸이 떨",
 
-        # 출혈
+        # Bleeding
         "심한출혈", "피가 많이", "출혈이 멈추지",
 
-        # 실신
+        # Fainting
         "쓰러짐", "실신", "기절", "정신 잃",
 
-        # 부종
+        # Edema
         "부종 심", "전신 부종", "몸이 부", "얼굴이 부",
 
-        # 기타
+        # Other
         "갑자기 안 보", "시력 상실", "심한 두통", "마비"
     ]
 
-    # 통합
+    # Combined keywords
     EMERGENCY_KEYWORDS = EMERGENCY_KEYWORDS_EN + EMERGENCY_KEYWORDS_KO
 
     found_keywords = [kw for kw in EMERGENCY_KEYWORDS if kw in text.lower()]
     is_emergency = len(found_keywords) > 0
 
     if is_emergency:
-        # 한글 키워드 포함 여부 확인
+        # Check if Korean keywords are included
         has_korean = any(kw in EMERGENCY_KEYWORDS_KO for kw in found_keywords)
 
         if has_korean:
-            message = f"""🚨 **응급 상황 감지!**
+            message = f"""🚨 **EMERGENCY DETECTED!**
 
-다음 응급 증상이 감지되었습니다:
+The following emergency symptoms were detected:
 {chr(10).join([f'  • {kw}' for kw in found_keywords])}
 
-**즉시 조치가 필요합니다:**
-📞 119에 즉시 전화하세요
-🏥 가까운 응급실로 가세요
-⚠️ 의료 조치를 지연하지 마세요"""
+**IMMEDIATE ACTION REQUIRED:**
+📞 Call 119 (emergency services) immediately
+🏥 Go to the nearest emergency room
+⚠️ Do not delay seeking medical care"""
         else:
             message = f"""🚨 **EMERGENCY DETECTED!**
 
@@ -1154,6 +1042,9 @@ The following emergency keywords were detected:
             "message": "No emergency situation detected."
         }
     )
+
+
+
 
 
 # ==================== Guidelines ====================
@@ -1187,7 +1078,7 @@ async def add_safety_guidelines(agent: p.Agent) -> p.Guideline:
     # CHK-009: Disclaimer - MANDATORY for ALL responses (ALWAYS ACTIVE)
     disclaimer_guideline = await agent.create_guideline(
         condition="EVERY single response without exception",
-        action="CRITICAL REQUIREMENT: You MUST end every response with this EXACT Korean disclaimer on a new line:\n\n⚠️ 이 답변은 교육 목적이며, 건강에 관한 궁금증이나 문제가 있을 경우 반드시 의료 전문가와 상담하시기 바랍니다.\n\nThis disclaimer is REQUIRED for client-side message processing. Never omit it under any circumstances."
+        action="CRITICAL REQUIREMENT: You MUST end every response with this EXACT disclaimer on a new line:\n\n⚠️ This information is for educational purposes only. If you have health questions or concerns, please consult with healthcare professionals.\n\nThis disclaimer is REQUIRED for client-side message processing. Never omit it under any circumstances."
     )
 
     # Entailment relationships: ALL guidelines must trigger the disclaimer
@@ -1218,38 +1109,7 @@ async def add_profile_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideli
         action="""You must use academic language and technical terminology.
         Focus on research findings, biological mechanisms, and evidence-based information.
         Provide detailed scientific explanations with specific data when available.
-
-        When user asks medical questions, ALWAYS use search_medical_qa tool first.
-
-        **Tool Usage - Customize based on query type**:
-
-        For literature review / research questions:
-        search_medical_qa(query="...", profile="researcher", max_papers=20, max_pubmed=15, max_qa=5, use_medical=False)
-
-        For clinical questions needing comprehensive sources:
-        search_medical_qa(query="...", profile="researcher", max_qa=10, max_papers=10, max_medical=5, max_pubmed=10)
-
-        For quick factual questions:
-        search_medical_qa(query="...", profile="researcher", max_qa=10, use_papers=False, use_medical=False, use_pubmed=False)
-
-        **Available Parameters**:
-        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
-        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 10 for researcher)
-        - max_per_source: Set all sources at once (overridden by individual limits)
-
-        **Data Sources**:
-        The tool searches 5 sources: guidelines database, QA database, papers (local + PubMed), medical patents, and PubMed real-time.
-        Choose sources based on query - not all sources are needed for every question.
-
-        **Response Guidelines**:
-        - Cite all papers with authors, year, and identifiers (PMID/DOI when available)
-        - Don't distinguish between local papers and PubMed - treat all as "논문 연구"
-        - Integrate information from multiple sources naturally
-        - With researcher profile, you get up to 10 results per source by default (customize as needed)
-        - Maintain professional and scholarly tone throughout
-
         Always respond in Korean.""",
-        tools=[search_medical_qa]
     )
 
     # Patient profile
@@ -1259,39 +1119,7 @@ async def add_profile_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideli
         Focus on daily life applications, self-care methods, and patient-centered information.
         Provide specific, actionable advice that patients can implement.
         Use empathetic language and acknowledge the challenges of living with illness.
-
-        When user asks medical questions, ALWAYS use search_medical_qa tool first.
-
-        **Tool Usage - Customize based on query type**:
-
-        For practical daily life questions:
-        search_medical_qa(query="...", profile="patient", max_qa=10, use_papers=False, use_medical=False, use_pubmed=False)
-
-        For treatment/management questions needing evidence:
-        search_medical_qa(query="...", profile="patient", max_qa=5, max_papers=5, use_medical=False, max_pubmed=3)
-
-        For symptom-related questions:
-        search_medical_qa(query="...", profile="patient", max_qa=8, max_papers=3, use_medical=False, use_pubmed=False)
-
-        **Available Parameters**:
-        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
-        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 5 for patient)
-        - max_per_source: Set all sources at once (overridden by individual limits)
-
-        **Data Sources**:
-        The tool searches 5 sources: guidelines database, QA database, papers, medical patents, and PubMed.
-        For patients, prioritize QA database (practical answers) over academic papers.
-        Not all sources are needed for every question.
-
-        **Response Guidelines**:
-        - Translate complex medical terms into everyday language
-        - Focus on actionable advice and practical tips
-        - When citing papers, don't distinguish local vs PubMed - just say "논문 연구에 따르면"
-        - With patient profile, you get up to 5 results per source by default (customize as needed)
-        - Provide encouragement while maintaining medical accuracy
-
         Always respond in Korean.""",
-        tools=[search_medical_qa]
     )
 
     # General profile
@@ -1301,39 +1129,7 @@ async def add_profile_guidelines(agent: p.Agent, disclaimer_guideline: p.Guideli
         Minimize technical terminology and use plain, everyday language.
         Focus on basic concepts and general understanding.
         Use analogies and examples to explain complex ideas.
-
-        When user asks medical questions, ALWAYS use search_medical_qa tool first.
-
-        **Tool Usage - Customize based on query type**:
-
-        For simple definition/explanation questions:
-        search_medical_qa(query="...", profile="general", max_qa=5, use_papers=False, use_medical=False, use_pubmed=False)
-
-        For general health information:
-        search_medical_qa(query="...", profile="general", max_qa=3, max_papers=2, use_medical=False, use_pubmed=False)
-
-        For basic medical concepts:
-        search_medical_qa(query="...", profile="general", max_qa=5, max_papers=3, use_medical=False, use_pubmed=False)
-
-        **Available Parameters**:
-        - use_guidelines, use_qa, use_papers, use_medical, use_pubmed: Enable/disable each source (default: all True)
-        - max_guidelines, max_qa, max_papers, max_medical, max_pubmed: Set results per source (default: 3 for general)
-        - max_per_source: Set all sources at once (overridden by individual limits)
-
-        **Data Sources**:
-        The tool searches 5 sources: guidelines database, QA database, papers, medical patents, and PubMed.
-        For general users, prioritize QA database (simple answers) and limit papers.
-        Not all sources are needed for every question.
-
-        **Response Guidelines**:
-        - Avoid medical jargon unless absolutely necessary (then explain it immediately)
-        - Use analogies and everyday examples
-        - Don't distinguish between different paper sources - just say "연구에 따르면"
-        - Break down information into small, digestible parts
-        - With general profile, you get up to 3 results per source by default (customize as needed)
-
         Always respond in Korean.""",
-        tools=[search_medical_qa]
     )
 
     # Entailment: ALL profile guidelines must trigger the disclaimer
@@ -1383,13 +1179,14 @@ async def create_medical_info_journey(agent: p.Agent) -> p.Journey:
         ],
     )
 
-    # Step 1: Initial greeting and profile confirmation
+    # Step 1: Direct answer (no unnecessary greetings or questions)
     t0 = await journey.initial_state.transition_to(
-        chat_state="""Greet user warmly in Korean.
-        Confirm their profile type (researcher/patient/general).
-        Ask what specific medical information they need.
-        Mention that you use hybrid search (keyword + semantic) across 4 data sources including real-time PubMed.
-        Be friendly and professional."""
+        chat_state="""Answer the user's question directly and concisely in Korean.
+        - Do NOT ask about their profile (researcher/patient/general) - infer from context
+        - Do NOT mention technical details (hybrid search, data sources, etc.)
+        - Do NOT ask clarifying questions unless absolutely necessary
+        - Provide evidence-based information immediately
+        - Be professional but brief"""
     )
 
     # Step 2: Information gathering - Hybrid search
@@ -1422,8 +1219,8 @@ async def create_medical_info_journey(agent: p.Agent) -> p.Journey:
         Important:
         1. Integrate information from available sources (guidelines, QA, papers, medical data, PubMed)
         2. NOT all sources are used for every query - depends on tool parameters used
-        3. Don't distinguish between local papers and PubMed papers - treat all as "논문 연구"
-        4. Cite papers with authors, year, and identifiers when available (e.g., "Smith et al. (2024) 연구에 따르면...")
+        3. Don't distinguish between local papers and PubMed papers - treat all as "research papers"
+        4. Cite papers with authors, year, and identifiers when available (e.g., "According to Smith et al. (2024) study...")
         5. Focus on the most relevant information, regardless of source
         6. Always add medical disclaimer at the end
 
@@ -1504,19 +1301,19 @@ async def create_medical_info_journey(agent: p.Agent) -> p.Journey:
 
 
 async def create_research_paper_journey(agent: p.Agent) -> p.Journey:
-    """연구자 전용 논문 검색 및 분석 Journey
+    """Researcher-only Paper Search and Analysis Journey
 
-    이 Journey는 연구자에게 다음 기능을 제공합니다:
-    - 고급 PubMed 검색 (최대 20개 결과)
-    - 다중 논문 비교 분석
-    - 메타분석 요약
-    - 논문 북마크 (선택)
+    This Journey provides researchers with:
+    - Advanced PubMed search (up to 20 results)
+    - Multi-paper comparison analysis
+    - Meta-analysis summary
+    - Paper bookmarks (optional)
 
-    Medical Information Journey와 차별점:
-    - 연구자 프로필 전용
-    - 더 많은 검색 결과 (10-20개 vs 3-5개)
-    - 전문적인 분석 도구
-    - 학술적 언어 사용
+    Differences from Medical Information Journey:
+    - Researcher profile only
+    - More search results (10-20 vs 3-5)
+    - Professional analysis tools
+    - Academic language use
     """
     journey = await agent.create_journey(
         title="Research Paper Deep Dive",
@@ -1573,7 +1370,6 @@ Present the found papers clearly with key details (title, authors, journal, year
 4. Bookmark interesting papers
 5. Refine your search query
 6. Start a new search
-7. End session
 
 Please tell me your choice."""
     )
@@ -1759,9 +1555,12 @@ Have a productive research day! 🔬📚""",
     return journey
 
 
+# ==================== Journey 7: Welfare Support Journey ====================
+
+
 # ==================== Main Function ====================
 
-async def main() -> None:
+async def register_agent(server: p.Server) -> None:
     """Main function - Server initialization and execution"""
 
     print("\n" + "="*70)
@@ -1777,8 +1576,7 @@ async def main() -> None:
     profile = get_default_profile()
 
     print(f"\n[3/3] Setting up Parlant Server...")
-
-    async with p.Server() as server:
+    if server:  # Use provided server
         # Create Agent
         agent = await server.create_agent(
             name="CareGuide_v2",
@@ -1811,7 +1609,8 @@ async def main() -> None:
 - Use empathetic, supportive language
 - Maintain medical accuracy at all times
 
-Always respond in Korean unless specifically requested otherwise.""",
+Always respond in Korean unless specifically requested otherwise.
+""",
             composition_mode=p.CompositionMode.COMPOSITED
         )
 
@@ -1834,15 +1633,6 @@ Always respond in Korean unless specifically requested otherwise.""",
         print("  🗺️ Creating Research Paper Journey...")
         research_journey = await create_research_paper_journey(agent)
 
-        # Journey Disambiguation
-        print("  🔀 Setting up Journey disambiguation...")
-        paper_inquiry = await agent.create_observation(
-            "User asks about research papers, scientific studies, or wants advanced paper analysis, "
-            "but it's not clear whether they need basic information or in-depth research analysis"
-        )
-        await paper_inquiry.disambiguate([journey, research_journey])
-        print("     ✅ Journey disambiguation configured")
-
         # Create profile tag
         profile_tag = await server.create_tag(name=f"profile:{profile}")
 
@@ -1856,13 +1646,15 @@ Always respond in Korean unless specifically requested otherwise.""",
 
         # Display server information
         print("="*70)
-        print("🎉 CareGuide v2.0 Server Successfully Started!")
+        print("🎉 CareGuide v2.0 + WelfareGuide Server Successfully Started!")
         print("="*70)
         print(f"\n📋 **Server Information**:")
-        print(f"  • Agent ID: {agent.id}")
+        print(f"  • CareGuide Agent ID: {agent.id}")
+        # print(f"  • WelfareGuide Agent ID: {welfare_agent.id}")
         print(f"  • Customer ID: {customer.id}")
         print(f"  • Medical Journey ID: {journey.id}")
         print(f"  • Research Journey ID: {research_journey.id}")
+        # print(f"  • Welfare Journey ID (CareGuide): {welfare_journey.id}")
 
         print(f"\n👤 **User Profile**:")
         profile_display = {
@@ -1874,32 +1666,13 @@ Always respond in Korean unless specifically requested otherwise.""",
         print(f"  • Max Results: {PROFILE_LIMITS[profile]['max_results']} per source")
         print(f"  • Detail Level: {PROFILE_LIMITS[profile]['detail_level']}")
 
-        print(f"\n🔍 **Search System**:")
-        print(f"  • Search Method: Hybrid (Keyword 40% + Semantic 60%)")
-        print(f"  • Data Sources:")
-        print(f"    1. MongoDB - Structured data (text indexing)")
-        print(f"    2. Pinecone - Vector database (semantic search)")
-        print(f"    3. Local Papers - Rich metadata")
-        print(f"    4. PubMed API - Real-time (abstracts, authors, DOI, MeSH)")
-
-        print(f"\n🛠️ **Registered Tools**:")
-        print(f"  • search_medical_qa - Hybrid integrated search")
-        print(f"  • get_kidney_stage_info - CKD stage information")
-        print(f"  • get_symptom_info - Symptom info and emergency detection")
-        print(f"  • check_emergency_keywords - Emergency keyword detection")
-
-        print(f"\n⚠️ **Safety Features**:")
-        print(f"  • Automatic emergency detection (911 guidance)")
-        print(f"  • Diagnosis/prescription blocking")
-        print(f"  • Automatic medical disclaimer")
-        print(f"  • Inappropriate request blocking")
-
-        print("\n" + "="*70)
-        print("🟢 Server is running.")
-        print("   Press Ctrl+C to exit.")
-        print("="*70 + "\n")
-
 
 
 if __name__ == "__main__":
-        asyncio.run(main())
+    async def run_standalone():
+        async with p.Server() as server:
+            await register_agent(server)
+            print("Server running standalone. Press Ctrl+C to exit.")
+            await asyncio.Event().wait()
+
+    asyncio.run(run_standalone())
