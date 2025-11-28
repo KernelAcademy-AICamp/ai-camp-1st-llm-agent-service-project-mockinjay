@@ -48,6 +48,17 @@ export function ChatPage() {
   // Initialize session on component mount
   useEffect(() => {
     initializeSession();
+    loadUserProfile();
+  }, []);
+
+  // Listen for storage changes (when profile is updated from MyPage)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      loadUserProfile();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   // Handle initial message from navigation
@@ -98,6 +109,48 @@ export function ChatPage() {
       console.error('❌ Failed to create session:', error);
       // Generate fallback session ID
       setSessionId('session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
+    }
+  };
+
+  // Load user profile from server or localStorage
+  const loadUserProfile = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        // No token, use localStorage profile if available
+        const savedProfile = localStorage.getItem('userProfile');
+        if (savedProfile) {
+          setSelectedProfile(savedProfile);
+        }
+        return;
+      }
+
+      // Fetch from server
+      const response = await fetch('/api/user/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const profileMap = {
+          'patient': '신장병 환우',
+          'researcher': '연구자',
+          'general': '일반인'
+        };
+        const userType = profileMap[data.profile as keyof typeof profileMap] || '일반인';
+        setSelectedProfile(userType);
+        // Save to localStorage for quick access
+        localStorage.setItem('userProfile', userType);
+      }
+    } catch (error) {
+      console.error('Failed to load user profile:', error);
+      // Fallback to localStorage
+      const savedProfile = localStorage.getItem('userProfile');
+      if (savedProfile) {
+        setSelectedProfile(savedProfile);
+      }
     }
   };
 
@@ -454,7 +507,10 @@ export function ChatPage() {
                     <ChevronDown size={12} color="#00C8B4" />
                     <select
                       value={selectedProfile}
-                      onChange={(e) => setSelectedProfile(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedProfile(e.target.value);
+                        localStorage.setItem('userProfile', e.target.value);
+                      }}
                       className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       disabled={isLoading}
                     >
