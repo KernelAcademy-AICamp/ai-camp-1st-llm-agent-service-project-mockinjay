@@ -193,6 +193,18 @@ const MyPageEnhanced: React.FC = () => {
 
     try {
       await updateUserProfile(data);
+
+      // Save profile to localStorage for real-time sync with ChatPage
+      if (data.profile) {
+        const profileMap: Record<string, string> = {
+          'patient': '신장병 환우',
+          'researcher': '연구자',
+          'general': '일반인'
+        };
+        const userType = profileMap[data.profile] || '일반인';
+        localStorage.setItem('userProfile', userType);
+      }
+
       setSubmitSuccess('프로필이 성공적으로 업데이트되었습니다.');
       setTimeout(() => {
         setIsProfileModalOpen(false);
