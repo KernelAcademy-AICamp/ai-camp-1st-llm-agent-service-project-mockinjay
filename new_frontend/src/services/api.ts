@@ -581,6 +581,7 @@ export interface UserProfileUpdateData {
   fullName?: string;
   bio?: string;
   profileImage?: string;
+  profile?: 'general' | 'patient' | 'researcher';
 }
 
 /**
