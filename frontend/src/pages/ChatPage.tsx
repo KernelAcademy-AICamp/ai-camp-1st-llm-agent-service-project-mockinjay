@@ -406,13 +406,16 @@ export function ChatPage() {
         <div className="bg-white rounded-[16px] border border-[#e0e0e0] p-[9px] shadow-sm w-full">
            {/* Top Row: Icon + Input + Send Button */}
            <form onSubmit={handleSubmit} className="flex items-center gap-2 mb-2 relative h-[40px]">
-               <button
-                  type="button"
-                  className="w-8 h-8 flex items-center justify-center rounded-full text-[#99A1AF] hover:bg-gray-100 flex-shrink-0"
-                  disabled={isLoading}
-               >
-                  <ImageIcon size={20} strokeWidth={1.66} />
-               </button>
+               {/* Image icon only shows for nutrition agent */}
+               {activeTab === 'nutrition' && (
+                 <button
+                    type="button"
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-[#99A1AF] hover:bg-gray-100 flex-shrink-0"
+                    disabled={isLoading}
+                 >
+                    <ImageIcon size={20} strokeWidth={1.66} />
+                 </button>
+               )}
 
                <input
                   type="text"
@@ -431,7 +434,14 @@ export function ChatPage() {
                      background: message.trim() && !isLoading ? 'linear-gradient(135deg, rgb(0, 200, 180) 0%, rgb(159, 122, 234) 100%)' : '#F3F4F6'
                   }}
                >
-                  <Send size={14} color={message.trim() && !isLoading ? '#FFFFFF' : '#9CA3AF'} />
+                  <Send
+                     size={14}
+                     color={message.trim() && !isLoading ? '#FFFFFF' : '#9CA3AF'}
+                     style={{
+                        transform: message.trim() && !isLoading ? 'rotate(45deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                     }}
+                  />
                </button>
            </form>
 
