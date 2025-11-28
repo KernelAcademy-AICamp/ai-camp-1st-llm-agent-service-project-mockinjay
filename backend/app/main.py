@@ -33,6 +33,7 @@ from app.api.error_handlers import (
     validation_error_handler
 )
 from app.api import auth, user
+from app.api import user_health_records
 
 # Import NutritionAgent
 from Agent.nutrition.agent import NutritionAgent
@@ -82,12 +83,13 @@ app.include_router(terms_router)
 app.include_router(community_router, prefix="/api/community", tags=["community"])
 app.include_router(auth.router)
 app.include_router(user.router)
+app.include_router(user_health_records.router)
 app.include_router(header_router)
 app.include_router(footer_router)
 app.include_router(notification_router)
 
 # Error handlers (UTI-005)
-app.add_exception_handler(StarletteHTTPException, not_found_handler)
+# app.add_exception_handler(StarletteHTTPException, not_found_handler)  # Removed: This converts all HTTP errors to 404
 app.add_exception_handler(Exception, internal_server_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 

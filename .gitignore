@@ -337,7 +337,7 @@ backend/app/api/chat/parlant/parlant-data/
 parlant-data/
 embedding_cache/
 
-frontend/  
+# frontend/  
 
 # dependencies
 node_modules/

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.models.user import UserCreate, UserResponse
+from app.models.user import UserCreate, UserResponse, UserLogin
 from app.services.auth import hash_password, verify_password, create_access_token
 from app.db.connection import users_collection
 from datetime import datetime
@@ -19,6 +19,11 @@ async def signup(user: UserCreate):
         "name": user.name,
         "profile": user.profile,
         "role": user.role,  # "user" or "admin"
+        "gender": user.gender,
+        "birth_date": user.birth_date,
+        "height": user.height,
+        "weight": user.weight,
+        "diagnosis": user.diagnosis,
         "created_at": datetime.utcnow()
     }
     result = users_collection.insert_one(user_doc)
@@ -26,10 +31,10 @@ async def signup(user: UserCreate):
     return {"success": True, "message": "회원가입 성공"}
 
 @router.post("/login")
-async def login(email: str, password: str):
+async def login(user_data: UserLogin):
     # 사용자 찾기
-    user = users_collection.find_one({"email": email})
-    if not user or not verify_password(password, user["password"]):
+    user = users_collection.find_one({"email": user_data.email})
+    if not user or not verify_password(user_data.password, user["password"]):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 잘못되었습니다")
     
     # 토큰 생성
