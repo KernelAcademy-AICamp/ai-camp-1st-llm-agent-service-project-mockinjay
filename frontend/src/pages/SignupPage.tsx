@@ -25,7 +25,7 @@ export function SignupPage() {
     privacyOptional: false,
     marketing: false
   });
-  const [expandedTerms, setExpandedTerms] = useState<{[key: string]: boolean}>({});
+  const [expandedTerms, setExpandedTerms] = useState<{ [key: string]: boolean }>({});
 
   // Step 1: Account Info
   const [accountInfo, setAccountInfo] = useState({
@@ -93,7 +93,7 @@ export function SignupPage() {
 
     // Check if all are checked
     const allChecked = newAgreements.service && newAgreements.privacyRequired &&
-                       newAgreements.privacyOptional && newAgreements.marketing;
+      newAgreements.privacyOptional && newAgreements.marketing;
     newAgreements.all = allChecked;
 
     setAgreements(newAgreements);
@@ -120,12 +120,48 @@ export function SignupPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock signup - navigate to login
-    localStorage.setItem('isLoggedIn', 'false');
-    alert('회원가입이 완료되었습니다!');
-    navigate('/login');
+
+    try {
+      const payload = {
+        email: accountInfo.id,
+        password: accountInfo.password,
+        name: personalInfo.nickname,
+        profile: personalInfo.userType || 'general',
+        role: 'user',
+        gender: personalInfo.gender,
+        birth_date: personalInfo.birthDate,
+        height: personalInfo.height ? parseFloat(personalInfo.height) : null,
+        weight: personalInfo.weight ? parseFloat(personalInfo.weight) : null,
+        diagnosis: diseaseInfo || null
+      };
+
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '회원가입 실패');
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert('회원가입이 완료되었습니다! 로그인해주세요.');
+        navigate('/login');
+      } else {
+        throw new Error(data.message || '회원가입 실패');
+      }
+    } catch (error) {
+      console.error('Signup failed', error);
+      alert(error instanceof Error ? error.message : '회원가입에 실패했습니다.');
+    }
   };
 
   const canProceedFromTerms = agreements.service && agreements.privacyRequired;
@@ -155,9 +191,8 @@ export function SignupPage() {
           {[0, 1, 2, 3].map((step) => (
             <div
               key={step}
-              className={`h-2 rounded-full transition-all duration-300 ${
-                step === currentStep ? 'w-12' : 'w-2'
-              }`}
+              className={`h-2 rounded-full transition-all duration-300 ${step === currentStep ? 'w-12' : 'w-2'
+                }`}
               style={{
                 background: step <= currentStep
                   ? 'linear-gradient(90deg, #00C9B7 0%, #9F7AEA 100%)'

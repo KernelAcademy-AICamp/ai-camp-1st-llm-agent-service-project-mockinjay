@@ -48,6 +48,17 @@ export function ChatPage() {
   // Initialize session on component mount
   useEffect(() => {
     initializeSession();
+    loadUserProfile();
+  }, []);
+
+  // Listen for storage changes (when profile is updated from MyPage)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      loadUserProfile();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   // Handle initial message from navigation
@@ -98,6 +109,48 @@ export function ChatPage() {
       console.error('❌ Failed to create session:', error);
       // Generate fallback session ID
       setSessionId('session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
+    }
+  };
+
+  // Load user profile from server or localStorage
+  const loadUserProfile = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        // No token, use localStorage profile if available
+        const savedProfile = localStorage.getItem('userProfile');
+        if (savedProfile) {
+          setSelectedProfile(savedProfile);
+        }
+        return;
+      }
+
+      // Fetch from server
+      const response = await fetch('/api/user/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const profileMap = {
+          'patient': '신장병 환우',
+          'researcher': '연구자',
+          'general': '일반인'
+        };
+        const userType = profileMap[data.profile as keyof typeof profileMap] || '일반인';
+        setSelectedProfile(userType);
+        // Save to localStorage for quick access
+        localStorage.setItem('userProfile', userType);
+      }
+    } catch (error) {
+      console.error('Failed to load user profile:', error);
+      // Fallback to localStorage
+      const savedProfile = localStorage.getItem('userProfile');
+      if (savedProfile) {
+        setSelectedProfile(savedProfile);
+      }
     }
   };
 
@@ -406,13 +459,16 @@ export function ChatPage() {
         <div className="bg-white rounded-[16px] border border-[#e0e0e0] p-[9px] shadow-sm w-full">
            {/* Top Row: Icon + Input + Send Button */}
            <form onSubmit={handleSubmit} className="flex items-center gap-2 mb-2 relative h-[40px]">
-               <button
-                  type="button"
-                  className="w-8 h-8 flex items-center justify-center rounded-full text-[#99A1AF] hover:bg-gray-100 flex-shrink-0"
-                  disabled={isLoading}
-               >
-                  <ImageIcon size={20} strokeWidth={1.66} />
-               </button>
+               {/* Image icon only shows for nutrition agent */}
+               {activeTab === 'nutrition' && (
+                 <button
+                    type="button"
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-[#99A1AF] hover:bg-gray-100 flex-shrink-0"
+                    disabled={isLoading}
+                 >
+                    <ImageIcon size={20} strokeWidth={1.66} />
+                 </button>
+               )}
 
                <input
                   type="text"
@@ -431,7 +487,14 @@ export function ChatPage() {
                      background: message.trim() && !isLoading ? 'linear-gradient(135deg, rgb(0, 200, 180) 0%, rgb(159, 122, 234) 100%)' : '#F3F4F6'
                   }}
                >
-                  <Send size={14} color={message.trim() && !isLoading ? '#FFFFFF' : '#9CA3AF'} />
+                  <Send
+                     size={14}
+                     color={message.trim() && !isLoading ? '#FFFFFF' : '#9CA3AF'}
+                     style={{
+                        transform: message.trim() && !isLoading ? 'rotate(45deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                     }}
+                  />
                </button>
            </form>
 
@@ -444,7 +507,10 @@ export function ChatPage() {
                     <ChevronDown size={12} color="#00C8B4" />
                     <select
                       value={selectedProfile}
-                      onChange={(e) => setSelectedProfile(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedProfile(e.target.value);
+                        localStorage.setItem('userProfile', e.target.value);
+                      }}
                       className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       disabled={isLoading}
                     >

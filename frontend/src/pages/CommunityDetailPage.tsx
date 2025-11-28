@@ -67,7 +67,7 @@ export function CommunityDetailPage() {
       />
 
       {/* Content Scroll Area */}
-      <div className="flex-1 overflow-y-auto pb-[80px] lg:pb-24 no-scrollbar">
+      <div className="flex-1 overflow-y-auto pb-[80px] lg:pb-0 no-scrollbar">
         <div className="p-5 max-w-3xl mx-auto">
           {/* Author Info */}
           <div className="flex items-center gap-3 mb-4">
@@ -91,9 +91,9 @@ export function CommunityDetailPage() {
           {/* Image Placeholder */}
           {mockPost.images && mockPost.images.length > 0 && (
             <div className="w-full bg-gray-100 rounded-xl mb-6 overflow-hidden">
-               <ImageWithFallback 
-                 src={mockPost.images[0]} 
-                 alt="Post image" 
+               <ImageWithFallback
+                 src={mockPost.images[0]}
+                 alt="Post image"
                  className="w-full h-auto object-cover"
                />
             </div>
@@ -115,7 +115,7 @@ export function CommunityDetailPage() {
           </div>
 
           {/* Comments Section */}
-          <div>
+          <div className="mb-6">
             <h3 className="text-[16px] font-bold text-[#1F2937] mb-4">댓글 {mockPost.comments}개</h3>
             <div className="space-y-6">
               {mockComments.map((comment) => (
@@ -142,31 +142,65 @@ export function CommunityDetailPage() {
               ))}
             </div>
           </div>
+
+          {/* Comment Input - Desktop: inside content area */}
+          <div className="hidden lg:block">
+            <div
+              className="bg-white border-t border-[#E0E0E0] pt-6"
+              style={{ boxShadow: 'none' }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 flex items-center justify-center text-gray-500 text-xs font-medium">
+                  나
+                </div>
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    placeholder="댓글을 입력하세요"
+                    className="w-full pl-4 pr-10 py-2.5 rounded-full border border-[#E0E0E0] text-sm outline-none focus:border-[#00C9B7] transition-colors"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    style={{ boxShadow: 'none' }}
+                  />
+                  <button
+                    className="absolute right-1.5 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full flex items-center justify-center transition-all"
+                    disabled={!comment.trim()}
+                    style={{
+                      backgroundColor: comment.trim() ? '#00C9B7' : '#E0E0E0',
+                      color: 'white'
+                    }}
+                  >
+                    <Send size={14} strokeWidth={2} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Fixed Comment Input */}
-      <div 
-        className="fixed bottom-[64px] left-0 right-0 bg-white border-t border-[#E0E0E0] lg:bottom-6 lg:w-[800px] lg:mx-auto lg:rounded-xl lg:border z-50"
-        style={{ boxShadow: 'none' }} 
+      {/* Fixed Comment Input - Mobile only */}
+      <div
+        className="fixed bottom-[64px] left-0 right-0 bg-white border-t border-[#E0E0E0] z-50 lg:hidden"
+        style={{ boxShadow: 'none' }}
       >
-        <div className="flex items-center gap-3 p-3 lg:p-4">
+        <div className="flex items-center gap-3 p-3">
            <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 flex items-center justify-center text-gray-500 text-xs font-medium">
              나
            </div>
            <div className="flex-1 relative">
-             <input 
-               type="text" 
+             <input
+               type="text"
                placeholder="댓글을 입력하세요"
                className="w-full pl-4 pr-10 py-2.5 rounded-full border border-[#E0E0E0] text-sm outline-none focus:border-[#00C9B7] transition-colors"
                value={comment}
                onChange={(e) => setComment(e.target.value)}
-               style={{ boxShadow: 'none' }} 
+               style={{ boxShadow: 'none' }}
              />
-             <button 
+             <button
                className="absolute right-1.5 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full flex items-center justify-center transition-all"
                disabled={!comment.trim()}
-               style={{ 
+               style={{
                  backgroundColor: comment.trim() ? '#00C9B7' : '#E0E0E0',
                  color: 'white'
                }}

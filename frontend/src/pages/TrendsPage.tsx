@@ -9,40 +9,19 @@ import { ClinicalTrialDetailModal } from '../components/ClinicalTrialDetailModal
 
 type TabType = 'news' | 'dashboard' | 'clinical-trials';
 
-const newsItems = [
-  {
-    id: '1',
-    title: `2025 미국신장학회 신장주간서 FINE-ONE 3상 연구 결과' 발표`,
-    source: '메디컬헤럴드',
-    time: '2일전',
-    description: 'FINE-ONE 연구 결과, 1형 당뇨병 동반 만성 신장병 성인 환자를 대상으로 표준치료에 피네레논을 추가 투여 시 위약 대비 베이스라인 이후 6개월 간 요-알부민-크레아티닌 비율(UACR)의 유의한 감소 효과를 확인했다. 전 세계 만성신장병(Chronic Kidney Disease, CKD) 성인환자가 8억 명으로 30년새 두 배 이상 증가했다는 분석...',
-    image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400'
-  },
-  {
-    id: '2',
-    title: '전 세계 CKD 성인환자 8억 명',
-    source: '메디컬트리뷴',
-    time: '3일전',
-    description: '전 세계 만성신장병(Chronic Kidney Disease, CKD) 성인환자가 8억 명으로 30년새 두 배 이상 증가했다는 분석 결과가 나왔다.',
-    image: 'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=400'
-  },
-  {
-    id: '3',
-    title: '만성신장병 급여확대 포시가 제네릭은 되고, 자디앙 안된 이유',
-    source: '메디컬헤럴드',
-    time: '2일전',
-    description: 'FINE-ONE 연구 결과, 1형 당뇨병 동반 만성 신장병 성인 환자를 대상으로 표준치료에 피네레논을 추가 투여 시 위약 대비 베이스라인 이후 6개월 간 요-알부민-크레아티닌 비율(UACR)의 유의한 감소 효과를 확인했다...',
-    image: 'https://images.unsplash.com/photo-1631815589968-fdb09a223b1e?w=400'
-  },
-  {
-    id: '4',
-    title: `2025 미국신장학회 신장주간서 FINE-ONE 3상 연구 결과' 발표`,
-    source: '메디컬헤럴드',
-    time: '2일전',
-    description: 'FINE-ONE 연구 결과, 1형 당뇨병 동반 만성 신장병 성인 환자를 대상으로 표준치료에 피네레논을 추가 투여 시 위약 대비 베이스라인 이후 6개월 간 요-알부민-크레아티닌 비율(UACR)의 유의한 감소 효과를 확인했다...',
-    image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400'
-  }
-];
+interface NewsItem {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+  category: string;
+  url: string;
+  time: string;
+  published_at: string | null;
+  image: string | null;
+  relevance_score: number;
+  keywords: string[];
+}
 
 const researchData = [
   { date: '2020', ckd: 120, treatment: 80, diet: 95 },
@@ -57,6 +36,10 @@ export function TrendsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('news');
   const navigate = useNavigate();
 
+  // News state
+  const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
+  const [loadingNews, setLoadingNews] = useState(false);
+
   // Clinical trials state
   const [clinicalTrials, setClinicalTrials] = useState<any[]>([]);
   const [loadingTrials, setLoadingTrials] = useState(false);
@@ -65,12 +48,47 @@ export function TrendsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Fetch news when component mounts or tab changes to news
+  useEffect(() => {
+    if (activeTab === 'news') {
+      if (newsItems.length === 0) {
+        fetchNews();
+      }
+    }
+  }, [activeTab]);
+
   // Fetch clinical trials when tab is activated
   useEffect(() => {
     if (activeTab === 'clinical-trials' && clinicalTrials.length === 0) {
       fetchClinicalTrials(1);
     }
   }, [activeTab]);
+
+  const fetchNews = async () => {
+    setLoadingNews(true);
+    try {
+      const response = await fetch('/api/trends/news', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          limit: 10,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch news');
+      }
+
+      const data = await response.json();
+      setNewsItems(data.news);
+    } catch (error) {
+      console.error('Error fetching news:', error);
+    } finally {
+      setLoadingNews(false);
+    }
+  };
 
   const fetchClinicalTrials = async (page: number) => {
     setLoadingTrials(true);
@@ -201,28 +219,66 @@ export function TrendsPage() {
         {/* News Tab Content */}
         {activeTab === 'news' && (
           <div className="space-y-4">
-            {newsItems.map((news) => (
-              <div
-                key={news.id}
-                onClick={() => navigate(`/news/detail/${news.id}`)}
-                className="bg-white rounded-[16px] overflow-hidden cursor-pointer transition-shadow hover:shadow-lg relative flex flex-col md:flex-row"
-                style={{
-                  boxShadow: '0px 2px 8px 0px rgba(0,0,0,0.08)',
-                  minHeight: '180px'
-                }}
-              >
-                {/* Image Section */}
-                <div className="relative w-full md:w-[160px] h-[160px] md:h-auto flex-shrink-0">
-                   <ImageWithFallback
-                      src={news.image}
+            {/* Loading State */}
+            {loadingNews ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="animate-spin mb-4" size={48} color="#00C9B7" />
+                <p className="text-[#9CA3AF]" style={{ fontFamily: 'Noto Sans KR, sans-serif' }}>
+                  새소식을 불러오는 중...
+                </p>
+              </div>
+            ) : newsItems.length > 0 ? (
+              newsItems.map((news) => (
+                <div
+                  key={news.id}
+                  onClick={() => {
+                    if (news.url) {
+                      window.open(news.url, '_blank');
+                    }
+                  }}
+                  className="bg-white rounded-[16px] overflow-hidden cursor-pointer transition-shadow hover:shadow-lg relative flex flex-col md:flex-row border"
+                  style={{
+                    boxShadow: '0px 2px 8px 0px rgba(0,0,0,0.08)',
+                    minHeight: '180px',
+                    borderColor: '#E0E0E0'
+                  }}
+                >
+                  {/* Image Section - always show */}
+                  <div className="relative w-full md:w-[200px] h-[180px] md:h-auto flex-shrink-0">
+                    <ImageWithFallback
+                      src={news.image || 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=400&h=250&fit=crop'}
                       alt={news.title}
                       className="w-full h-full object-cover"
-                   />
-                </div>
+                    />
+                  </div>
 
-                {/* Content Section */}
-                <div className="flex-1 p-4 md:p-5 md:pl-6 flex flex-col justify-between">
-                   <div className="flex-1">
+                  {/* Content Section */}
+                  <div className="flex-1 p-4 md:p-5 md:pl-6 flex flex-col justify-between">
+                    <div className="flex-1">
+                      {/* Category Badge */}
+                      {news.category && (
+                        <span
+                          className="inline-block px-2 py-1 rounded text-xs mb-2"
+                          style={{
+                            backgroundColor:
+                              news.category === 'policy' ? '#EFF6FF' :
+                              news.category === 'nutrition' ? '#FEF3C7' :
+                              news.category === 'medical' ? '#F0FDF4' :
+                              '#F3F4F6',
+                            color:
+                              news.category === 'policy' ? '#1E40AF' :
+                              news.category === 'nutrition' ? '#92400E' :
+                              news.category === 'medical' ? '#15803D' :
+                              '#4B5563',
+                            fontFamily: 'Noto Sans KR, sans-serif'
+                          }}
+                        >
+                          {news.category === 'policy' ? '정책' :
+                           news.category === 'nutrition' ? '영양' :
+                           news.category === 'medical' ? '의료' : '뉴스'}
+                        </span>
+                      )}
+
                       {/* Title */}
                       <h4
                         className="font-bold text-black mb-2 line-clamp-2"
@@ -236,31 +292,59 @@ export function TrendsPage() {
                       </h4>
 
                       {/* Description */}
-                      <p
-                        className="text-[#272727] line-clamp-3"
-                        style={{
-                          fontSize: '13px',
-                          lineHeight: '19px',
-                          fontFamily: 'Noto Sans KR, sans-serif'
-                        }}
-                      >
-                        {news.description}
-                      </p>
-                   </div>
+                      {news.description && news.description.trim() && (
+                        <p
+                          className="text-[#272727] line-clamp-2 mb-2"
+                          style={{
+                            fontSize: '13px',
+                            lineHeight: '19px',
+                            fontFamily: 'Noto Sans KR, sans-serif'
+                          }}
+                        >
+                          {news.description}
+                        </p>
+                      )}
 
-                   {/* Footer */}
-                   <div className="flex items-center justify-between mt-3 pt-2">
+                      {/* Keywords */}
+                      {news.keywords && news.keywords.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {news.keywords.slice(0, 3).map((keyword, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded-full text-xs"
+                              style={{
+                                backgroundColor: '#F3F4F6',
+                                color: '#6B7280',
+                                fontFamily: 'Noto Sans KR, sans-serif'
+                              }}
+                            >
+                              #{keyword}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between mt-3 pt-2 border-t" style={{ borderColor: '#E0E0E0' }}>
                       <p
                         className="text-[#777777]"
-                        style={{ fontSize: '11px' }}
+                        style={{ fontSize: '11px', fontFamily: 'Noto Sans KR, sans-serif' }}
                       >
                         {news.source} | {news.time}
                       </p>
                       <Bookmark size={20} color="#CCCCCC" strokeWidth={1.4} />
-                   </div>
+                    </div>
+                  </div>
                 </div>
+              ))
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-[#9CA3AF]" style={{ fontFamily: 'Noto Sans KR, sans-serif' }}>
+                  새소식을 찾을 수 없습니다.
+                </p>
               </div>
-            ))}
+            )}
           </div>
         )}
         

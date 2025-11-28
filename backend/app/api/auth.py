@@ -234,6 +234,11 @@ async def signup(user: UserCreate):
         "username": user.email.split("@")[0],  # 이메일에서 username 생성
         "profile": user.profile,
         "role": user.role,
+        "gender": getattr(user, 'gender', None),
+        "birth_date": getattr(user, 'birth_date', None),
+        "height": getattr(user, 'height', None),
+        "weight": getattr(user, 'weight', None),
+        "diagnosis": getattr(user, 'diagnosis', None),
         "created_at": datetime.utcnow()
     }
     result = await users_collection.insert_one(user_doc)

@@ -18,6 +18,7 @@ from Agent.trend_visualization.agent import TrendVisualizationAgent
 from app.services.summarization import PaperSummarizationService
 from Agent.api.pubmed_client import PubMedClient
 from Agent.core.contracts import AgentRequest
+from app.services.news_scraper import NewsScraperService
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/api/trends", tags=["trends"])
 trend_agent = TrendVisualizationAgent()
 summarization_service = PaperSummarizationService()
 pubmed_client = PubMedClient()
+news_scraper = NewsScraperService()
 
 
 # ==================== Request Models ====================
@@ -91,6 +93,11 @@ class TranslateRequest(BaseModel):
     """Request for abstract translation"""
     papers: List[Dict[str, Any]] = Field(..., description="List of papers to translate")
     target_language: str = Field("ko", description="Target language code")
+
+
+class NewsRequest(BaseModel):
+    """Request for news articles"""
+    limit: int = Field(20, ge=1, le=50, description="Maximum number of news items (1-50)")
 
 
 # ==================== API Endpoints ====================
@@ -358,6 +365,37 @@ async def translate_abstracts(request: TranslateRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/news")
+async def get_news(request: NewsRequest) -> Dict[str, Any]:
+    """
+    Get filtered kidney disease news from multiple sources
+
+    Returns:
+        - List of news items with metadata (title, description, source, etc.)
+        - Total count
+        - Keywords used for filtering
+    """
+    try:
+        logger.info(f"News request: limit={request.limit}")
+
+        news_items = await news_scraper.get_all_news(limit=request.limit)
+
+        return {
+            'news': news_items,
+            'total': len(news_items),
+            'sources': ['NewsAPI', '뉴스와이어', '보건의료연합신문', '보건복지부', '질병관리청', '식품의약품안전처'],
+            'keywords': {
+                'ckd': news_scraper.CKD_KEYWORDS,
+                'welfare': news_scraper.WELFARE_KEYWORDS
+            },
+            'status': 'success'
+        }
+
+    except Exception as e:
+        logger.error(f"News retrieval error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== Health Check ====================
 
 @router.get("/health")
@@ -369,7 +407,8 @@ async def health_check():
         "components": {
             "trend_agent": "ready",
             "summarization_service": "ready",
-            "pubmed_client": "ready"
+            "pubmed_client": "ready",
+            "news_scraper": "ready"
         }
     }
 

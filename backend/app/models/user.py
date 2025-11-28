@@ -10,6 +10,11 @@ class UserCreate(BaseModel):
     name: str
     profile: ProfileType = "general"  # Default to "general"
     role: Literal["user", "admin"] = "user"  # Default: user
+    gender: Optional[str] = None
+    birth_date: Optional[str] = None
+    height: Optional[float] = None
+    weight: Optional[float] = None
+    diagnosis: Optional[str] = None
 
     @field_validator('profile')
     @classmethod
@@ -19,6 +24,19 @@ class UserCreate(BaseModel):
         if v not in valid_profiles:
             raise ValueError(f"Profile must be one of: {', '.join(valid_profiles)}")
         return v
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    profile: Optional[str] = None  # "general", "patient", "researcher"
+    gender: Optional[str] = None
+    birth_date: Optional[str] = None
+    height: Optional[float] = None
+    weight: Optional[float] = None
+    diagnosis: Optional[str] = None
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
 
 class UserResponse(BaseModel):
     """
@@ -33,6 +51,11 @@ class UserResponse(BaseModel):
     nickname: Optional[str] = None  # User nickname (defaults to name if not set)
     profile_image: Optional[str] = None  # Profile image URL
     parlant_customer_id: Optional[str] = None  # Parlant customer ID for session management
+    gender: Optional[str] = None
+    birth_date: Optional[str] = None
+    height: Optional[float] = None
+    weight: Optional[float] = None
+    diagnosis: Optional[str] = None
 
 class ProfileUpdateRequest(BaseModel):
     """Request model for updating user profile type"""

@@ -8,12 +8,40 @@ export function LoginPage(props: { onLogin?: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock login - navigate to chat
-    localStorage.setItem('isLoggedIn', 'true');
-    if (props.onLogin) props.onLogin();
-    navigate('/chat');
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '로그인 실패');
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('isLoggedIn', 'true');
+        // Store user info if needed, but token is most important
+        localStorage.setItem('user', JSON.stringify(data.user));
+
+        if (props.onLogin) props.onLogin();
+        navigate('/chat');
+      } else {
+        throw new Error(data.message || '로그인 실패');
+      }
+    } catch (error) {
+      console.error('Login failed', error);
+      alert(error instanceof Error ? error.message : '로그인에 실패했습니다.');
+    }
   };
 
   return (
@@ -44,8 +72,8 @@ export function LoginPage(props: { onLogin?: () => void }) {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label 
-                htmlFor="email" 
+              <label
+                htmlFor="email"
                 className="block mb-2"
                 style={{ fontSize: '14px', color: '#374151' }}
               >
