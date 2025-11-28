@@ -9,6 +9,8 @@ import json
 from typing import Dict, Any, Optional, List
 from openai import AsyncOpenAI
 from ..base_agent import BaseAgent
+from ..core.types import AgentType
+from ..core.agent_registry import AgentRegistry
 from .prompts import (
     NUTRITION_SYSTEM_PROMPT,
     IMAGE_CLASSIFICATION_PROMPT,
@@ -50,6 +52,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@AgentRegistry.register("nutrition")
 class NutritionAgent(BaseAgent):
     """영양 관리 Agent - CKD 환자 맞춤형 식단 분석 (5가지 이미지 케이스 완벽 지원)"""
 
@@ -67,6 +70,28 @@ class NutritionAgent(BaseAgent):
 
         # 멀티턴 대화 상태 저장 (session_id -> state)
         self.conversation_states = {}
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """에이전트 메타데이터"""
+        return {
+            "name": "nutrition",
+            "description": "CKD 환자 맞춤형 영양 관리 및 식단 분석 에이전트",
+            "version": "2.0.0",
+            "capabilities": [
+                "image_analysis",
+                "nutrition_lookup",
+                "recipe_recommendation",
+                "alternative_ingredient",
+                "multi_turn_conversation"
+            ],
+            "supported_profiles": ["general", "patient", "researcher"]
+        }
+
+    @property
+    def execution_type(self) -> AgentType:
+        """에이전트 실행 타입"""
+        return AgentType.LOCAL
 
     async def _ensure_client(self):
         """OpenAI 클라이언트 lazy initialization"""
@@ -112,21 +137,23 @@ class NutritionAgent(BaseAgent):
 
     async def process(
         self,
-        user_input: str,
-        session_id: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        request: "AgentRequest"
+    ) -> "AgentResponse":
         """
         영양 분석 처리 - 5가지 이미지 케이스 완벽 지원
 
         Args:
-            user_input: 사용자 입력 (음식명 또는 질문)
-            session_id: 세션 ID
-            context: 추가 컨텍스트 (image_data 포함 가능)
+            request: AgentRequest containing query, session_id, context
 
         Returns:
-            Dict[str, Any]: 영양 분석 결과
+            AgentResponse: 통일된 응답 형식
         """
+        from ..core.contracts import AgentRequest, AgentResponse
+
+        # Extract fields from AgentRequest
+        user_input = request.query
+        session_id = request.session_id
+        context = request.context
         # Ensure clients initialized
         try:
             await self._ensure_client()
@@ -169,27 +196,29 @@ class NutritionAgent(BaseAgent):
                     user_input, session_id, conv_state, user_profile
                 )
 
-            return {
-                "response": result["response"],
-                "type": "nutrition_analysis",
-                "nutritionData": result.get("nutritionData"),
-                "dishCandidates": result.get("dishCandidates"),
-                "ingredientCandidates": result.get("ingredientCandidates"),
-                "recommendedDishes": result.get("recommendedDishes"),
-                "analysisType": result.get("analysisType"),
-                "tokens_used": tokens_used,
-                "status": "success",
-                "agent_type": self.agent_type,
-                "metadata": {
+            return AgentResponse(
+                answer=result["response"],
+                sources=[],
+                papers=[],
+                tokens_used=tokens_used,
+                status="success",
+                agent_type=self.agent_type,
+                metadata={
                     "session_id": session_id,
                     "has_image": has_image,
-                    "conversation_state": conv_state["state"]
+                    "conversation_state": conv_state["state"],
+                    "type": "nutrition_analysis",
+                    "nutrition_data": result.get("nutritionData"),
+                    "dish_candidates": result.get("dishCandidates"),
+                    "ingredient_candidates": result.get("ingredientCandidates"),
+                    "recommended_dishes": result.get("recommendedDishes"),
+                    "analysis_type": result.get("analysisType")
                 }
-            }
+            )
 
         except Exception as e:
             logger.error(f"Nutrition analysis error: {e}", exc_info=True)
-            return self._error_response(str(e), session_id)
+            return self._error_response_as_agent_response(str(e), session_id)
 
     async def _handle_image_upload(
         self,
@@ -1136,7 +1165,7 @@ class NutritionAgent(BaseAgent):
             return {}
 
     def _error_response(self, error_msg: str, session_id: str) -> Dict[str, Any]:
-        """에러 응답 생성"""
+        """에러 응답 생성 (Dict 형태)"""
         return {
             "response": f"영양 분석 중 오류가 발생했습니다: {error_msg}",
             "type": "error",
@@ -1149,6 +1178,24 @@ class NutritionAgent(BaseAgent):
                 "error": error_msg
             }
         }
+
+    def _error_response_as_agent_response(self, error_msg: str, session_id: str) -> "AgentResponse":
+        """에러 응답 생성 (AgentResponse 형태)"""
+        from ..core.contracts import AgentResponse
+        return AgentResponse(
+            answer=f"영양 분석 중 오류가 발생했습니다: {error_msg}",
+            sources=[],
+            papers=[],
+            tokens_used=0,
+            status="error",
+            agent_type=self.agent_type,
+            metadata={
+                "session_id": session_id,
+                "error": error_msg,
+                "type": "error",
+                "nutrition_data": None
+            }
+        )
 
     def estimate_context_usage(self, user_input: str) -> int:
         """

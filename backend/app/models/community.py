@@ -94,7 +94,9 @@ class PostCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200, description="Post title")
     content: str = Field(..., min_length=1, description="Post content")
     postType: PostType = Field(..., description="Type of post")
-    imageUrls: List[str] = Field(default=[], description="List of image URLs to attach")
+    imageUrls: List[str] = Field(default=[], description="List of image URLs to attach (max 5)")
+    isAnonymous: bool = Field(default=False, description="Whether to post anonymously")
+    anonymousId: Optional[str] = Field(None, description="Client-side anonymous ID for consistent identification")
 
 
 class PostUpdate(BaseModel):
@@ -108,6 +110,8 @@ class CommentCreate(BaseModel):
     """Request model for creating a new comment"""
     postId: str = Field(..., description="ID of the post to comment on")
     content: str = Field(..., min_length=1, max_length=500, description="Comment content")
+    isAnonymous: Optional[bool] = Field(False, description="Whether to post comment anonymously (for logged-in users)")
+    anonymousId: Optional[str] = Field(None, description="Client-side anonymous ID for consistent anonymous numbering")
 
 
 class CommentUpdate(BaseModel):

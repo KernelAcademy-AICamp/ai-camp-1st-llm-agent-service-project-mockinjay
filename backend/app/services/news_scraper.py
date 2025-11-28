@@ -14,6 +14,8 @@ from urllib.parse import urljoin, quote
 import asyncio
 import os
 
+logger = logging.getLogger(__name__)
+
 try:
     from deep_translator import GoogleTranslator
     from langdetect import detect, LangDetectException
@@ -21,8 +23,6 @@ try:
 except ImportError:
     TRANSLATION_AVAILABLE = False
     logger.warning("Translation libraries not available. Install: pip install deep-translator langdetect")
-
-logger = logging.getLogger(__name__)
 
 
 class NewsScraperService:

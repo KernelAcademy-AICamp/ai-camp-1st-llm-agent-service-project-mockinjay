@@ -2,41 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { MobileHeader } from '../components/MobileHeader';
 
-// Mock data - 실제로는 API에서 가져와야 함
-const mockRecords = [
-  {
-    id: 1,
-    date: '2025-02-20',
-    hospital: '서울대학병원',
-    creatinine: 1.2,
-    gfr: 65,
-    potassium: 4.2,
-    phosphorus: 3.8,
-    hemoglobin: 12.5,
-    albumin: 4.0,
-    pth: 45,
-    hco3: 24,
-    memo: '수치가 조금 좋아졌다.'
-  },
-  {
-    id: 2,
-    date: '2025-01-15',
-    hospital: '신촌세브란스',
-    creatinine: 1.4,
-    gfr: 58,
-    potassium: 4.5,
-    phosphorus: 4.1,
-    hemoglobin: 11.8,
-    albumin: 3.9,
-    pth: 52,
-    hco3: 22,
-    memo: ''
-  }
-];
-
 export function HealthRecordEditPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const [loading, setLoading] = useState(true);
 
   const [formData, setFormData] = useState({
     date: '',
@@ -53,33 +22,113 @@ export function HealthRecordEditPage() {
   });
 
   useEffect(() => {
-    // TODO: API에서 데이터 가져오기
-    const record = mockRecords.find(r => r.id === Number(id));
-    if (record) {
-      setFormData({
-        date: record.date,
-        hospital: record.hospital,
-        creatinine: record.creatinine.toString(),
-        gfr: record.gfr.toString(),
-        potassium: record.potassium?.toString() || '',
-        phosphorus: record.phosphorus?.toString() || '',
-        hemoglobin: record.hemoglobin?.toString() || '',
-        albumin: record.albumin?.toString() || '',
-        pth: record.pth?.toString() || '',
-        hco3: record.hco3?.toString() || '',
-        memo: record.memo
-      });
-    }
+    fetchRecord();
   }, [id]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const fetchRecord = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+
+      const response = await fetch('/api/health-records/', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const records = await response.json();
+        const record = records.find((r: any) => r.id === id);
+
+        if (record) {
+          setFormData({
+            date: record.date,
+            hospital: record.hospital,
+            creatinine: record.creatinine?.toString() || '',
+            gfr: record.gfr?.toString() || '',
+            potassium: record.potassium?.toString() || '',
+            phosphorus: record.phosphorus?.toString() || '',
+            hemoglobin: record.hemoglobin?.toString() || '',
+            albumin: record.albumin?.toString() || '',
+            pth: record.pth?.toString() || '',
+            hco3: record.hco3?.toString() || '',
+            memo: record.memo || ''
+          });
+        } else {
+          alert('기록을 찾을 수 없습니다.');
+          navigate('/mypage/test-results');
+        }
+      } else if (response.status === 401) {
+        navigate('/login');
+      }
+    } catch (error) {
+      console.error('Failed to fetch health record', error);
+      alert('기록을 불러오는데 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // TODO: Backend API 연동
-    // await fetch(`/api/health-records/${id}`, { method: 'PUT', body: formData });
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('로그인이 필요합니다.');
+        navigate('/login');
+        return;
+      }
 
-    navigate('/mypage/test-results');
+      const payload = {
+        date: formData.date,
+        hospital: formData.hospital || '미입력',
+        creatinine: parseFloat(formData.creatinine) || 0,
+        gfr: parseFloat(formData.gfr) || 0,
+        potassium: formData.potassium ? parseFloat(formData.potassium) : null,
+        phosphorus: formData.phosphorus ? parseFloat(formData.phosphorus) : null,
+        hemoglobin: formData.hemoglobin ? parseFloat(formData.hemoglobin) : null,
+        albumin: formData.albumin ? parseFloat(formData.albumin) : null,
+        pth: formData.pth ? parseFloat(formData.pth) : null,
+        hco3: formData.hco3 ? parseFloat(formData.hco3) : null,
+        memo: formData.memo || null
+      };
+
+      const response = await fetch(`/api/health-records/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        alert('수정되었습니다.');
+        navigate('/mypage/test-results');
+      } else {
+        const error = await response.json();
+        alert(`수정 실패: ${error.detail || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Failed to update health record', error);
+      alert('오류가 발생했습니다.');
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-screen bg-white">
+        <MobileHeader title="기록 수정" />
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-gray-500">로딩 중...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -94,7 +143,7 @@ export function HealthRecordEditPage() {
               type="date"
               required
               value={formData.date}
-              onChange={(e) => setFormData({...formData, date: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
               className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7] bg-white"
             />
           </div>
@@ -106,7 +155,7 @@ export function HealthRecordEditPage() {
               type="text"
               placeholder="병원 이름을 입력하세요"
               value={formData.hospital}
-              onChange={(e) => setFormData({...formData, hospital: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, hospital: e.target.value })}
               className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
             />
           </div>
@@ -120,7 +169,7 @@ export function HealthRecordEditPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={formData.creatinine}
-                onChange={(e) => setFormData({...formData, creatinine: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, creatinine: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -130,7 +179,7 @@ export function HealthRecordEditPage() {
                 type="number"
                 placeholder="0"
                 value={formData.gfr}
-                onChange={(e) => setFormData({...formData, gfr: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, gfr: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -141,7 +190,7 @@ export function HealthRecordEditPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={formData.potassium}
-                onChange={(e) => setFormData({...formData, potassium: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, potassium: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -152,7 +201,7 @@ export function HealthRecordEditPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={formData.phosphorus}
-                onChange={(e) => setFormData({...formData, phosphorus: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, phosphorus: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -163,7 +212,7 @@ export function HealthRecordEditPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={formData.hemoglobin}
-                onChange={(e) => setFormData({...formData, hemoglobin: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, hemoglobin: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -174,7 +223,7 @@ export function HealthRecordEditPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={formData.albumin}
-                onChange={(e) => setFormData({...formData, albumin: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, albumin: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -185,7 +234,7 @@ export function HealthRecordEditPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={formData.pth}
-                onChange={(e) => setFormData({...formData, pth: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, pth: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -196,7 +245,7 @@ export function HealthRecordEditPage() {
                 step="0.01"
                 placeholder="0.00"
                 value={formData.hco3}
-                onChange={(e) => setFormData({...formData, hco3: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, hco3: e.target.value })}
                 className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7]"
               />
             </div>
@@ -209,7 +258,7 @@ export function HealthRecordEditPage() {
               rows={3}
               placeholder="특이사항을 입력하세요"
               value={formData.memo}
-              onChange={(e) => setFormData({...formData, memo: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
               className="w-full p-4 rounded-xl border border-[#E0E0E0] outline-none focus:border-[#00C9B7] resize-none"
             />
           </div>

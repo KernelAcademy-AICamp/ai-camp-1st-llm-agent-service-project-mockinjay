@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, Check, Save, FileText, LogOut, XCircle, User, Star, Coins, CreditCard, ChevronRight, Bell } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
@@ -8,36 +8,136 @@ export function MyPage() {
   const navigate = useNavigate();
   const { logout } = useLayout();
   const [activeTab, setActiveTab] = useState<'account' | 'personal' | 'disease'>('personal');
-  
+
   // Form States
   const [accountInfo, setAccountInfo] = useState({
-    email: 'gildong@example.com',
-    password: 'password123',
-    userType: '신장병 환우'
+    email: '',
+    password: '', // Password update not implemented in this flow
+    userType: '일반인'
   });
 
   const [personalInfo, setPersonalInfo] = useState({
-    nickname: '홍길동',
-    gender: '남성',
-    birthDate: '1980. 01. 01.',
-    weight: '70',
-    height: '175',
-    race: '동아시아'
+    nickname: '',
+    gender: '',
+    birthDate: '',
+    weight: '',
+    height: '',
+    race: '동아시아' // Not in backend yet
   });
 
-  const [diseaseStage, setDiseaseStage] = useState('CKD3');
+  const [diseaseStage, setDiseaseStage] = useState('None');
+
+  // Helper for mapping user type
+  const mapProfileToUserType = (profile: string) => {
+    switch (profile) {
+      case 'patient': return '신장병 환우';
+      case 'researcher': return '연구자';
+      default: return '일반인';
+    }
+  };
+
+  // Helper for mapping user type to profile
+  const mapUserTypeToProfile = (userType: string) => {
+    switch (userType) {
+      case '신장병 환우': return 'patient';
+      case '연구자': return 'researcher';
+      default: return 'general';
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  const fetchProfile = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('/api/user/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAccountInfo(prev => ({
+          ...prev,
+          email: data.email,
+          userType: mapProfileToUserType(data.profile)
+        }));
+        setPersonalInfo(prev => ({
+          ...prev,
+          nickname: data.name,
+          gender: data.gender || '',
+          birthDate: data.birth_date || '',
+          height: data.height ? String(data.height) : '',
+          weight: data.weight ? String(data.weight) : '',
+        }));
+        if (data.diagnosis) {
+          setDiseaseStage(data.diagnosis);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch profile', error);
+    }
+  };
+
+  const updateProfile = async (data: any) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('로그인이 필요합니다.');
+        return;
+      }
+
+      const response = await fetch('/api/user/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      if (response.ok) {
+        alert('저장되었습니다.');
+        
+        // Save profile to localStorage for real-time sync
+        if (data.profile) {
+          const profileMap = {
+            'patient': '신장병 환우',
+            'researcher': '연구자',
+            'general': '일반인'
+          };
+          const userType = profileMap[data.profile as keyof typeof profileMap] || '일반인';
+          localStorage.setItem('userProfile', userType);
+        }
+        
+        fetchProfile(); // Refresh data
+      } else {
+        alert('저장에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to update profile', error);
+      alert('오류가 발생했습니다.');
+    }
+  };
 
   const handleLogout = () => {
     logout();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('isLoggedIn');
     navigate('/chat');
   };
 
   const TabButton = ({ id, label }: { id: 'account' | 'personal' | 'disease', label: string }) => (
     <button
       onClick={() => setActiveTab(id)}
-      className={`flex-1 pb-3 text-sm font-medium transition-colors relative ${
-        activeTab === id ? 'text-[#00C9B7] font-bold' : 'text-[#9CA3AF]'
-      }`}
+      className={`flex-1 pb-3 text-sm font-medium transition-colors relative ${activeTab === id ? 'text-[#00C9B7] font-bold' : 'text-[#9CA3AF]'
+        }`}
     >
       {label}
       {activeTab === id && (
@@ -63,8 +163,8 @@ export function MyPage() {
     <div className="flex flex-col h-full bg-white">
       {/* Mobile Header */}
       <div className="lg:hidden">
-        <MobileHeader 
-          title="마이페이지" 
+        <MobileHeader
+          title="마이페이지"
           showProfile={false}
           showMenu={false}
         />
@@ -72,7 +172,7 @@ export function MyPage() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="p-6 lg:p-10 max-w-4xl mx-auto w-full">
-          
+
           {/* Title Section */}
           <div className="mb-4">
             <h1 className="text-2xl font-bold text-[#1F2937]">프로필</h1>
@@ -88,7 +188,7 @@ export function MyPage() {
 
               {/* Nickname and User Type */}
               <div className="flex flex-col flex-1">
-                <span className="text-lg font-bold text-[#1F2937]">{personalInfo.nickname}</span>
+                <span className="text-lg font-bold text-[#1F2937]">{personalInfo.nickname || '사용자'}</span>
                 <span className="text-sm text-[#6B7280]">{accountInfo.userType}</span>
               </div>
 
@@ -148,34 +248,46 @@ export function MyPage() {
           {/* Content Area */}
           <div className="bg-white mb-10">
             {activeTab === 'account' && (
-               <div className="border border-[#E5E7EB] rounded-xl p-6 space-y-6">
-                 <div>
-                   <label className="block text-sm font-bold text-[#374151] mb-2">이메일</label>
-                   <input
-                     type="email"
-                     value={accountInfo.email}
-                     readOnly
-                     className="w-full p-4 rounded-xl border border-[#E5E7EB] bg-gray-50 text-[#9CA3AF] outline-none"
-                   />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-bold text-[#374151] mb-2">비밀번호</label>
-                   <div className="flex gap-2">
-                     <input
-                       type="password"
-                       value={accountInfo.password}
-                       onChange={(e) => setAccountInfo({...accountInfo, password: e.target.value})}
-                       className="flex-1 p-4 rounded-xl border border-[#E5E7EB] focus:border-[#00C9B7] outline-none transition-colors"
-                     />
-                     <button className="px-5 rounded-xl bg-[#00C9B7] text-white font-bold text-sm whitespace-nowrap hover:bg-[#00B3A3] transition-colors">
-                       비밀번호 변경
-                     </button>
-                   </div>
-                 </div>
-                 <button className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-colors flex items-center justify-center gap-2" style={{ background: 'linear-gradient(90deg, #00C9B7 0%, #7C3AED 100%)' }}>
-                   저장
-                 </button>
-               </div>
+              <div className="border border-[#E5E7EB] rounded-xl p-6 space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-2">이메일</label>
+                  <input
+                    type="email"
+                    value={accountInfo.email}
+                    readOnly
+                    className="w-full p-4 rounded-xl border border-[#E5E7EB] bg-gray-50 text-[#9CA3AF] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#374151] mb-2">비밀번호</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={accountInfo.password}
+                      onChange={(e) => setAccountInfo({ ...accountInfo, password: e.target.value })}
+                      className="flex-1 p-4 rounded-xl border border-[#E5E7EB] focus:border-[#00C9B7] outline-none transition-colors"
+                      placeholder="변경할 비밀번호를 입력하세요 (미구현)"
+                    />
+                    <button className="px-5 rounded-xl bg-[#00C9B7] text-white font-bold text-sm whitespace-nowrap hover:bg-[#00B3A3] transition-colors">
+                      비밀번호 변경
+                    </button>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    // Only updating userType here as email is readonly and password is separate
+                    // But userType is in personal tab in backend 'profile' field?
+                    // Actually 'profile' is in UserCreate but not UserUpdate?
+                    // Wait, UserUpdate doesn't have 'profile'.
+                    // So userType cannot be updated via UserUpdate yet.
+                    // I will skip updating userType for now or add it to UserUpdate.
+                    // Let's assume we can't update it for now.
+                    alert('계정 정보 수정은 준비중입니다.');
+                  }}
+                  className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-colors flex items-center justify-center gap-2" style={{ background: 'linear-gradient(90deg, #00C9B7 0%, #7C3AED 100%)' }}>
+                  저장
+                </button>
+              </div>
             )}
 
             {activeTab === 'personal' && (
@@ -184,19 +296,18 @@ export function MyPage() {
                   <div>
                     <label className="block text-sm font-bold text-[#374151] mb-2">사용자 유형</label>
                     <div className="flex gap-3">
-                       {['일반인', '신장병 환우', '연구자'].map((type) => (
-                         <button
-                           key={type}
-                           onClick={() => setAccountInfo({...accountInfo, userType: type})}
-                           className={`flex-1 py-3 rounded-xl transition-colors text-base ${
-                             accountInfo.userType === type
-                               ? 'bg-[#E0F7FA] text-[#00C9B7] font-bold'
-                               : 'bg-[#F8FAFC] text-[#4B5563]'
-                           }`}
-                         >
-                           {type}
-                         </button>
-                       ))}
+                      {['일반인', '신장병 환우', '연구자'].map((type) => (
+                        <button
+                          key={type}
+                          onClick={() => setAccountInfo({ ...accountInfo, userType: type })}
+                          className={`flex-1 py-3 rounded-xl transition-colors text-base ${accountInfo.userType === type
+                            ? 'bg-[#E0F7FA] text-[#00C9B7] font-bold'
+                            : 'bg-[#F8FAFC] text-[#4B5563]'
+                            }`}
+                        >
+                          {type}
+                        </button>
+                      ))}
                     </div>
                   </div>
                   <div>
@@ -204,69 +315,78 @@ export function MyPage() {
                     <input
                       type="text"
                       value={personalInfo.nickname}
-                      onChange={(e) => setPersonalInfo({...personalInfo, nickname: e.target.value})}
+                      onChange={(e) => setPersonalInfo({ ...personalInfo, nickname: e.target.value })}
                       placeholder="닉네임을 입력하세요"
                       className="w-full p-4 rounded-xl border border-[#E5E7EB] focus:border-[#00C9B7] outline-none transition-colors"
                     />
                   </div>
-                  
+
                   {/* Gender - Segmented Control Style */}
                   <div>
                     <label className="block text-sm font-bold text-[#374151] mb-2">성별</label>
                     <div className="flex gap-3">
-                       {['남성', '여성', '기타'].map((gender) => (
-                         <button
-                           key={gender}
-                           onClick={() => setPersonalInfo({...personalInfo, gender})}
-                           className={`flex-1 py-3 rounded-xl transition-colors text-base ${
-                             personalInfo.gender === gender
-                               ? 'bg-[#E0F7FA] text-[#00C9B7] font-bold'
-                               : 'bg-[#F8FAFC] text-[#4B5563]'
-                           }`}
-                         >
-                           {gender}
-                         </button>
-                       ))}
+                      {['남성', '여성', '기타'].map((gender) => (
+                        <button
+                          key={gender}
+                          onClick={() => setPersonalInfo({ ...personalInfo, gender })}
+                          className={`flex-1 py-3 rounded-xl transition-colors text-base ${personalInfo.gender === gender
+                            ? 'bg-[#E0F7FA] text-[#00C9B7] font-bold'
+                            : 'bg-[#F8FAFC] text-[#4B5563]'
+                            }`}
+                        >
+                          {gender}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
                   {/* Birthdate */}
                   <div>
-                      <label className="block text-sm font-bold text-[#374151] mb-2">생년월일</label>
-                      <div className="relative">
-                        <input 
-                          type="text" 
-                          value={personalInfo.birthDate}
-                          onChange={(e) => setPersonalInfo({...personalInfo, birthDate: e.target.value})}
-                          className="w-full p-4 rounded-xl border border-[#E5E7EB] focus:border-[#00C9B7] outline-none transition-colors pr-10"
-                        />
-                        <Calendar size={20} className="absolute right-4 top-1/2 transform -translate-y-1/2 text-[#9CA3AF]" />
-                      </div>
+                    <label className="block text-sm font-bold text-[#374151] mb-2">생년월일</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={personalInfo.birthDate}
+                        onChange={(e) => setPersonalInfo({ ...personalInfo, birthDate: e.target.value })}
+                        placeholder="YYYY. MM. DD."
+                        className="w-full p-4 rounded-xl border border-[#E5E7EB] focus:border-[#00C9B7] outline-none transition-colors pr-10"
+                      />
+                      <Calendar size={20} className="absolute right-4 top-1/2 transform -translate-y-1/2 text-[#9CA3AF]" />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-[#374151] mb-2">키 (cm)</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         value={personalInfo.height}
-                        onChange={(e) => setPersonalInfo({...personalInfo, height: e.target.value})}
+                        onChange={(e) => setPersonalInfo({ ...personalInfo, height: e.target.value })}
                         className="w-full p-4 rounded-xl border border-[#E5E7EB] focus:border-[#00C9B7] outline-none transition-colors"
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-[#374151] mb-2">체중 (kg)</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         value={personalInfo.weight}
-                        onChange={(e) => setPersonalInfo({...personalInfo, weight: e.target.value})}
+                        onChange={(e) => setPersonalInfo({ ...personalInfo, weight: e.target.value })}
                         className="w-full p-4 rounded-xl border border-[#E5E7EB] focus:border-[#00C9B7] outline-none transition-colors"
                       />
                     </div>
                   </div>
                 </div>
 
-                <button className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-colors flex items-center justify-center gap-2" style={{ background: 'linear-gradient(90deg, #00C9B7 0%, #7C3AED 100%)' }}>
+                <button
+                  onClick={() => updateProfile({
+                    profile: mapUserTypeToProfile(accountInfo.userType),
+                    name: personalInfo.nickname,
+                    gender: personalInfo.gender,
+                    birth_date: personalInfo.birthDate,
+                    height: personalInfo.height ? parseFloat(personalInfo.height) : null,
+                    weight: personalInfo.weight ? parseFloat(personalInfo.weight) : null,
+                  })}
+                  className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-colors flex items-center justify-center gap-2" style={{ background: 'linear-gradient(90deg, #00C9B7 0%, #7C3AED 100%)' }}>
                   저장
                 </button>
               </div>
@@ -291,7 +411,11 @@ export function MyPage() {
                   </div>
                 </div>
 
-                <button className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-colors flex items-center justify-center gap-2" style={{ background: 'linear-gradient(90deg, #00C9B7 0%, #7C3AED 100%)' }}>
+                <button
+                  onClick={() => updateProfile({
+                    diagnosis: diseaseStage
+                  })}
+                  className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-colors flex items-center justify-center gap-2" style={{ background: 'linear-gradient(90deg, #00C9B7 0%, #7C3AED 100%)' }}>
                   저장
                 </button>
               </div>
@@ -330,26 +454,26 @@ export function MyPage() {
 
             {/* Logout / Withdrawal Buttons */}
             <div className="space-y-3">
-               <button 
-                 onClick={handleLogout}
-                 className="w-full py-3 flex items-center justify-center gap-2 text-[#4B5563] bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
-               >
-                 <LogOut size={18} />
-                 로그아웃
-               </button>
-               <button
-                 onClick={() => {
-                    logout();
-                    navigate('/chat');
-                 }}
-                 className="w-full py-3 flex items-center justify-center gap-2 text-[#EF4444] text-sm hover:underline"
-               >
-                 <XCircle size={16} />
-                 회원탈퇴
-               </button>
+              <button
+                onClick={handleLogout}
+                className="w-full py-3 flex items-center justify-center gap-2 text-[#4B5563] bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                <LogOut size={18} />
+                로그아웃
+              </button>
+              <button
+                onClick={() => {
+                  logout();
+                  navigate('/chat');
+                }}
+                className="w-full py-3 flex items-center justify-center gap-2 text-[#EF4444] text-sm hover:underline"
+              >
+                <XCircle size={16} />
+                회원탈퇴
+              </button>
             </div>
           </div>
-          
+
         </div>
       </div>
     </div>

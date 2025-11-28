@@ -1,14 +1,16 @@
 import os
+import sys
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import Optional
-import sys
-from pathlib import Path
-import logging
-from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -17,37 +19,54 @@ load_dotenv()
 backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
 
-from app.db.connection import check_connection
-from app.api.trends import router as trends_router
-from app.api.chat import router as chat_router, close_parlant_server
-from app.api.agent import router as agent_router
-from app.api.community import router as community_router
-from app.api.header import router as header_router
-from app.api.footer import router as footer_router
-from app.api.notification import router as notification_router
+from app.db.connection import Database, check_connection, init_legacy_collections
+from app.db.indexes import create_indexes
+from app.api.chat import close_parlant_server
+from app.api.careguide import router as careguide_router
 from app.api.clinical_trials import router as clinical_trials_router
 from app.api.terms import router as terms_router
+from app.api.diet_care import router as diet_care_router
+from app.api.news import router as news_router
 from app.api.error_handlers import (
     not_found_handler,
     internal_server_error_handler,
     validation_error_handler
 )
+from app.middleware.auth import AuthenticationMiddleware
 from app.api import auth, user
+from app.api import user_health_records
+from app.api.community import router as community_router
+from app.api.header import router as header_router
+from app.api.footer import router as footer_router
+from app.api.notification import router as notification_router
 
-# Import NutritionAgent
+# Import NutritionAgent for nutrition endpoint
 from Agent.nutrition.agent import NutritionAgent
 from Agent.session_manager import SessionManager
 
-logger = logging.getLogger(__name__)
+# Setup logging
+from app.logging_config import setup_logging
+
+logger = setup_logging()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     logger.info("Application starting up...")
+    # Initialize MongoDB connection
+    await Database.connect()
+    # Initialize legacy collection variables for backward compatibility
+    init_legacy_collections()
+    # Create database indexes
+    await create_indexes(Database.db)
+    logger.info("Database initialized with indexes")
+
     yield
+
     # Cleanup on shutdown
     await close_parlant_server()
+    await Database.disconnect()
     logger.info("Application shutting down...")
 
 
@@ -57,37 +76,62 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS 설정
+# Mount static files directory
+uploads_dir = backend_path / "uploads"
+uploads_dir.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+
+# CORS 설정 - 환경변수 기반
+from app.config import settings
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite 개발 서버 (localhost)
-        "http://192.168.129.32:5173",  # Vite 개발 서버 (네트워크 IP)
-    ],
+    allow_origins=settings.cors_origins,  # 환경변수에서 읽어옴
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-CSRF-Token",
+    ],
+    expose_headers=["Content-Length", "X-Request-ID"],
+    max_age=600,  # Preflight 요청 캐시 시간 (초)
 )
 
-# Global instances for nutrition agent
+# Authentication Middleware
+# Note: Add this after CORS middleware
+app.add_middleware(AuthenticationMiddleware)
+
+
+from app.core.context_system import context_system
+session_manager = context_system.session_manager
+
+# Global nutrition agent instance
 nutrition_agent = NutritionAgent()
-session_manager = SessionManager()
+
 
 # Include routers
-app.include_router(chat_router)
-app.include_router(agent_router)
-app.include_router(trends_router)
+# Include CareGuide Master Router (contains all main API routes)
+app.include_router(careguide_router)
+
+# Include additional routers from PR #25
 app.include_router(clinical_trials_router)
 app.include_router(terms_router)
+app.include_router(diet_care_router)
+app.include_router(news_router)
 app.include_router(community_router, prefix="/api/community", tags=["community"])
 app.include_router(auth.router)
 app.include_router(user.router)
+app.include_router(user_health_records.router)
 app.include_router(header_router)
 app.include_router(footer_router)
 app.include_router(notification_router)
 
 # Error handlers (UTI-005)
-app.add_exception_handler(StarletteHTTPException, not_found_handler)
+# app.add_exception_handler(StarletteHTTPException, not_found_handler)  # Removed: This converts all HTTP errors to 404
 app.add_exception_handler(Exception, internal_server_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 
@@ -114,6 +158,8 @@ def test_server_error():
     raise Exception("의도적인 500 에러 테스트")
 
 
+# Session endpoints moved to app.api.session
+# Nutrition analysis endpoint - kept for backward compatibility
 @app.post("/api/session/create")
 async def create_session(user_id: str = "default_user"):
     """새로운 세션 생성"""
