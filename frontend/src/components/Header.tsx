@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Logo } from './Logo';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -8,7 +8,7 @@ interface HeaderProps {
   userType?: '일반인' | '환우' | '연구자';
 }
 
-export function Header({ onMenuClick, isLoggedIn = false, userType }: HeaderProps) {
+export function Header(_: HeaderProps) {
   const [showUserModal, setShowUserModal] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();

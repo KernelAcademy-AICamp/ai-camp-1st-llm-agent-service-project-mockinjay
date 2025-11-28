@@ -1,40 +1,26 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Calendar, X, ChevronDown } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-// Mock Data
-const initialRecords = [
-  {
-    id: 1,
-    date: '2025-02-20',
-    hospital: '서울대학병원',
-    creatinine: 1.2,
-    gfr: 65,
-    potassium: 4.2,
-    phosphorus: 3.8,
-    hemoglobin: 12.5,
-    albumin: 4.0,
-    pth: 45,
-    hco3: 24,
-    memo: '수치가 조금 좋아졌다.'
-  },
-  {
-    id: 2,
-    date: '2025-01-15',
-    hospital: '신촌세브란스',
-    creatinine: 1.4,
-    gfr: 58,
-    potassium: 4.5,
-    phosphorus: 4.1,
-    hemoglobin: 11.8,
-    albumin: 3.9,
-    pth: 52,
-    hco3: 22,
-    memo: ''
-  }
-];
+// TODO: API에서 검진 기록을 가져오도록 구현 필요
+interface HealthRecord {
+  id: number;
+  date: string;
+  hospital: string;
+  creatinine: number;
+  gfr: number;
+  potassium?: number;
+  phosphorus?: number;
+  hemoglobin?: number;
+  albumin?: number;
+  pth?: number;
+  hco3?: number;
+  memo?: string;
+}
+
+const initialRecords: HealthRecord[] = [];
 
 export function HealthRecordsPage() {
   const navigate = useNavigate();

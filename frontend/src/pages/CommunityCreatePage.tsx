@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Image as ImageIcon, X } from 'lucide-react';
-import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 
 export function CommunityCreatePage() {
   const navigate = useNavigate();
   const [category, setCategory] = useState<'자유' | '챌린지' | '설문조사' | '질문' | '정보'>('자유');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [image, setImage] = useState<string>('');
   const [imagePreview, setImagePreview] = useState<string>('');
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

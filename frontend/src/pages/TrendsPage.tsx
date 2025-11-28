@@ -1,504 +1,625 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bookmark, Loader2 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { ImageWithFallback } from '../components/figma/ImageWithFallback';
+/**
+ * TrendsPage
+ * PubMed 기반 연구 트렌드 분석 페이지
+ *
+ * Quick Access Tabs 포함:
+ * - 연구 분석: Step 기반 PubMed 분석
+ * - 뉴스: 신장 질환 관련 뉴스 피드
+ * - 임상시험: ClinicalTrials.gov 기반 임상시험 정보
+ * - 대시보드: 인기 키워드 + 연구 트렌드 차트
+ */
+import React, { useState, useCallback, useMemo } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { TrendingUp, ArrowLeft, AlertCircle, RefreshCw, Search, Newspaper, FlaskConical, BarChart3 } from 'lucide-react';
+import { toast } from 'sonner';
+
+// Hooks
+import { useBookmarks } from '../hooks/useBookmarks';
+
+// Components
+import {
+  QueryBuilder,
+  AnalysisSelector,
+  ChartRenderer,
+  PaperList,
+  SummaryPanel,
+  PaperComparison,
+  NewsFeed,
+  ClinicalTrialsTab,
+  ResearchDashboardContent
+} from '../components/trends';
 import { MobileHeader } from '../components/MobileHeader';
-import { ClinicalTrialCard } from '../components/ClinicalTrialCard';
-import { ClinicalTrialDetailModal } from '../components/ClinicalTrialDetailModal';
 
-type TabType = 'news' | 'dashboard' | 'clinical-trials';
+// API & Types
+import {
+  searchTemporalTrends,
+  searchGeographicTrends,
+  searchMeshDistribution,
+  compareKeywords,
+  summarizePapers,
+  type AnalysisType,
+  type ChartConfig,
+  type PaperResult,
+  type MultiplePaperSummary,
+  type TrendResponse,
+} from '../services/trendsApi';
 
-const newsItems = [
-  {
-    id: '1',
-    title: `2025 미국신장학회 신장주간서 FINE-ONE 3상 연구 결과' 발표`,
-    source: '메디컬헤럴드',
-    time: '2일전',
-    description: 'FINE-ONE 연구 결과, 1형 당뇨병 동반 만성 신장병 성인 환자를 대상으로 표준치료에 피네레논을 추가 투여 시 위약 대비 베이스라인 이후 6개월 간 요-알부민-크레아티닌 비율(UACR)의 유의한 감소 효과를 확인했다. 전 세계 만성신장병(Chronic Kidney Disease, CKD) 성인환자가 8억 명으로 30년새 두 배 이상 증가했다는 분석...',
-    image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400'
-  },
-  {
-    id: '2',
-    title: '전 세계 CKD 성인환자 8억 명',
-    source: '메디컬트리뷴',
-    time: '3일전',
-    description: '전 세계 만성신장병(Chronic Kidney Disease, CKD) 성인환자가 8억 명으로 30년새 두 배 이상 증가했다는 분석 결과가 나왔다.',
-    image: 'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=400'
-  },
-  {
-    id: '3',
-    title: '만성신장병 급여확대 포시가 제네릭은 되고, 자디앙 안된 이유',
-    source: '메디컬헤럴드',
-    time: '2일전',
-    description: 'FINE-ONE 연구 결과, 1형 당뇨병 동반 만성 신장병 성인 환자를 대상으로 표준치료에 피네레논을 추가 투여 시 위약 대비 베이스라인 이후 6개월 간 요-알부민-크레아티닌 비율(UACR)의 유의한 감소 효과를 확인했다...',
-    image: 'https://images.unsplash.com/photo-1631815589968-fdb09a223b1e?w=400'
-  },
-  {
-    id: '4',
-    title: `2025 미국신장학회 신장주간서 FINE-ONE 3상 연구 결과' 발표`,
-    source: '메디컬헤럴드',
-    time: '2일전',
-    description: 'FINE-ONE 연구 결과, 1형 당뇨병 동반 만성 신장병 성인 환자를 대상으로 표준치료에 피네레논을 추가 투여 시 위약 대비 베이스라인 이후 6개월 간 요-알부민-크레아티닌 비율(UACR)의 유의한 감소 효과를 확인했다...',
-    image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400'
-  }
-];
+// ==================== Types ====================
 
-const researchData = [
-  { date: '2020', ckd: 120, treatment: 80, diet: 95 },
-  { date: '2021', ckd: 145, treatment: 98, diet: 112 },
-  { date: '2022', ckd: 178, treatment: 125, diet: 134 },
-  { date: '2023', ckd: 210, treatment: 156, diet: 167 },
-  { date: '2024', ckd: 245, treatment: 189, diet: 198 },
-  { date: '2025', ckd: 268, treatment: 215, diet: 223 }
-];
+type Step = 'query' | 'analysis' | 'results';
+type QuickTab = 'analysis' | 'news' | 'clinical-trials' | 'dashboard';
+type Language = 'ko' | 'en';
 
-export function TrendsPage() {
-  const [activeTab, setActiveTab] = useState<TabType>('news');
-  const navigate = useNavigate();
+interface QueryState {
+  query: string;
+  keywords: string[];
+  startYear: number;
+  endYear: number;
+}
 
-  // Clinical trials state
-  const [clinicalTrials, setClinicalTrials] = useState<any[]>([]);
-  const [loadingTrials, setLoadingTrials] = useState(false);
-  const [selectedTrialId, setSelectedTrialId] = useState<string>('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+interface ResultState {
+  analysisType: AnalysisType;
+  explanation: string;
+  chartConfig: ChartConfig | null;
+  papers: PaperResult[];
+  metadata: Record<string, unknown>;
+}
 
-  // Fetch clinical trials when tab is activated
-  useEffect(() => {
-    if (activeTab === 'clinical-trials' && clinicalTrials.length === 0) {
-      fetchClinicalTrials(1);
-    }
-  }, [activeTab]);
+// ==================== Main Component ====================
 
-  const fetchClinicalTrials = async (page: number) => {
-    setLoadingTrials(true);
+export function TrendsPage(): React.ReactElement {
+  // Language - default to Korean (can be extended to use AppContext later)
+  const language: Language = 'ko';
+  const { user } = useAuth();
+
+  // Bookmark management
+  const { bookmarks, addBookmark, removeBookmarkByPaperId } = useBookmarks(user?.id, true);
+  const bookmarkedPaperIds = useMemo(() => new Set(bookmarks.map(b => b.paperId)), [bookmarks]);
+
+  // Quick Tab state (for landing page)
+  const [activeTab, setActiveTab] = useState<QuickTab>('analysis');
+
+  // Step state (for analysis flow)
+  const [step, setStep] = useState<Step>('query');
+
+  // Query state
+  const [queryState, setQueryState] = useState<QueryState>({
+    query: '',
+    keywords: [],
+    startYear: 2015,
+    endYear: 2024,
+  });
+
+  // Result state
+  const [resultState, setResultState] = useState<ResultState | null>(null);
+
+  // Loading states
+  const [loading, setLoading] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [bookmarkLoadingPapers, setBookmarkLoadingPapers] = useState<Set<string>>(new Set());
+
+  // Summary state
+  const [aiSummary, setAiSummary] = useState<MultiplePaperSummary | null>(null);
+
+  // Paper comparison state
+  const [selectedPapers, setSelectedPapers] = useState<PaperResult[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
+
+  // Translations
+  const t = {
+    title: language === 'ko' ? '연구 트렌드 분석' : 'Research Trend Analysis',
+    subtitle: language === 'ko'
+      ? 'PubMed 데이터를 기반으로 연구 트렌드를 분석하고 시각화합니다'
+      : 'Analyze and visualize research trends based on PubMed data',
+    back: language === 'ko' ? '뒤로' : 'Back',
+    newSearch: language === 'ko' ? '새 검색' : 'New Search',
+    retry: language === 'ko' ? '다시 시도' : 'Retry',
+    errorTitle: language === 'ko' ? '오류 발생' : 'Error Occurred',
+    stepQuery: language === 'ko' ? '1. 검색어 입력' : '1. Enter Query',
+    stepAnalysis: language === 'ko' ? '2. 분석 유형 선택' : '2. Select Analysis',
+    stepResults: language === 'ko' ? '3. 결과 확인' : '3. View Results',
+    // Quick Tabs
+    tabAnalysis: language === 'ko' ? '연구 분석' : 'Research Analysis',
+    tabNews: language === 'ko' ? '뉴스' : 'News',
+    tabClinicalTrials: language === 'ko' ? '임상시험' : 'Clinical Trials',
+    tabDashboard: language === 'ko' ? '대시보드' : 'Dashboard',
+  };
+
+  // Handle query submission
+  const handleQuerySubmit = useCallback(
+    (query: string, keywords: string[], startYear: number, endYear: number) => {
+      setQueryState({ query, keywords, startYear, endYear });
+      setError(null);
+      setStep('analysis');
+    },
+    []
+  );
+
+  // Handle analysis selection
+  const handleAnalysisSelect = useCallback(
+    async (analysisType: AnalysisType) => {
+      setLoading(true);
+      setError(null);
+      setAiSummary(null);
+
+      try {
+        let response: TrendResponse;
+
+        switch (analysisType) {
+          case 'temporal':
+            response = await searchTemporalTrends(
+              queryState.query,
+              queryState.startYear,
+              queryState.endYear
+            );
+            break;
+
+          case 'geographic':
+            response = await searchGeographicTrends(queryState.query);
+            break;
+
+          case 'mesh':
+            response = await searchMeshDistribution(queryState.query);
+            break;
+
+          case 'compare':
+            if (queryState.keywords.length < 2) {
+              throw new Error(
+                language === 'ko'
+                  ? '키워드 비교에는 최소 2개의 키워드가 필요합니다'
+                  : 'Keyword comparison requires at least 2 keywords'
+              );
+            }
+            response = await compareKeywords(
+              queryState.keywords,
+              queryState.startYear,
+              queryState.endYear
+            );
+            break;
+
+          default:
+            throw new Error(`Unknown analysis type: ${analysisType}`);
+        }
+
+        // Extract chart config from sources
+        const chartConfig: ChartConfig | null =
+          response.sources && response.sources.length > 0 ? (response.sources[0] ?? null) : null;
+
+        setResultState({
+          analysisType,
+          explanation: response.answer,
+          chartConfig,
+          papers: response.papers || [],
+          metadata: response.metadata || {},
+        });
+
+        setStep('results');
+      } catch (err) {
+        console.error('Analysis error:', err);
+        const errorMessage = err instanceof Error ? err.message : '트렌드 분석 중 오류가 발생했습니다';
+        setError(errorMessage);
+
+        // 사용자 친화적인 에러 팝업 표시
+        toast.error(errorMessage, {
+          description: '잠시 후 다시 시도해주세요.',
+          duration: 5000,
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [queryState, language]
+  );
+
+  // Handle summary generation
+  const handleRequestSummary = useCallback(async () => {
+    if (!resultState || resultState.papers.length === 0) return;
+
+    setSummaryLoading(true);
+
     try {
-      const response = await fetch('/api/clinical-trials/list', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          condition: 'kidney',
-          page: page,
-          page_size: 10,
-        }),
+      const summary = await summarizePapers(
+        resultState.papers,
+        queryState.query,
+        language,
+        'multiple'
+      );
+
+      setAiSummary(summary);
+    } catch (err) {
+      console.error('Summary error:', err);
+      const errorMessage = err instanceof Error ? err.message : '논문 요약 생성 중 오류가 발생했습니다';
+
+      setAiSummary({
+        error: errorMessage,
+        status: 'error',
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch clinical trials');
-      }
-
-      const data = await response.json();
-      setClinicalTrials(data.trials);
-      setTotalPages(data.totalPages || 1);
-      setCurrentPage(page);
-    } catch (error) {
-      console.error('Error fetching clinical trials:', error);
+      // 사용자 친화적인 에러 팝업 표시
+      toast.error(errorMessage, {
+        description: '잠시 후 다시 시도해주세요.',
+        duration: 5000,
+      });
     } finally {
-      setLoadingTrials(false);
+      setSummaryLoading(false);
     }
-  };
+  }, [resultState, queryState.query, language]);
 
-  const handleTrialClick = (nctId: string) => {
-    setSelectedTrialId(nctId);
-    setIsModalOpen(true);
-  };
-
-  const handlePageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      fetchClinicalTrials(newPage);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Handle back navigation
+  const handleBack = useCallback(() => {
+    if (step === 'results') {
+      setStep('analysis');
+    } else if (step === 'analysis') {
+      setStep('query');
     }
-  };
+  }, [step]);
+
+  // Handle reset
+  const handleReset = useCallback(() => {
+    setStep('query');
+    setActiveTab('analysis');
+    setQueryState({
+      query: '',
+      keywords: [],
+      startYear: 2015,
+      endYear: 2024,
+    });
+    setResultState(null);
+    setAiSummary(null);
+    setError(null);
+    setSelectedPapers([]);
+    setShowComparison(false);
+  }, []);
+
+  // Handle keyword click from PopularKeywords - exported for potential use
+  const handleKeywordClick = useCallback((keyword: string) => {
+    setQueryState(prev => ({
+      ...prev,
+      query: keyword,
+    }));
+    setActiveTab('analysis');
+    toast.info(language === 'ko' ? `"${keyword}" 검색어가 입력되었습니다` : `Search term "${keyword}" has been entered`);
+  }, [language]);
+  // Expose handleKeywordClick to avoid unused variable warning
+  void handleKeywordClick;
+
+  // Handle paper selection for comparison
+  const handlePaperSelect = useCallback((paper: PaperResult) => {
+    setSelectedPapers(prev => {
+      const isSelected = prev.some(p => p.pmid === paper.pmid);
+      if (isSelected) {
+        return prev.filter(p => p.pmid !== paper.pmid);
+      }
+      if (prev.length >= 4) {
+        toast.warning(language === 'ko' ? '최대 4개까지 선택 가능합니다' : 'Maximum 4 papers can be selected');
+        return prev;
+      }
+      return [...prev, paper];
+    });
+  }, [language]);
+
+  // Handle compare button click
+  const handleCompare = useCallback(() => {
+    if (selectedPapers.length < 2) {
+      toast.warning(language === 'ko' ? '비교하려면 최소 2개 논문을 선택하세요' : 'Select at least 2 papers to compare');
+      return;
+    }
+    setShowComparison(true);
+  }, [selectedPapers.length, language]);
+
+  // Handle bookmark toggle
+  const handleToggleBookmark = useCallback(async (paper: PaperResult) => {
+    try {
+      setBookmarkLoadingPapers(prev => new Set([...prev, paper.pmid]));
+      if (bookmarkedPaperIds.has(paper.pmid)) {
+        await removeBookmarkByPaperId(paper.pmid);
+      } else {
+        await addBookmark(paper);
+      }
+    } catch (error) {
+      console.error('Failed to toggle bookmark:', error);
+    } finally {
+      setBookmarkLoadingPapers(prev => {
+        const next = new Set(prev);
+        next.delete(paper.pmid);
+        return next;
+      });
+    }
+  }, [bookmarkedPaperIds, addBookmark, removeBookmarkByPaperId]);
+
+  // Render step indicator
+  const renderStepIndicator = () => (
+    <div className="flex items-center justify-center mb-8 gap-2">
+      {[
+        { key: 'query', label: t.stepQuery },
+        { key: 'analysis', label: t.stepAnalysis },
+        { key: 'results', label: t.stepResults },
+      ].map((s, index) => (
+        <React.Fragment key={s.key}>
+          <div
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              step === s.key
+                ? 'bg-purple-600 text-white'
+                : step === 'results' || (step === 'analysis' && s.key === 'query')
+                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+            }`}
+          >
+            {s.label}
+          </div>
+          {index < 2 && (
+            <div
+              className={`w-8 h-0.5 ${
+                (step === 'analysis' && index === 0) || step === 'results'
+                  ? 'bg-purple-400'
+                  : 'bg-gray-300 dark:bg-gray-600'
+              }`}
+            />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+
+  // Render Quick Access Tabs (shown when step is 'query')
+  const renderQuickTabs = () => (
+    <div className="mb-8">
+      <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+        {([
+          { key: 'analysis', label: t.tabAnalysis, icon: Search },
+          { key: 'news', label: t.tabNews, icon: Newspaper },
+          { key: 'clinical-trials', label: t.tabClinicalTrials, icon: FlaskConical },
+          { key: 'dashboard', label: t.tabDashboard, icon: BarChart3 },
+        ] as const).map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                isActive
+                  ? 'bg-white dark:bg-gray-700 text-teal-600 shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              <Icon size={18} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // Render News Tab Content
+  const renderNewsTab = () => (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 rounded-2xl p-6 border border-blue-100 dark:border-blue-800">
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">
+          {language === 'ko' ? '📰 신장 질환 관련 뉴스' : '📰 Kidney Disease News'}
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          {language === 'ko'
+            ? '최신 신장 질환 관련 뉴스와 건강 정보를 확인하세요.'
+            : 'Stay updated with the latest kidney disease news and health information.'}
+        </p>
+      </div>
+      <NewsFeed />
+    </div>
+  );
+
+  // Render Clinical Trials Tab Content
+  const renderClinicalTrialsTab = () => (
+    <ClinicalTrialsTab condition="kidney disease" />
+  );
+
+  // Render Dashboard Tab Content (Real API-driven dashboard)
+  const renderDashboardTab = () => (
+    <ResearchDashboardContent />
+  );
+
+  // Render error
+  const renderError = () =>
+    error && (
+      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
+          <div className="flex-1">
+            <h4 className="font-medium text-red-800 dark:text-red-300">{t.errorTitle}</h4>
+            <p className="text-sm text-red-600 dark:text-red-400 mt-1">{error}</p>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="text-red-400 hover:text-red-600 dark:hover:text-red-300"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    );
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-white">
+    <div className="flex-1 overflow-y-auto bg-slate-50">
       {/* Mobile Header */}
       <div className="lg:hidden">
-        <MobileHeader 
-          title="트렌드" 
-          showMenu={true} 
+        <MobileHeader
+          title={t.title}
+          showMenu={true}
           showProfile={true}
         />
       </div>
 
-      <div className="p-6 lg:max-w-[832px] mx-auto pb-24 lg:pb-6">
-        {/* Tabs - Exactly matching DesktopTrends.tsx Container1 */}
-        <div className="border-b mb-6" style={{ borderColor: '#E5E7EB' }}>
-          <div className="flex gap-8">
-            <button
-              onClick={() => setActiveTab('news')}
-              className="relative pb-3 transition-all duration-200"
-              style={{
-                color: activeTab === 'news' ? '#00C9B7' : '#9CA3AF',
-                fontSize: '15px',
-                fontWeight: activeTab === 'news' ? 'bold' : 'normal',
-                fontFamily: 'Noto Sans KR, sans-serif'
-              }}
-            >
-              새소식
-              {activeTab === 'news' && (
-                <div
-                  className="absolute bottom-[-1px] left-0 right-0"
-                  style={{
-                    height: '2px',
-                    background: '#9F7AEA',
-                    width: '100%'
-                  }}
-                />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className="relative pb-3 transition-all duration-200"
-              style={{
-                color: activeTab === 'dashboard' ? '#00C9B7' : '#9CA3AF',
-                fontSize: '15px',
-                fontWeight: activeTab === 'dashboard' ? 'bold' : 'normal',
-                fontFamily: 'Noto Sans KR, sans-serif'
-              }}
-            >
-              연구논문
-              {activeTab === 'dashboard' && (
-                <div
-                  className="absolute bottom-[-1px] left-0 right-0"
-                  style={{
-                    height: '2px',
-                    background: '#9F7AEA',
-                    width: '100%'
-                  }}
-                />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('clinical-trials')}
-              className="relative pb-3 transition-all duration-200"
-              style={{
-                color: activeTab === 'clinical-trials' ? '#00C9B7' : '#9CA3AF',
-                fontSize: '15px',
-                fontWeight: activeTab === 'clinical-trials' ? 'bold' : 'normal',
-                fontFamily: 'Noto Sans KR, sans-serif'
-              }}
-            >
-              임상시험
-              {activeTab === 'clinical-trials' && (
-                <div
-                  className="absolute bottom-[-1px] left-0 right-0"
-                  style={{
-                    height: '2px',
-                    background: '#9F7AEA',
-                    width: '100%'
-                  }}
-                />
-              )}
-            </button>
-          </div>
-        </div>
-        
-        {/* News Tab Content */}
-        {activeTab === 'news' && (
-          <div className="space-y-4">
-            {newsItems.map((news) => (
-              <div
-                key={news.id}
-                onClick={() => navigate(`/news/detail/${news.id}`)}
-                className="bg-white rounded-[16px] overflow-hidden cursor-pointer transition-shadow hover:shadow-lg relative flex flex-col md:flex-row"
-                style={{
-                  boxShadow: '0px 2px 8px 0px rgba(0,0,0,0.08)',
-                  minHeight: '180px'
-                }}
-              >
-                {/* Image Section */}
-                <div className="relative w-full md:w-[160px] h-[160px] md:h-auto flex-shrink-0">
-                   <ImageWithFallback
-                      src={news.image}
-                      alt={news.title}
-                      className="w-full h-full object-cover"
-                   />
-                </div>
+      <div className="mx-auto max-w-6xl px-4 py-6 pb-24 sm:px-6 lg:pb-10">
+        {/* Header */}
+        <div className="mb-8 hidden lg:block">
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-4xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+              <TrendingUp className="text-purple-600" />
+              {t.title}
+            </h1>
 
-                {/* Content Section */}
-                <div className="flex-1 p-4 md:p-5 md:pl-6 flex flex-col justify-between">
-                   <div className="flex-1">
-                      {/* Title */}
-                      <h4
-                        className="font-bold text-black mb-2 line-clamp-2"
-                        style={{
-                          fontSize: '15px',
-                          lineHeight: '22px',
-                          fontFamily: 'Noto Sans KR, sans-serif'
-                        }}
-                      >
-                        {news.title}
-                      </h4>
-
-                      {/* Description */}
-                      <p
-                        className="text-[#272727] line-clamp-3"
-                        style={{
-                          fontSize: '13px',
-                          lineHeight: '19px',
-                          fontFamily: 'Noto Sans KR, sans-serif'
-                        }}
-                      >
-                        {news.description}
-                      </p>
-                   </div>
-
-                   {/* Footer */}
-                   <div className="flex items-center justify-between mt-3 pt-2">
-                      <p
-                        className="text-[#777777]"
-                        style={{ fontSize: '11px' }}
-                      >
-                        {news.source} | {news.time}
-                      </p>
-                      <Bookmark size={20} color="#CCCCCC" strokeWidth={1.4} />
-                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        
-        {/* Dashboard Tab Content */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6 py-4">
-            {/* Keywords Section */}
-            <section>
-              <h3 className="mb-4 font-bold text-[#1F2937]">
-                📈 인기 키워드
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[
-                  { text: '당뇨병성 신증', count: 1245, rank: 1 },
-                  { text: '25년 복지 수당 신청', count: 1087, rank: 2 },
-                  { text: '저칼륨 식단', count: 924, rank: 3 },
-                  { text: '투석 관리', count: 856, rank: 4 }
-                ].map((keyword, index) => (
-                  <div 
-                    key={index}
-                    className="p-4 rounded-lg border transition-all duration-200 hover:shadow-sm bg-white border-gray-200"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span 
-                          className="flex items-center justify-center rounded-full bg-[#EFF6FF] text-[#00C8B4] font-bold text-sm w-7 h-7"
-                        >
-                          {keyword.rank}
-                        </span>
-                        <span className="text-sm font-medium text-[#1F2937]">{keyword.text}</span>
-                      </div>
-                      
-                      <span className="text-xs text-gray-400">
-                        {keyword.count.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-            
-            {/* Research Trends - PubMed Data */}
-            <section>
-              <h3 className="mb-4 font-bold text-[#1F2937]">
-                📊 연구 트렌드
-              </h3>
-
-              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-                <p className="mb-4 text-sm text-gray-500">
-                  신장병 관련 주제별 PubMed 연구 논문 발행 추이
-                </p>
-              <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={researchData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="#9CA3AF"
-                    style={{ fontSize: '12px' }}
-                  />
-                  <YAxis 
-                    stroke="#9CA3AF"
-                    style={{ fontSize: '12px' }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'white',
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '12px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Legend 
-                    wrapperStyle={{ paddingTop: '20px' }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="ckd" 
-                    stroke="#00C8B4" 
-                    strokeWidth={3}
-                    name="만성신장병"
-                    dot={{ fill: '#00C8B4', r: 5 }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="treatment" 
-                    stroke="#9F7AEA" 
-                    strokeWidth={3}
-                    name="치료법"
-                    dot={{ fill: '#9F7AEA', r: 5 }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="diet" 
-                    stroke="#FFB84D" 
-                    strokeWidth={3}
-                    name="식이요법"
-                    dot={{ fill: '#FFB84D', r: 5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-              </div>
-            </section>
-          </div>
-        )}
-
-        {/* Clinical Trials Tab Content */}
-        {activeTab === 'clinical-trials' && (
-          <div className="space-y-4">
-            {/* Section Header */}
-            <h3
-              className="font-bold text-[#1F2937] mb-4"
-              style={{ fontSize: '18px', fontFamily: 'Noto Sans KR, sans-serif' }}
-            >
-              임상시험
-            </h3>
-
-            {/* Info Banner */}
-            <div
-              className="rounded-[16px] p-4 mb-6"
-              style={{
-                background: 'linear-gradient(135deg, #EFF6FF 0%, #F9FAFB 100%)',
-                border: '1px solid #E0F2FE'
-              }}
-            >
-              <p
-                className="text-[#272727]"
-                style={{ fontSize: '14px', lineHeight: '20px', fontFamily: 'Noto Sans KR, sans-serif' }}
-              >
-                신장 질환 관련 임상시험 정보를 ClinicalTrials.gov에서 제공받고 있습니다.
-                각 임상시험을 클릭하면 AI가 요약한 정보를 확인할 수 있습니다.
-                (최신 업데이트순으로 정렬됨)
-              </p>
-            </div>
-
-            {/* Loading State */}
-            {loadingTrials ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="animate-spin mb-4" size={48} color="#00C9B7" />
-                <p className="text-[#9CA3AF]" style={{ fontFamily: 'Noto Sans KR, sans-serif' }}>
-                  임상시험 정보를 불러오는 중...
-                </p>
-              </div>
-            ) : clinicalTrials.length > 0 ? (
-              <>
-                {/* Clinical Trials List */}
-                <div className="grid grid-cols-1 gap-4">
-                  {clinicalTrials.map((trial) => (
-                    <ClinicalTrialCard
-                      key={trial.nctId}
-                      trial={trial}
-                      onClick={() => handleTrialClick(trial.nctId)}
-                    />
-                  ))}
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 pt-6">
-                    <button
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      disabled={currentPage === 1}
-                      className="px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      style={{
-                        backgroundColor: currentPage === 1 ? '#F3F4F6' : '#00C9B7',
-                        color: currentPage === 1 ? '#9CA3AF' : 'white',
-                        fontFamily: 'Noto Sans KR, sans-serif',
-                        fontSize: '14px'
-                      }}
-                    >
-                      이전
-                    </button>
-
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum;
-                        if (totalPages <= 5) {
-                          pageNum = i + 1;
-                        } else if (currentPage <= 3) {
-                          pageNum = i + 1;
-                        } else if (currentPage >= totalPages - 2) {
-                          pageNum = totalPages - 4 + i;
-                        } else {
-                          pageNum = currentPage - 2 + i;
-                        }
-
-                        return (
-                          <button
-                            key={pageNum}
-                            onClick={() => handlePageChange(pageNum)}
-                            className="w-10 h-10 rounded-lg transition-colors"
-                            style={{
-                              backgroundColor: currentPage === pageNum ? '#00C9B7' : '#F3F4F6',
-                              color: currentPage === pageNum ? 'white' : '#272727',
-                              fontFamily: 'Noto Sans KR, sans-serif',
-                              fontSize: '14px',
-                              fontWeight: currentPage === pageNum ? 'bold' : 'normal'
-                            }}
-                          >
-                            {pageNum}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <button
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      disabled={currentPage === totalPages}
-                      className="px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      style={{
-                        backgroundColor: currentPage === totalPages ? '#F3F4F6' : '#00C9B7',
-                        color: currentPage === totalPages ? '#9CA3AF' : 'white',
-                        fontFamily: 'Noto Sans KR, sans-serif',
-                        fontSize: '14px'
-                      }}
-                    >
-                      다음
-                    </button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-[#9CA3AF]" style={{ fontFamily: 'Noto Sans KR, sans-serif' }}>
-                  임상시험 정보를 찾을 수 없습니다.
-                </p>
+            {step !== 'query' && (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleBack}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                    text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700
+                    flex items-center gap-2"
+                >
+                  <ArrowLeft size={16} />
+                  {t.back}
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="px-4 py-2 border border-purple-300 dark:border-purple-600 rounded-lg
+                    text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20
+                    flex items-center gap-2"
+                >
+                  <RefreshCw size={16} />
+                  {t.newSearch}
+                </button>
               </div>
             )}
           </div>
+          <p className="text-gray-600 dark:text-gray-400">{t.subtitle}</p>
+        </div>
+
+        {/* Error Display */}
+        {renderError()}
+
+        {/* Quick Access Tabs (only show on query step) */}
+        {step === 'query' && renderQuickTabs()}
+
+        {/* Step Content */}
+        {step === 'query' && activeTab === 'analysis' && (
+          <>
+            {renderStepIndicator()}
+            <QueryBuilder
+              onSubmit={handleQuerySubmit}
+              loading={loading}
+              language={language}
+            />
+          </>
+        )}
+
+        {step === 'query' && activeTab === 'news' && renderNewsTab()}
+
+        {step === 'query' && activeTab === 'clinical-trials' && renderClinicalTrialsTab()}
+
+        {step === 'query' && activeTab === 'dashboard' && renderDashboardTab()}
+
+        {step === 'analysis' && (
+          <>
+            {renderStepIndicator()}
+            <AnalysisSelector
+              onSelect={handleAnalysisSelect}
+              hasMultipleKeywords={queryState.keywords.length >= 2}
+              loading={loading}
+              language={language}
+            />
+          </>
+        )}
+
+        {step === 'results' && resultState && (
+          <div className="space-y-6">
+            {renderStepIndicator()}
+            {/* Explanation */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4">
+                {language === 'ko' ? '📊 분석 결과' : '📊 Analysis Results'}
+              </h3>
+              <div className="prose dark:prose-invert max-w-none">
+                <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans">
+                  {resultState.explanation}
+                </pre>
+              </div>
+            </div>
+
+            {/* Chart */}
+            {resultState.chartConfig && (
+              <ChartRenderer config={resultState.chartConfig} height={400} />
+            )}
+
+            {/* Paper Comparison Controls */}
+            {resultState.papers.length > 1 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {language === 'ko' ? '논문 비교' : 'Compare Papers'}
+                    </span>
+                    <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium">
+                      {selectedPapers.length}/4 {language === 'ko' ? '선택됨' : 'selected'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleCompare}
+                    disabled={selectedPapers.length < 2}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700
+                      disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                  >
+                    {language === 'ko' ? '비교하기' : 'Compare'}
+                  </button>
+                </div>
+                {selectedPapers.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedPapers.map(paper => (
+                      <span
+                        key={paper.pmid}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 dark:bg-purple-900/20
+                          text-purple-700 dark:text-purple-300 rounded text-xs"
+                      >
+                        {paper.title.substring(0, 30)}...
+                        <button
+                          onClick={() => handlePaperSelect(paper)}
+                          className="ml-1 text-purple-500 hover:text-purple-700"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Papers */}
+            {resultState.papers.length > 0 && (
+              <PaperList
+                papers={resultState.papers}
+                onRequestSummary={handleRequestSummary}
+                loading={summaryLoading}
+                language={language}
+                selectedPapers={selectedPapers}
+                onPaperSelect={handlePaperSelect}
+                bookmarkedPaperIds={bookmarkedPaperIds}
+                onToggleBookmark={handleToggleBookmark}
+                bookmarkLoading={bookmarkLoadingPapers}
+              />
+            )}
+
+            {/* Summary Panel */}
+            {resultState.papers.length > 0 && (
+              <SummaryPanel
+                papers={resultState.papers}
+                aiSummary={aiSummary}
+                loading={summaryLoading}
+                language={language}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Paper Comparison Modal */}
+        {showComparison && selectedPapers.length >= 2 && (
+          <PaperComparison
+            papers={selectedPapers}
+            onClose={() => setShowComparison(false)}
+          />
         )}
       </div>
-
-      {/* Clinical Trial Detail Modal */}
-      <ClinicalTrialDetailModal
-        nctId={selectedTrialId}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-      />
     </div>
   );
 }

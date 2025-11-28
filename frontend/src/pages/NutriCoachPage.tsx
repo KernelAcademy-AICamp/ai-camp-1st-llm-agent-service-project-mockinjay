@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { MobileHeader } from '../components/MobileHeader';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 
 export function NutriCoachPage() {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('guide');
 
   // Image URLs

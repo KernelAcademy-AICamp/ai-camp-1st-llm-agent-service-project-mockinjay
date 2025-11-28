@@ -1,4 +1,3 @@
-import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { UtensilsCrossed, Trophy, Users, TrendingUp } from 'lucide-react';
 

@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Edit, Trash2, TrendingUp } from 'lucide-react';
-import { ImageWithFallback } from '../components/figma/ImageWithFallback';
+import { useState } from 'react';
+import { Plus, Edit, Trash2 } from 'lucide-react';
 
 interface DietGoal {
   potassium?: number;
@@ -25,8 +24,8 @@ interface MealLog {
 
 export function DietLogPage() {
   const [showGoalModal, setShowGoalModal] = useState(false);
-  const [showLogModal, setShowLogModal] = useState(false);
-  const [editingLog, setEditingLog] = useState<MealLog | null>(null);
+  const [_showLogModal, setShowLogModal] = useState(false);
+  const [_editingLog, setEditingLog] = useState<MealLog | null>(null);
   
   const [dietGoal, setDietGoal] = useState<DietGoal>({
     goal: '저칼륨 섭취',

@@ -2,18 +2,23 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { Logo } from '../components/Logo';
+import { useAuth } from '../contexts/AuthContext';
 
 export function LoginPage(props: { onLogin?: () => void }) {
   const navigate = useNavigate();
+  const { login, isLoading, error } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock login - navigate to chat
-    localStorage.setItem('isLoggedIn', 'true');
-    if (props.onLogin) props.onLogin();
-    navigate('/chat');
+    try {
+      await login(email, password);
+      if (props.onLogin) props.onLogin();
+      navigate('/');
+    } catch (loginError) {
+      console.error('로그인에 실패했습니다.', loginError);
+    }
   };
 
   return (
@@ -96,16 +101,24 @@ export function LoginPage(props: { onLogin?: () => void }) {
             <button
               type="submit"
               className="w-full py-3 rounded-lg transition-all duration-200"
+              disabled={isLoading}
               style={{
                 background: 'linear-gradient(90deg, #00C9B7 0%, #9F7AEA 100%)',
                 color: 'white',
                 border: 'none',
                 fontSize: '16px',
-                cursor: 'pointer'
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                opacity: isLoading ? 0.7 : 1
               }}
             >
-              로그인
+              {isLoading ? '로그인 중...' : '로그인'}
             </button>
+
+            {error && (
+              <p className="text-center text-sm" style={{ color: '#EF4444' }}>
+                {error}
+              </p>
+            )}
           </form>
 
           {/* 하단 링크 영역 - 아이디/비밀번호 찾기 & 회원가입 */}

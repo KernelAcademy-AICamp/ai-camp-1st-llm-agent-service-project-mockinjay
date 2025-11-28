@@ -69,9 +69,10 @@ export function groupByCorrelation(
   events: ParlantEvent[]
 ): Record<string, ParlantEvent[]> {
   return events.reduce<Record<string, ParlantEvent[]>>((acc, event) => {
-    const base = (event.correlation_id || 'unknown').split('::')[0]
-    acc[base] = acc[base] || []
-    acc[base].push(event)
+    const [base] = (event.correlation_id ?? 'unknown').split('::')
+    const normalizedBase = base ?? 'unknown'
+    acc[normalizedBase] = acc[normalizedBase] || []
+    acc[normalizedBase].push(event)
     return acc
   }, {})
 }

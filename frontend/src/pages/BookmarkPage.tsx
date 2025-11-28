@@ -1,50 +1,35 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, ExternalLink, ChevronRight } from 'lucide-react';
+import { Star, ExternalLink } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
 
-// Mock Data
-const mockNews = [
-  {
-    id: '1',
-    title: '2025 미국신장학회 신장주간서 FINE-ONE 3상 연구 결과 발표',
-    source: '메디컬헤럴드',
-    date: '2025.02.23',
-    thumbnail: null 
-  },
-  {
-    id: '2',
-    title: '전 세계 CKD 성인환자 8억 명',
-    source: '메디컬트리뷴',
-    date: '2025.02.20',
-    thumbnail: null
-  }
-];
+// TODO: API에서 즐겨찾기 데이터를 가져오도록 구현 필요
+interface BookmarkedNews {
+  id: string;
+  title: string;
+  source: string;
+  date: string;
+  thumbnail: string | null;
+}
 
-const mockPapers = [
-  {
-    id: 'p1',
-    title: 'Effects of SGLT2 Inhibitors on Kidney Failure',
-    authors: 'The EMPA-KIDNEY Collaborative Group',
-    date: '2023 Jan',
-    pmid: '36331190',
-    url: 'https://pubmed.ncbi.nlm.nih.gov/36331190/'
-  },
-  {
-    id: 'p2',
-    title: 'Finerenone in Patients with Chronic Kidney Disease',
-    authors: 'Bakris GL et al.',
-    date: '2020 Dec',
-    pmid: '33104276',
-    url: 'https://pubmed.ncbi.nlm.nih.gov/33104276/'
-  }
-];
+interface BookmarkedPaper {
+  id: string;
+  title: string;
+  authors: string;
+  date: string;
+  pmid: string;
+  url: string;
+}
+
+// 초기 빈 데이터
+const initialNews: BookmarkedNews[] = [];
+const initialPapers: BookmarkedPaper[] = [];
 
 export function BookmarkPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'news' | 'papers'>('news');
-  const [newsList, setNewsList] = useState(mockNews);
-  const [paperList, setPaperList] = useState(mockPapers);
+  const [newsList, setNewsList] = useState<BookmarkedNews[]>(initialNews);
+  const [paperList, setPaperList] = useState<BookmarkedPaper[]>(initialPapers);
 
   const iconStyle = { strokeWidth: 2 };
 

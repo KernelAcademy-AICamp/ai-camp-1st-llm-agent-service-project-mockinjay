@@ -1,12 +1,10 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { BarChart2, Check, AlertTriangle, Target } from 'lucide-react';
+import { useState } from 'react';
+import { BarChart2, Check, AlertTriangle } from 'lucide-react';
 import { MobileHeader } from '../components/MobileHeader';
 
 type TabType = 'nutri-coach' | 'diet-log';
 
 export function DietCarePage() {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('nutri-coach');
   
   const dietLogs = [

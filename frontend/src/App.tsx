@@ -1,4 +1,3 @@
-import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -32,6 +31,7 @@ import { SupportPage } from './pages/SupportPage';
 import { NotificationPage } from './pages/NotificationPage';
 import { TermsAndConditionsPage } from './pages/TermsAndConditionsPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
+import { AuthProvider } from './contexts/AuthContext';
 
 function AppContent() {
   const { isDrawerOpen, closeDrawer, openDrawer, isLoggedIn, login, logout } = useLayout();
@@ -66,12 +66,7 @@ function AppContent() {
         userType={isLoggedIn ? '환우' : undefined}
       />
       <Sidebar isLoggedIn={isLoggedIn} onLogout={handleLogout} />
-      <Drawer
-        isOpen={isDrawerOpen}
-        onClose={closeDrawer}
-        isLoggedIn={isLoggedIn}
-        onLogout={handleLogout}
-      />
+      <Drawer isOpen={isDrawerOpen} onClose={closeDrawer} />
 
       <main
         className="lg:pt-16 lg:pl-[280px] min-h-screen pb-[64px] lg:pb-0"
@@ -114,8 +109,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <LayoutProvider>
-      <AppContent />
-    </LayoutProvider>
+    <AuthProvider>
+      <LayoutProvider>
+        <AppContent />
+      </LayoutProvider>
+    </AuthProvider>
   );
 }

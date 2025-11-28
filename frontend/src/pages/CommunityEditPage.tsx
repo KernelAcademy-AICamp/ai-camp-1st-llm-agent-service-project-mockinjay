@@ -1,22 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Image as ImageIcon, X } from 'lucide-react';
-import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 
-// Mock data for editing - in real app, fetch from backend
-const mockPostData: Record<string, any> = {
-  '1': {
-    category: '자유',
-    title: '저칼륨 식단 1주일 도전 후기',
-    content: '신장병 진단 받고 나서 식단 조절이 가장 어려웠는데, 저칼륨 식단을 1주일 동안 실천해봤어요. 생각보다 맛있는 레시피가 많더라구요!',
-    image: 'https://images.unsplash.com/photo-1642339800099-921df1a0a958?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoZWFsdGh5JTIwZm9vZCUyMGJvd2x8ZW58MXx8fHwxNzYzODE0MTc5fDA&ixlib=rb-4.1.0&q=80&w=1080'
-  }
-};
+// TODO: API에서 게시글 데이터를 가져오도록 구현 필요
+interface PostData {
+  category: '자유' | '챌린지' | '설문조사' | '질문' | '정보';
+  title: string;
+  content: string;
+  image?: string;
+}
+
+// 빈 게시글 데이터 저장소 (실제로는 API에서 가져옴)
+const postDataStore: Record<string, PostData> = {};
 
 export function CommunityEditPage() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const postData = mockPostData[id || '1'];
+  const postData = postDataStore[id || ''];
 
   const [category, setCategory] = useState<'자유' | '챌린지' | '설문조사' | '질문' | '정보'>(postData?.category || '자유');
   const [title, setTitle] = useState(postData?.title || '');

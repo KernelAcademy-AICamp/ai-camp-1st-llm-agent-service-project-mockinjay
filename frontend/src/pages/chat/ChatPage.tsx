@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ParlantClient,
-  ParlantEvent,
   Profile,
   SessionState
 } from './parlantClient'
@@ -12,8 +11,7 @@ import {
   PROFILE_MAX_RESULTS,
   extractAssistantMessages,
   extractPaperResults,
-  RecommendedDish,
-  IngredientCandidate
+  RecommendedDish
 } from './utils'
 import { sleep } from './sleep'
 import NutritionAnalysisCard from '../../components/NutritionAnalysisCard'
@@ -290,7 +288,6 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [stopRequested, setStopRequested] = useState(false)
   const stopRequestedRef = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -330,7 +327,6 @@ export default function ChatPage() {
           if (!cancelled) {
             setSession({
               sessionId: data.session_id,
-              agentId: 'nutrition-agent',
               profile: profile,
               lastOffset: 0
             })
@@ -591,7 +587,6 @@ export default function ChatPage() {
       return
     }
     stopRequestedRef.current = false
-    setStopRequested(false)
     const text = input.trim() || (selectedFile ? '음식 이미지 분석 요청' : '')
     const currentImagePreview = imagePreview
     const currentFile = selectedFile
@@ -742,7 +737,6 @@ export default function ChatPage() {
           if (hasDisclaimer) {
             console.log('[ChatPage] disclaimer detected - stopping poll')
             stopRequestedRef.current = true
-            setStopRequested(true)
           }
         }
 
@@ -963,7 +957,6 @@ export default function ChatPage() {
               <button
                 onClick={() => {
                   stopRequestedRef.current = true
-                  setStopRequested(true)
                   console.log('[ChatPage] stop requested by user')
                 }}
                 disabled={!isSending}
