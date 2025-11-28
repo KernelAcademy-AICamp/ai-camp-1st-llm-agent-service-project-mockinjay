@@ -10,6 +10,7 @@ class AgentRequest(BaseModel):
     """통일된 에이전트 요청"""
     query: str = Field(..., description="사용자 질문")
     session_id: str = Field(..., description="세션 ID")
+    user_id: Optional[str] = Field(default=None, description="사용자 ID")
     context: Dict[str, Any] = Field(default_factory=dict, description="추가 컨텍스트")
     profile: str = Field(default="general", description="사용자 프로필")
     language: str = Field(default="ko", description="언어 설정")
@@ -20,6 +21,7 @@ class AgentRequest(BaseModel):
             "example": {
                 "query": "당뇨병 최신 연구 논문을 찾아줘",
                 "session_id": "session-12345",
+                "user_id": "user-67890",
                 "context": {"previous_queries": []},
                 "profile": "patient",
                 "language": "ko"

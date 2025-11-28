@@ -1,32 +1,48 @@
 """
-Agent Manager
+Agent Manager - Refactored with AgentRegistry
 모든 Agent 조율, 라우팅 및 컨텍스트 관리
 """
 
 from typing import Dict, Any, Optional
+import logging
+
 from .base_agent import BaseAgent
 from .context_tracker import ContextTracker
 from .session_manager import SessionManager
+from .core.agent_registry import AgentRegistry
+from .core.contracts import AgentRequest, AgentResponse
+
+# 에이전트 자동 import (자동 등록됨)
 from .medical_welfare.agent import MedicalWelfareAgent
 from .nutrition.agent import NutritionAgent
 from .research_paper.agent import ResearchPaperAgent
 from .trend_visualization.agent import TrendVisualizationAgent
+from .quiz.agent import QuizAgent
+from .router.agent import RouterAgent
+
+logger = logging.getLogger(__name__)
 
 
 class AgentManager:
-    """Agent 관리 및 라우팅 시스템"""
+    """Agent 관리 및 라우팅 시스템 (AgentRegistry 통합)"""
 
     def __init__(self):
         self.context_tracker = ContextTracker()
         self.session_manager = SessionManager()
 
-        # Agent 인스턴스 초기화
-        self.agents: Dict[str, BaseAgent] = {
-            "medical_welfare": MedicalWelfareAgent(),
-            "nutrition": NutritionAgent(),
-            "research_paper": ResearchPaperAgent(),
-            "trend_visualization": TrendVisualizationAgent(),
-        }
+        # ✅ 새로운 방식: AgentRegistry에서 자동 발견
+        logger.info("🔧 Initializing AgentManager with AgentRegistry...")
+        self.agents: Dict[str, BaseAgent] = {}
+        
+        # 등록된 모든 에이전트 자동 생성
+        for agent_type in AgentRegistry.list_agents():
+            try:
+                self.agents[agent_type] = AgentRegistry.create_agent(agent_type)
+                logger.info(f"   ✅ Registered: {agent_type}")
+            except Exception as e:
+                logger.error(f"   ❌ Failed to register {agent_type}: {e}")
+        
+        logger.info(f"🎉 AgentManager initialized with {len(self.agents)} agents")
 
     async def route_request(
         self,
@@ -36,7 +52,7 @@ class AgentManager:
         context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Agent로 요청 라우팅
+        Agent로 요청 라우팅 (새 계약 지원)
 
         Args:
             agent_type: Agent 타입
@@ -85,12 +101,22 @@ class AgentManager:
                           f"예상 추가 사용량: {estimated_tokens} 토큰",
             }
 
-        # 5. Agent 처리 실행
+        # 5. Agent 처리 실행 (새 계약 사용)
         try:
-            result = await agent.process(user_input, session_id, context)
+            # 새 AgentRequest 생성
+            request = AgentRequest(
+                query=user_input,
+                session_id=session_id,
+                context=context or {},
+                profile=session.get("user_profile", "general"),
+                language=session.get("language", "ko")
+            )
+            
+            # 새 process 메서드 호출
+            response: AgentResponse = await agent.process(request)
 
             # 6. 실제 사용량 추적
-            actual_tokens = result.get("tokens_used", estimated_tokens)
+            actual_tokens = response.tokens_used
             self.context_tracker.track_usage(session_id, agent_type, actual_tokens)
 
             # 7. 세션 업데이트
@@ -99,19 +125,30 @@ class AgentManager:
                 session_id,
                 agent_type,
                 user_input,
-                result.get("response", "")
+                response.answer
             )
 
             # 8. 컨텍스트 정보 추가
-            result["context_info"] = self.context_tracker.check_limit(session_id)
+            context_info = self.context_tracker.check_limit(session_id)
 
+            # 9. 응답 변환 (기존 형식 호환)
             return {
-                "success": True,
+                "success": response.status != "error",
                 "agent_type": agent_type,
-                "result": result,
+                "result": {
+                    "response": response.answer,
+                    "answer": response.answer,  # 역호환성
+                    "sources": response.sources,
+                    "papers": response.papers,
+                    "tokens_used": response.tokens_used,
+                    "status": response.status,
+                    "metadata": response.metadata,
+                    "context_info": context_info
+                },
             }
 
         except Exception as e:
+            logger.error(f"❌ Agent processing failed: {e}", exc_info=True)
             return {
                 "success": False,
                 "error": f"Agent processing failed: {str(e)}",
@@ -170,12 +207,30 @@ class AgentManager:
 
     def get_available_agents(self) -> Dict[str, Dict[str, Any]]:
         """
-        사용 가능한 Agent 목록 반환
+        사용 가능한 Agent 목록 반환 (새 metadata 사용)
 
         Returns:
             Dict: Agent 정보
         """
-        return {
-            agent_type: agent.get_agent_info()
-            for agent_type, agent in self.agents.items()
-        }
+        available = {}
+        for agent_type, agent in self.agents.items():
+            try:
+                # 새 metadata property 사용
+                if hasattr(agent, 'metadata'):
+                    metadata = agent.metadata
+                    available[agent_type] = {
+                        "name": metadata.get("name", agent_type),
+                        "description": metadata.get("description", ""),
+                        "version": metadata.get("version", "1.0"),
+                        "capabilities": metadata.get("capabilities", []),
+                        "execution_type": agent.execution_type.value if hasattr(agent, 'execution_type') else "unknown"
+                    }
+                else:
+                    # 레거시 get_agent_info 사용
+                    available[agent_type] = agent.get_agent_info()
+            except Exception as e:
+                logger.error(f"Failed to get info for {agent_type}: {e}")
+                available[agent_type] = {"error": str(e)}
+        
+        return available
+
