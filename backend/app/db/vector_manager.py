@@ -99,7 +99,8 @@ class EmbeddingCache:
         if len(self._memory_cache) >= self.max_memory_items:
             # Evict least recently used
             lru_key = self._access_order.pop(0)
-            del self._memory_cache[lru_key]
+            if lru_key in self._memory_cache:
+                del self._memory_cache[lru_key]
 
         self._memory_cache[cache_key] = embedding
         self._access_order.append(cache_key)
