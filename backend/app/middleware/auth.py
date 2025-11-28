@@ -35,6 +35,10 @@ PUBLIC_PREFIXES = [
     "/api/session/",        # 세션 엔드포인트 (개발 중 공개)
     "/api/trends/",         # 트렌드 엔드포인트 (개발 중 공개)
     "/api/diet/",           # 영양 엔드포인트 (개발 중 공개)
+    "/api/clinical-trials/", # 임상시험 엔드포인트 (공개)
+    "/api/news/",           # 뉴스 엔드포인트 (공개)
+    "/api/terms/",          # 약관 엔드포인트 (회원가입 시 필요)
+    "/api/auth/check-",     # 중복 확인 엔드포인트 (회원가입 시 필요)
 ]
 
 

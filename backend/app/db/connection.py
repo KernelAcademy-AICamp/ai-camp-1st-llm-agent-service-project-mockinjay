@@ -58,19 +58,49 @@ def get_notification_settings_collection() -> AsyncIOMotorCollection:
     return Database.get_collection("notification_settings")
 
 
+def get_diet_sessions_collection() -> AsyncIOMotorCollection:
+    """식단 세션 컬렉션 반환"""
+    return Database.get_collection("diet_sessions")
+
+
+def get_diet_meals_collection() -> AsyncIOMotorCollection:
+    """식사 기록 컬렉션 반환"""
+    return Database.get_collection("diet_meals")
+
+
+def get_diet_goals_collection() -> AsyncIOMotorCollection:
+    """식단 목표 컬렉션 반환"""
+    return Database.get_collection("diet_goals")
+
+
+def get_bookmarks_collection() -> AsyncIOMotorCollection:
+    """북마크 컬렉션 반환"""
+    return Database.get_collection("bookmarks")
+
+
 # 하위 호환성을 위한 전역 변수 (점진적 마이그레이션용)
 # 주의: 이 변수들은 비동기 컨텍스트에서만 사용해야 합니다
 users_collection = None
 notifications_collection = None
 notification_settings_collection = None
+diet_sessions_collection = None
+diet_meals_collection = None
+diet_goals_collection = None
+bookmarks_collection = None
 
 
 def init_legacy_collections():
     """레거시 컬렉션 변수 초기화 (하위 호환성용)"""
     global users_collection, notifications_collection, notification_settings_collection
+    global diet_sessions_collection, diet_meals_collection, diet_goals_collection
+    global bookmarks_collection
     users_collection = get_users_collection()
     notifications_collection = get_notifications_collection()
     notification_settings_collection = get_notification_settings_collection()
+    diet_sessions_collection = get_diet_sessions_collection()
+    diet_meals_collection = get_diet_meals_collection()
+    diet_goals_collection = get_diet_goals_collection()
+    bookmarks_collection = get_bookmarks_collection()
 
 
 # 하위 호환성을 위한 db 객체 (Database.db를 직접 참조)

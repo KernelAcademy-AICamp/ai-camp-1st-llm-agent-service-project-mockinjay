@@ -25,6 +25,8 @@ from app.api.chat import close_parlant_server
 from app.api.careguide import router as careguide_router
 from app.api.clinical_trials import router as clinical_trials_router
 from app.api.terms import router as terms_router
+from app.api.diet_care import router as diet_care_router
+from app.api.news import router as news_router
 from app.api.error_handlers import (
     not_found_handler,
     internal_server_error_handler,
@@ -87,6 +89,7 @@ app.add_middleware(
         "Accept",
         "Origin",
         "X-Requested-With",
+        "X-CSRF-Token",
     ],
     expose_headers=["Content-Length", "X-Request-ID"],
     max_age=600,  # Preflight 요청 캐시 시간 (초)
@@ -111,6 +114,8 @@ app.include_router(careguide_router)
 # Include additional routers from PR #25
 app.include_router(clinical_trials_router)
 app.include_router(terms_router)
+app.include_router(diet_care_router)
+app.include_router(news_router)
 
 # Error handlers (UTI-005)
 app.add_exception_handler(StarletteHTTPException, not_found_handler)

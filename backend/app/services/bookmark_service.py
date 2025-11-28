@@ -1,15 +1,15 @@
 """
-Bookmark service - Research paper bookmark management
+Bookmark service - Research paper bookmark management (async version)
 """
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from bson import ObjectId
-from app.db.connection import bookmarks_collection
+from app.db.connection import get_bookmarks_collection
 import csv
 from io import StringIO
 
 
-def create_bookmark(user_id: str, bookmark_data: Dict[str, Any]) -> str:
+async def create_bookmark(user_id: str, bookmark_data: Dict[str, Any]) -> str:
     """
     Create a new bookmark
 
@@ -23,8 +23,10 @@ def create_bookmark(user_id: str, bookmark_data: Dict[str, Any]) -> str:
     Raises:
         ValueError: If bookmark already exists
     """
+    bookmarks_collection = get_bookmarks_collection()
+
     # Check if bookmark already exists
-    existing = bookmarks_collection.find_one({
+    existing = await bookmarks_collection.find_one({
         "user_id": user_id,
         "pmid": bookmark_data["pmid"]
     })
@@ -48,11 +50,11 @@ def create_bookmark(user_id: str, bookmark_data: Dict[str, Any]) -> str:
         "updated_at": datetime.utcnow()
     }
 
-    result = bookmarks_collection.insert_one(bookmark_doc)
+    result = await bookmarks_collection.insert_one(bookmark_doc)
     return str(result.inserted_id)
 
 
-def get_user_bookmarks(
+async def get_user_bookmarks(
     user_id: str,
     page: int = 1,
     page_size: int = 20
@@ -68,6 +70,7 @@ def get_user_bookmarks(
     Returns:
         Dict containing bookmarks list and pagination info
     """
+    bookmarks_collection = get_bookmarks_collection()
     skip = (page - 1) * page_size
 
     # Get bookmarks
@@ -76,7 +79,7 @@ def get_user_bookmarks(
     ).sort("created_at", -1).skip(skip).limit(page_size)
 
     bookmarks = []
-    for bm in bookmarks_cursor:
+    async for bm in bookmarks_cursor:
         bookmarks.append({
             "id": str(bm["_id"]),
             "user_id": bm["user_id"],
@@ -94,7 +97,7 @@ def get_user_bookmarks(
         })
 
     # Get total count
-    total_count = bookmarks_collection.count_documents({"user_id": user_id})
+    total_count = await bookmarks_collection.count_documents({"user_id": user_id})
 
     return {
         "bookmarks": bookmarks,
@@ -104,7 +107,7 @@ def get_user_bookmarks(
     }
 
 
-def delete_bookmark(user_id: str, pmid: str) -> bool:
+async def delete_bookmark(user_id: str, pmid: str) -> bool:
     """
     Delete a bookmark
 
@@ -115,7 +118,8 @@ def delete_bookmark(user_id: str, pmid: str) -> bool:
     Returns:
         bool: True if deleted, False if not found
     """
-    result = bookmarks_collection.delete_one({
+    bookmarks_collection = get_bookmarks_collection()
+    result = await bookmarks_collection.delete_one({
         "user_id": user_id,
         "pmid": pmid
     })
@@ -123,7 +127,7 @@ def delete_bookmark(user_id: str, pmid: str) -> bool:
     return result.deleted_count > 0
 
 
-def update_bookmark_memo(user_id: str, pmid: str, memo: str) -> bool:
+async def update_bookmark_memo(user_id: str, pmid: str, memo: str) -> bool:
     """
     Update bookmark memo
 
@@ -135,7 +139,8 @@ def update_bookmark_memo(user_id: str, pmid: str, memo: str) -> bool:
     Returns:
         bool: True if updated, False if not found
     """
-    result = bookmarks_collection.update_one(
+    bookmarks_collection = get_bookmarks_collection()
+    result = await bookmarks_collection.update_one(
         {
             "user_id": user_id,
             "pmid": pmid
@@ -151,7 +156,7 @@ def update_bookmark_memo(user_id: str, pmid: str, memo: str) -> bool:
     return result.modified_count > 0
 
 
-def export_bookmarks_csv(user_id: str, pmids: Optional[List[str]] = None) -> str:
+async def export_bookmarks_csv(user_id: str, pmids: Optional[List[str]] = None) -> str:
     """
     Export bookmarks as CSV
 
@@ -162,13 +167,15 @@ def export_bookmarks_csv(user_id: str, pmids: Optional[List[str]] = None) -> str
     Returns:
         str: CSV content
     """
+    bookmarks_collection = get_bookmarks_collection()
+
     # Build query
     query = {"user_id": user_id}
     if pmids:
         query["pmid"] = {"$in": pmids}
 
     # Get bookmarks
-    bookmarks = bookmarks_collection.find(query).sort("created_at", -1)
+    bookmarks_cursor = bookmarks_collection.find(query).sort("created_at", -1)
 
     # Create CSV
     output = StringIO()
@@ -181,7 +188,7 @@ def export_bookmarks_csv(user_id: str, pmids: Optional[List[str]] = None) -> str
     ])
 
     # Write rows
-    for bm in bookmarks:
+    async for bm in bookmarks_cursor:
         writer.writerow([
             bm["pmid"],
             bm["title"],
@@ -197,7 +204,7 @@ def export_bookmarks_csv(user_id: str, pmids: Optional[List[str]] = None) -> str
     return output.getvalue()
 
 
-def export_bookmarks_bibtex(user_id: str, pmids: Optional[List[str]] = None) -> str:
+async def export_bookmarks_bibtex(user_id: str, pmids: Optional[List[str]] = None) -> str:
     """
     Export bookmarks as BibTeX
 
@@ -208,17 +215,19 @@ def export_bookmarks_bibtex(user_id: str, pmids: Optional[List[str]] = None) -> 
     Returns:
         str: BibTeX content
     """
+    bookmarks_collection = get_bookmarks_collection()
+
     # Build query
     query = {"user_id": user_id}
     if pmids:
         query["pmid"] = {"$in": pmids}
 
     # Get bookmarks
-    bookmarks = bookmarks_collection.find(query).sort("created_at", -1)
+    bookmarks_cursor = bookmarks_collection.find(query).sort("created_at", -1)
 
     # Create BibTeX entries
     entries = []
-    for bm in bookmarks:
+    async for bm in bookmarks_cursor:
         # Clean title (remove newlines)
         title = bm["title"].replace("\n", " ").strip()
 

@@ -338,7 +338,7 @@ parlant-data/
 nlp_cache/
 embedding_cache/
 
-frontend/  
+# frontend/  
 
 # dependencies
 node_modules/
@@ -384,3 +384,4 @@ docs
 *.backup
 *.bak
 *~
+.playwright-mcp

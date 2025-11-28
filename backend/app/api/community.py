@@ -19,38 +19,49 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ============================================================================
-# Test Authorization Configuration (Safe Testing Mode)
-# 테스트 인증 설정 (안전한 테스트 모드)
+# Authorization Configuration
+# 인증 설정
 # ============================================================================
-# Control test authorization with environment variable
-# 환경 변수로 테스트 인증 제어
-# Set TEST_AUTH_ENABLED=true to enable test mode (ONLY for local testing)
-# TEST_AUTH_ENABLED=true로 설정하면 테스트 모드 활성화 (로컬 테스트 전용)
-# In production, this should NOT be set or should be empty
-# 프로덕션에서는 이 변수를 설정하지 않거나 비워두어야 함
-TEST_AUTH_ENABLED = os.getenv("TEST_AUTH_ENABLED", "").lower() == "true"
+# Authorization is ALWAYS enabled by default (production-safe)
+# 인증은 기본적으로 항상 활성화됨 (프로덕션 안전)
+#
+# Set SKIP_AUTH_CHECK=true ONLY for local development testing
+# SKIP_AUTH_CHECK=true는 로컬 개발 테스트에서만 설정하세요
+#
+# WARNING: Never set SKIP_AUTH_CHECK=true in production!
+# 경고: 프로덕션에서는 절대 SKIP_AUTH_CHECK=true를 설정하지 마세요!
+SKIP_AUTH_CHECK = os.getenv("SKIP_AUTH_CHECK", "").lower() == "true"
 
-# Log warning if test mode is enabled (테스트 모드 활성화 시 경고 로그)
-if TEST_AUTH_ENABLED:
-    logger.warning("Authorization Testing Mode enabled - this should NOT be used in production (인증 테스트 모드 활성화됨 - 프로덕션에서 사용하지 마세요)")
+# Log critical warning if auth check is disabled (인증 체크 비활성화 시 심각한 경고 로그)
+if SKIP_AUTH_CHECK:
+    logger.critical("⚠️ SECURITY WARNING: Authorization check is DISABLED! This should NEVER be used in production! (보안 경고: 인증 체크가 비활성화됨! 프로덕션에서 절대 사용 금지!)")
 
 
 def check_author_permission(user_id: str, author_id: str, operation: str = "modify"):
     """
     Check if user is authorized to modify/delete a resource.
 
-    In test mode (TEST_AUTH_ENABLED=false), always allows any operation.
-    In production mode (TEST_AUTH_ENABLED=true), checks user matches author.
+    Authorization is ALWAYS enforced by default (production-safe).
+    Only skipped if SKIP_AUTH_CHECK=true is set (development only).
+
+    기본적으로 인증이 항상 적용됩니다 (프로덕션 안전).
+    SKIP_AUTH_CHECK=true가 설정된 경우에만 건너뜁니다 (개발용).
 
     Args:
-        user_id (str): Current user's ID
-        author_id (str): Resource author's ID
-        operation (str): Operation type for error message (modify, delete, etc.)
+        user_id (str): Current user's ID (현재 사용자 ID)
+        author_id (str): Resource author's ID (리소스 작성자 ID)
+        operation (str): Operation type for error message (작업 유형)
 
     Raises:
-        HTTPException: 403 if authorization fails (only in TEST_AUTH_ENABLED=true mode)
+        HTTPException: 403 if user is not the author (작성자가 아닌 경우 403)
     """
-    if TEST_AUTH_ENABLED and user_id != author_id:
+    # Skip check ONLY in development mode (개발 모드에서만 체크 건너뜀)
+    if SKIP_AUTH_CHECK:
+        logger.warning(f"Auth check skipped for {operation} (SKIP_AUTH_CHECK=true)")
+        return
+
+    # ALWAYS check permissions in production (프로덕션에서는 항상 권한 체크)
+    if user_id != author_id:
         raise HTTPException(
             status_code=403,
             detail=f"권한이 없습니다. {operation} 권한이 있는 사용자만 가능합니다."
@@ -1191,7 +1202,12 @@ def upload_image(file: UploadFile = File(...)):
     # Generate unique filename using timestamp
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     unique_filename = f"{timestamp}_{file.filename}"
-    file_path = Path("uploads") / unique_filename
+
+    # Use absolute path relative to backend directory
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    uploads_dir = backend_dir / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+    file_path = uploads_dir / unique_filename
 
     # Save file to disk
     try:

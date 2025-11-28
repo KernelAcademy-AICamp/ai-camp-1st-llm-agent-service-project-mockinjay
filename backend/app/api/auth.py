@@ -240,6 +240,72 @@ async def signup(user: UserCreate):
 
     return {"success": True, "message": "회원가입 성공"}
 
+@router.get("/check-email")
+async def check_email_availability(email: str):
+    """
+    Check if email is available for registration
+    이메일 사용 가능 여부 확인
+
+    Args:
+        email (str): Email to check
+
+    Returns:
+        dict: {available: bool, message: str}
+    """
+    users_collection = get_users_collection()
+
+    # Check if email already exists
+    existing_user = await users_collection.find_one({"email": email})
+
+    if existing_user:
+        return {
+            "available": False,
+            "message": "이미 사용 중인 이메일입니다."
+        }
+
+    return {
+        "available": True,
+        "message": "사용 가능한 이메일입니다."
+    }
+
+
+@router.get("/check-username")
+async def check_username_availability(username: str):
+    """
+    Check if username (nickname) is available for registration
+    사용자명(닉네임) 사용 가능 여부 확인
+
+    Args:
+        username (str): Username/nickname to check
+
+    Returns:
+        dict: {available: bool, message: str}
+    """
+    users_collection = get_users_collection()
+
+    # Validate username format first
+    username_valid, username_error = UsernameValidator.validate(username)
+    if not username_valid:
+        return {
+            "available": False,
+            "message": username_error
+        }
+
+    # Check if username already exists
+    existing_user = await users_collection.find_one({"username": username})
+
+    if existing_user:
+        return {
+            "available": False,
+            "message": "이미 사용 중인 닉네임입니다."
+        }
+
+    return {
+        "available": True,
+        "message": "사용 가능한 닉네임입니다."
+    }
+
+
 @router.post("/dev-login")
 async def dev_login():
     """개발용 자동 로그인 API - 테스트 사용자 자동 생성 및 로그인"""

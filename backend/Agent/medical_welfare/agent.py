@@ -503,7 +503,7 @@ class MedicalWelfareAgent(LocalAgent):
 
             # Fallback idle detection
             idle_start_time = None
-            idle_timeout = 30
+            idle_timeout = 60
 
             logger.info(f"📡 Listening for events from continuous polling (max {max_wait}s)")
 
@@ -716,7 +716,7 @@ class MedicalWelfareAgent(LocalAgent):
 
             # Fallback idle detection
             idle_start_time = None
-            idle_timeout = 30
+            idle_timeout = 60
 
             # Parlant 1:N pattern support - wait for additional messages after ready
             # Parlant 1:N 패턴 지원 - ready 후에도 추가 메시지 대기
@@ -765,8 +765,12 @@ class MedicalWelfareAgent(LocalAgent):
                         }
                         return
 
-                    # Reset idle timer on event
+                    # Reset timers on event (status 변경 시 타임아웃 초기화)
+                    start_time = time.time()
                     idle_start_time = None
+                    # Reset ready timer on any event (ready 타이머도 초기화)
+                    if ready_received:
+                        ready_timer_start = time.time()
 
                     # Process message events
                     # 메시지 이벤트 처리

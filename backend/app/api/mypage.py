@@ -255,6 +255,149 @@ async def get_points_history(
 
 
 # ============================================================================
+# Notifications Endpoints
+# ============================================================================
+
+@router.get("/notifications")
+async def get_notifications(
+    limit: int = 20,
+    offset: int = 0,
+    unreadOnly: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user notifications with pagination"""
+    try:
+        notifications_collection = db["notifications"]
+        user_id = str(current_user["_id"])
+
+        # Validate pagination
+        limit = min(max(1, limit), 50)
+        offset = max(0, offset)
+
+        # Build query
+        query = {"userId": user_id}
+        if unreadOnly:
+            query["read"] = False
+
+        # Get total count
+        total_count = await notifications_collection.count_documents(query)
+
+        # Fetch notifications
+        cursor = notifications_collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        notifications = await cursor.to_list(length=limit)
+
+        # Serialize notifications
+        result = []
+        for notif in notifications:
+            result.append({
+                "id": str(notif.pop("_id")),
+                "userId": notif.get("userId"),
+                "type": notif.get("type", "system"),
+                "title": notif.get("title", ""),
+                "message": notif.get("message", ""),
+                "read": notif.get("read", False),
+                "link": notif.get("link"),
+                "createdAt": notif.get("createdAt").isoformat() if isinstance(notif.get("createdAt"), datetime) else notif.get("createdAt", ""),
+            })
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error fetching notifications: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="알림 조회 중 오류가 발생했습니다"
+        )
+
+
+@router.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark a single notification as read"""
+    try:
+        from bson import ObjectId
+        notifications_collection = db["notifications"]
+        user_id = str(current_user["_id"])
+
+        result = await notifications_collection.update_one(
+            {"_id": ObjectId(notification_id), "userId": user_id},
+            {"$set": {"read": True}}
+        )
+
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다")
+
+        return {"success": True, "message": "알림이 읽음 처리되었습니다"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error marking notification as read: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="알림 읽음 처리 중 오류가 발생했습니다"
+        )
+
+
+@router.patch("/notifications/read-all")
+async def mark_all_notifications_read(current_user: dict = Depends(get_current_user)):
+    """Mark all notifications as read for current user"""
+    try:
+        notifications_collection = db["notifications"]
+        user_id = str(current_user["_id"])
+
+        result = await notifications_collection.update_many(
+            {"userId": user_id, "read": False},
+            {"$set": {"read": True}}
+        )
+
+        return {
+            "success": True,
+            "message": f"{result.modified_count}개의 알림이 읽음 처리되었습니다",
+            "modifiedCount": result.modified_count
+        }
+
+    except Exception as e:
+        logger.error(f"Error marking all notifications as read: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="알림 읽음 처리 중 오류가 발생했습니다"
+        )
+
+
+@router.delete("/notifications/{notification_id}")
+async def delete_notification(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a notification"""
+    try:
+        from bson import ObjectId
+        notifications_collection = db["notifications"]
+        user_id = str(current_user["_id"])
+
+        result = await notifications_collection.delete_one(
+            {"_id": ObjectId(notification_id), "userId": user_id}
+        )
+
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다")
+
+        return {"success": True, "message": "알림이 삭제되었습니다"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting notification: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="알림 삭제 중 오류가 발생했습니다"
+        )
+
+
+# ============================================================================
 # Health Check Endpoint
 # ============================================================================
 
@@ -272,6 +415,7 @@ async def health_check():
             "posts": "ready",
             "level": "ready",
             "points": "ready",
-            "points_history": "ready"
+            "points_history": "ready",
+            "notifications": "ready"
         }
     }
