@@ -42,11 +42,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/health", tags=["health-tracking"])
 
-# Database collections
-labs_collection = db["health_labs"]
-medications_collection = db["health_medications"]
-vitals_collection = db["health_vitals"]
-symptoms_collection = db["health_symptoms"]
+
+# Lazy getters for database collections - avoids import-time DB access
+def get_labs_collection():
+    return db["health_labs"]
+
+
+def get_medications_collection():
+    return db["health_medications"]
+
+
+def get_vitals_collection():
+    return db["health_vitals"]
+
+
+def get_symptoms_collection():
+    return db["health_symptoms"]
 
 
 # ============================================
@@ -82,6 +93,7 @@ async def create_lab_result(
         "updated_at": created_at
     }
 
+    labs_collection = get_labs_collection()
     result = labs_collection.insert_one(lab_doc)
 
     logger.info(f"Created lab result {result.inserted_id} for user {user_id}")
@@ -136,6 +148,7 @@ async def get_lab_results(
         }
     }
 
+    labs_collection = get_labs_collection()
     labs = list(labs_collection.find(query).sort("test_date", -1).limit(limit))
 
     # Convert to response models
@@ -195,6 +208,8 @@ async def get_lab_trend(
         "user_id": user_id,
         "test_date": {"$gte": start_date}
     }
+
+    labs_collection = get_labs_collection()
 
     # Map test type to field name
     field_mapping = {
@@ -301,6 +316,7 @@ async def delete_lab_result(
             detail="Invalid lab ID format"
         )
 
+    labs_collection = get_labs_collection()
     # Find and check ownership
     lab = labs_collection.find_one({"_id": lab_object_id})
 
@@ -360,6 +376,7 @@ async def create_medication(
         "updated_at": created_at
     }
 
+    medications_collection = get_medications_collection()
     result = medications_collection.insert_one(med_doc)
 
     logger.info(f"Created medication {result.inserted_id} for user {user_id}")
@@ -395,6 +412,7 @@ async def get_medications(
     if active_only:
         query["is_active"] = True
 
+    medications_collection = get_medications_collection()
     medications = list(medications_collection.find(query).sort("created_at", -1))
 
     # Convert to response models
@@ -464,6 +482,7 @@ async def update_medication(
             detail="Invalid medication ID format"
         )
 
+    medications_collection = get_medications_collection()
     # Find and check ownership
     medication = medications_collection.find_one({"_id": med_object_id})
 
@@ -542,6 +561,7 @@ async def delete_medication(
             detail="Invalid medication ID format"
         )
 
+    medications_collection = get_medications_collection()
     # Find and check ownership
     medication = medications_collection.find_one({"_id": med_object_id})
 

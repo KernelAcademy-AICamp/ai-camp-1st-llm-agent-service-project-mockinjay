@@ -35,6 +35,10 @@ from app.api.error_handlers import (
 from app.middleware.auth import AuthenticationMiddleware
 from app.api import auth, user
 from app.api import user_health_records
+from app.api.community import router as community_router
+from app.api.header import router as header_router
+from app.api.footer import router as footer_router
+from app.api.notification import router as notification_router
 
 # Import NutritionAgent for nutrition endpoint
 from Agent.nutrition.agent import NutritionAgent

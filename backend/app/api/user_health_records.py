@@ -8,13 +8,17 @@ from typing import List
 
 router = APIRouter(prefix="/api/health-records", tags=["health-records"])
 
-health_records_collection = db["health_records"]
+
+def get_health_records_collection():
+    """Lazy getter for health_records collection - avoids import-time DB access"""
+    return db["health_records"]
 
 @router.get("/", response_model=List[HealthRecordResponse])
 async def get_health_records(user_id: str = Depends(get_current_user)):
     """
     현재 로그인한 사용자의 모든 건강 기록을 조회합니다.
     """
+    health_records_collection = get_health_records_collection()
     records = list(health_records_collection.find({"user_id": user_id}).sort("date", -1))
     
     return [
@@ -34,12 +38,13 @@ async def create_health_record(
     """
     새로운 건강 기록을 생성합니다.
     """
+    health_records_collection = get_health_records_collection()
     record_doc = {
         "user_id": user_id,
         **record.model_dump(),
         "created_at": datetime.utcnow()
     }
-    
+
     result = health_records_collection.insert_one(record_doc)
     
     return {
@@ -57,6 +62,7 @@ async def update_health_record(
     """
     건강 기록을 수정합니다.
     """
+    health_records_collection = get_health_records_collection()
     # 권한 확인
     existing_record = health_records_collection.find_one({
         "_id": ObjectId(record_id),
@@ -94,6 +100,7 @@ async def delete_health_record(
     """
     건강 기록을 삭제합니다.
     """
+    health_records_collection = get_health_records_collection()
     result = health_records_collection.delete_one({
         "_id": ObjectId(record_id),
         "user_id": user_id
