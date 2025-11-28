@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.api.dependencies import get_current_user
+from app.models.user import UserUpdate
 from app.db.connection import users_collection
 from bson import ObjectId
 
@@ -14,7 +15,7 @@ async def get_profile(user_id: str = Depends(get_current_user)):
         user_id: JWT 토큰에서 추출한 사용자 ID
         
     Returns:
-        dict: 사용자 프로필 정보 (id, email, name, profile)
+        dict: 사용자 프로필 정보
     """
     user = users_collection.find_one({"_id": ObjectId(user_id)})
     
@@ -26,24 +27,34 @@ async def get_profile(user_id: str = Depends(get_current_user)):
         "email": user["email"],
         "name": user["name"],
         "profile": user["profile"],
-        "role": user.get("role", "user")  # 기존 사용자를 위한 기본값
+        "role": user.get("role", "user"),  # 기존 사용자를 위한 기본값
+        "gender": user.get("gender"),
+        "birth_date": user.get("birth_date"),
+        "height": user.get("height"),
+        "weight": user.get("weight"),
+        "diagnosis": user.get("diagnosis")
     }
 
 @router.put("/profile")
-async def update_profile(name: str, user_id: str = Depends(get_current_user)):
+async def update_profile(user_update: UserUpdate, user_id: str = Depends(get_current_user)):
     """
-    현재 로그인한 사용자의 이름을 수정합니다.
+    현재 로그인한 사용자의 프로필 정보를 수정합니다.
     
     Args:
-        name: 새로운 이름
+        user_update: 수정할 사용자 정보 (이름, 성별, 생년월일, 키, 체중, 진단명)
         user_id: JWT 토큰에서 추출한 사용자 ID
         
     Returns:
         dict: 성공 메시지
     """
+    update_data = {k: v for k, v in user_update.model_dump().items() if v is not None}
+    
+    if not update_data:
+        return {"success": True, "message": "변경할 내용이 없습니다"}
+
     result = users_collection.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {"name": name}}
+        {"$set": update_data}
     )
     
     if result.matched_count == 0:
