@@ -37,3 +37,12 @@ export type { MealHistoryContentProps } from './MealHistoryContent';
 
 export { NutritionAnalysisContent } from './NutritionAnalysisContent';
 export type { NutritionAnalysisContentProps } from './NutritionAnalysisContent';
+
+export { NutrientEducationSection } from './NutrientEducationSection';
+export type { NutrientEducationSectionProps, NutrientInfo } from './NutrientEducationSection';
+
+export { FoodInfoCard, SafeFoodCard, WarningFoodCard } from './FoodInfoCard';
+export type { FoodInfoCardProps, SafeFoodCardProps, WarningFoodCardProps, FoodCategory } from './FoodInfoCard';
+
+export { MealEntryCard } from './MealEntryCard';
+export type { MealEntryCardProps, MealLog } from './MealEntryCard';

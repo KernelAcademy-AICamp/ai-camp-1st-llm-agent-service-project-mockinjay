@@ -15,9 +15,8 @@ interface CreatePostModalProps {
   language: 'ko' | 'en';
 }
 
-// TODO: 3개 이상 이미지 업로드 시 404 에러 발생 중 - Vite 프록시 또는 서버 이슈로 추정
-// 임시로 최대 2개로 제한
-const MAX_IMAGES = 2;
+// Max images per post (backend uploads directory path fixed)
+const MAX_IMAGES = 5;
 
 const CreatePostModal: React.FC<CreatePostModalProps> = ({ isOpen, onClose, onSuccess, language }) => {
   // Form state

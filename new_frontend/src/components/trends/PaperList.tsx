@@ -3,7 +3,7 @@
  * 연구 논문 목록 및 확장 가능한 초록 표시
  */
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, FileText, Calendar, BookOpen, User, Sparkles, Loader2, Languages, FileBarChart, CheckCircle, Circle } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, FileText, Calendar, BookOpen, User, Sparkles, Loader2, Languages, FileBarChart, CheckCircle, Circle, Bookmark } from 'lucide-react';
 import type { PaperResult } from '../../services/trendsApi';
 import { generateOneLineSummaries, translateAbstracts } from '../../services/trendsApi';
 
@@ -14,11 +14,24 @@ interface PaperListProps {
   language: 'ko' | 'en';
   selectedPapers?: PaperResult[];
   onPaperSelect?: (paper: PaperResult) => void;
+  bookmarkedPaperIds?: Set<string>;
+  onToggleBookmark?: (paper: PaperResult) => void;
+  bookmarkLoading?: Set<string>;
 }
 
 type ViewMode = 'original' | 'korean' | 'summary';
 
-const PaperList: React.FC<PaperListProps> = ({ papers, onRequestSummary, loading = false, language, selectedPapers = [], onPaperSelect }) => {
+const PaperList: React.FC<PaperListProps> = ({
+  papers,
+  onRequestSummary,
+  loading = false,
+  language,
+  selectedPapers = [],
+  onPaperSelect,
+  bookmarkedPaperIds = new Set(),
+  onToggleBookmark,
+  bookmarkLoading = new Set(),
+}) => {
   const [expandedPapers, setExpandedPapers] = useState<Set<string>>(new Set());
   const [oneLineSummaries, setOneLineSummaries] = useState<Map<string, string>>(new Map());
   const [translations, setTranslations] = useState<Map<string, string>>(new Map());
@@ -194,7 +207,7 @@ const PaperList: React.FC<PaperListProps> = ({ papers, onRequestSummary, loading
                   : 'border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-600'
               }`}
             >
-              {/* Paper Title with Selection */}
+              {/* Paper Title with Selection and Bookmark */}
               <div className="flex items-start gap-3">
                 {onPaperSelect && (
                   <button
@@ -212,6 +225,25 @@ const PaperList: React.FC<PaperListProps> = ({ papers, onRequestSummary, loading
                 <h4 className="font-semibold text-gray-800 dark:text-white mb-2 leading-tight flex-1">
                   {paper.title || t.noTitle}
                 </h4>
+                {onToggleBookmark && (
+                  <button
+                    onClick={() => onToggleBookmark(paper)}
+                    disabled={bookmarkLoading.has(paper.pmid)}
+                    className={`flex-shrink-0 p-1 rounded transition-colors ${
+                      bookmarkedPaperIds.has(paper.pmid)
+                        ? 'text-yellow-500 hover:text-yellow-600'
+                        : 'text-gray-400 dark:text-gray-500 hover:text-yellow-500'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={bookmarkedPaperIds.has(paper.pmid) ? (language === 'ko' ? '북마크 제거' : 'Remove bookmark') : (language === 'ko' ? '북마크 추가' : 'Add bookmark')}
+                    aria-label={bookmarkedPaperIds.has(paper.pmid) ? (language === 'ko' ? '북마크 제거' : 'Remove bookmark') : (language === 'ko' ? '북마크 추가' : 'Add bookmark')}
+                  >
+                    {bookmarkLoading.has(paper.pmid) ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <Bookmark size={18} fill={bookmarkedPaperIds.has(paper.pmid) ? 'currentColor' : 'none'} />
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* Metadata */}

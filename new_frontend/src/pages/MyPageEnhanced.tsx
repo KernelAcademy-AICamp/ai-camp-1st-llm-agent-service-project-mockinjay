@@ -2,7 +2,7 @@
  * Enhanced MyPage Component with Modal Integration
  * CarePlus 마이페이지 - 모달 통합 버전
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   User,
   Settings,
@@ -14,6 +14,10 @@ import {
   Target,
   TrendingUp,
   Heart,
+  Shield,
+  HelpCircle,
+  Edit3,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -22,6 +26,18 @@ import { useQuizStats } from '../hooks/useQuizStats';
 import { QuizStatsSkeleton, ProfileCardSkeleton, MenuSectionSkeleton, HealthInfoSkeleton } from '../components/mypage/shared/Skeleton';
 import { QuizStatsError } from '../components/mypage/shared/ErrorState';
 import { QuizStatsEmpty, HealthProfileEmpty } from '../components/mypage/shared/EmptyState';
+import {
+  updateUserProfile,
+  updateHealthProfile,
+  updateUserPreferences,
+  getUserBookmarks,
+  removeBookmark,
+  getUserPosts,
+  deleteUserPost,
+  type UserProfileUpdateData,
+  type HealthProfileUpdateData,
+  type UserPreferencesUpdateData,
+} from '../services/api';
 
 // Import modal components
 import {
@@ -36,6 +52,14 @@ const MyPageEnhanced: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { stats: quizStats, isLoading, error, refetch } = useQuizStats(user?.id);
+  const [pageVisible, setPageVisible] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  // Page enter animation
+  useEffect(() => {
+    const timer = setTimeout(() => setPageVisible(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Modal state management
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -49,46 +73,69 @@ const MyPageEnhanced: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
-  // Mock data for demonstration - replace with actual API calls
-  const [bookmarkedPapers, setBookmarkedPapers] = useState([
-    {
-      id: '1',
-      title: 'The effects of plant-based diets on cardiovascular health: A systematic review',
-      authors: 'Kim, J., Lee, S., Park, H.',
-      journal: 'Journal of Nutrition',
-      year: '2024',
-      bookmarkedAt: '2024-01-15T10:00:00Z',
-    },
-    {
-      id: '2',
-      title: 'Machine learning approaches for early detection of chronic kidney disease',
-      authors: 'Chen, L., Wang, M., Zhang, Y.',
-      journal: 'Nature Medicine',
-      year: '2023',
-      bookmarkedAt: '2024-01-10T14:30:00Z',
-    },
-  ]);
+  // Data from API (no more mock data)
+  const [bookmarkedPapers, setBookmarkedPapers] = useState<{
+    id: string;
+    title: string;
+    authors: string;
+    journal?: string;
+    year?: string;
+    bookmarkedAt: string;
+  }[]>([]);
+  const [myPosts, setMyPosts] = useState<{
+    id: string;
+    title: string;
+    content: string;
+    postType: 'BOARD' | 'CHALLENGE' | 'SURVEY';
+    likes: number;
+    commentCount: number;
+    createdAt: string;
+  }[]>([]);
+  const [, setIsLoadingBookmarks] = useState(false);
+  const [, setIsLoadingPosts] = useState(false);
 
-  const [myPosts, setMyPosts] = useState([
-    {
-      id: '1',
-      title: '건강한 식단 유지하는 방법 공유합니다',
-      content: '안녕하세요! 저는 최근 6개월 동안 식단 관리를 통해...',
-      postType: 'BOARD' as const,
-      likes: 24,
-      commentCount: 8,
-      createdAt: '2024-01-20T09:00:00Z',
-    },
-    {
-      id: '2',
-      title: '30일 걷기 챌린지 참여하실 분!',
-      content: '매일 1만보 걷기 챌린지 함께 하실 분 모집합니다...',
-      postType: 'CHALLENGE' as const,
-      likes: 45,
-      commentCount: 15,
-      createdAt: '2024-01-18T11:00:00Z',
-    },
-  ]);
+  // Fetch bookmarks from API
+  const fetchBookmarks = useCallback(async () => {
+    if (!user?.id) return;
+    setIsLoadingBookmarks(true);
+    try {
+      const response = await getUserBookmarks();
+      // Transform API response to component format
+      const papers = (response.bookmarks || []).map((b) => ({
+        id: b.paperId,
+        title: b.paperData?.title || 'Untitled',
+        authors: b.paperData?.authors || '',
+        journal: b.paperData?.journal,
+        year: b.paperData?.year,
+        bookmarkedAt: b.createdAt,
+      }));
+      setBookmarkedPapers(papers);
+    } catch (error) {
+      console.error('Failed to fetch bookmarks:', error);
+    } finally {
+      setIsLoadingBookmarks(false);
+    }
+  }, [user?.id]);
+
+  // Fetch user posts from API
+  const fetchPosts = useCallback(async () => {
+    if (!user?.id) return;
+    setIsLoadingPosts(true);
+    try {
+      const response = await getUserPosts();
+      setMyPosts(response.posts || []);
+    } catch (error) {
+      console.error('Failed to fetch posts:', error);
+    } finally {
+      setIsLoadingPosts(false);
+    }
+  }, [user?.id]);
+
+  // Fetch data on mount
+  useEffect(() => {
+    fetchBookmarks();
+    fetchPosts();
+  }, [fetchBookmarks, fetchPosts]);
 
   // Announce stats update to screen readers
   useEffect(() => {
@@ -103,19 +150,49 @@ const MyPageEnhanced: React.FC = () => {
 
   // Handler functions with loading states
   const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = () => {
     logout();
     navigate(ROUTES.MAIN);
   };
 
-  const handleProfileSave = async (_data: unknown) => {
+  // Menu sections configuration
+  const menuSections = useMemo(() => [
+    {
+      title: '계정 설정',
+      items: [
+        { icon: User, label: '프로필 정보', onClick: () => setIsProfileModalOpen(true), badge: undefined },
+        { icon: Heart, label: '건강 프로필', onClick: () => setIsHealthModalOpen(true), badge: undefined },
+        { icon: Settings, label: '환경 설정', onClick: () => setIsSettingsModalOpen(true), badge: undefined },
+        { icon: CreditCard, label: '구독 및 결제', onClick: () => navigate('/subscribe'), badge: undefined },
+        { icon: Bell, label: '알림 설정', onClick: () => navigate('/notification-settings'), badge: undefined },
+      ],
+    },
+    {
+      title: '콘텐츠 및 활동',
+      items: [
+        { icon: FileText, label: '북마크한 논문', onClick: () => setIsBookmarksModalOpen(true), badge: bookmarkedPapers.length },
+        { icon: FileText, label: '내 커뮤니티 게시글', onClick: () => setIsPostsModalOpen(true), badge: myPosts.length },
+      ],
+    },
+    {
+      title: '지원',
+      items: [
+        { icon: HelpCircle, label: '도움말 및 FAQ', onClick: () => navigate('/support'), badge: undefined },
+        { icon: Shield, label: '개인정보 처리방침', onClick: () => navigate('/privacy'), badge: undefined },
+      ],
+    },
+  ], [bookmarkedPapers.length, myPosts.length, navigate]);
+
+  const handleProfileSave = async (data: UserProfileUpdateData) => {
     setIsSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
 
     try {
-      // TODO: Implement API call to save profile
-      // await updateUserProfile(user.id, data);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+      await updateUserProfile(data);
       setSubmitSuccess('프로필이 성공적으로 업데이트되었습니다.');
       setTimeout(() => {
         setIsProfileModalOpen(false);
@@ -128,15 +205,13 @@ const MyPageEnhanced: React.FC = () => {
     }
   };
 
-  const handleHealthProfileSave = async (_data: unknown) => {
+  const handleHealthProfileSave = async (data: HealthProfileUpdateData) => {
     setIsSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
 
     try {
-      // TODO: Implement API call to save health profile
-      // await updateHealthProfile(user.id, data);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+      await updateHealthProfile(data);
       setSubmitSuccess('건강 프로필이 성공적으로 업데이트되었습니다.');
       setTimeout(() => {
         setIsHealthModalOpen(false);
@@ -149,15 +224,13 @@ const MyPageEnhanced: React.FC = () => {
     }
   };
 
-  const handleSettingsSave = async (_settings: unknown) => {
+  const handleSettingsSave = async (settings: UserPreferencesUpdateData) => {
     setIsSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
 
     try {
-      // TODO: Implement API call to save settings
-      // await updateUserSettings(user.id, settings);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+      await updateUserPreferences(settings);
       setSubmitSuccess('설정이 성공적으로 저장되었습니다.');
       setTimeout(() => {
         setIsSettingsModalOpen(false);
@@ -171,24 +244,42 @@ const MyPageEnhanced: React.FC = () => {
   };
 
   const handleRemoveBookmark = async (paperId: string) => {
+    // Optimistic UI update
+    const previousPapers = [...bookmarkedPapers];
+    setBookmarkedPapers((prev) => prev.filter((p) => p.id !== paperId));
+
     try {
-      setBookmarkedPapers((prev) => prev.filter((p) => p.id !== paperId));
-      // TODO: Implement API call to remove bookmark
-      // await removeBookmark(paperId);
+      const success = await removeBookmark(paperId);
+      if (!success) {
+        // Restore on failure
+        setBookmarkedPapers(previousPapers);
+        setSubmitError('북마크 삭제에 실패했습니다.');
+      }
     } catch (error) {
       console.error('Failed to remove bookmark:', error);
-      // Re-add the paper if the API call fails
+      // Restore on failure
+      setBookmarkedPapers(previousPapers);
+      setSubmitError('북마크 삭제에 실패했습니다.');
     }
   };
 
   const handleDeletePost = async (postId: string) => {
+    // Optimistic UI update
+    const previousPosts = [...myPosts];
+    setMyPosts((prev) => prev.filter((p) => p.id !== postId));
+
     try {
-      setMyPosts((prev) => prev.filter((p) => p.id !== postId));
-      // TODO: Implement API call to delete post
-      // await deletePost(postId);
+      const success = await deleteUserPost(postId);
+      if (!success) {
+        // Restore on failure
+        setMyPosts(previousPosts);
+        setSubmitError('게시글 삭제에 실패했습니다.');
+      }
     } catch (error) {
       console.error('Failed to delete post:', error);
-      // Re-add the post if the API call fails
+      // Restore on failure
+      setMyPosts(previousPosts);
+      setSubmitError('게시글 삭제에 실패했습니다.');
     }
   };
 
@@ -215,7 +306,7 @@ const MyPageEnhanced: React.FC = () => {
   // Show full page skeleton on initial load
   if (isLoading && !quizStats) {
     return (
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto animate-fade-in">
         <div className="h-9 w-32 bg-gray-200 rounded animate-pulse mb-8"></div>
         <ProfileCardSkeleton />
         <div className="grid md:grid-cols-3 gap-6">
@@ -234,7 +325,9 @@ const MyPageEnhanced: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className={`max-w-4xl mx-auto transition-all duration-500 ${
+      pageVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+    }`}>
       {/* Screen reader live region for dynamic content */}
       <div id="quiz-stats-live-region-enhanced" className="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 
@@ -242,31 +335,64 @@ const MyPageEnhanced: React.FC = () => {
 
       {/* Success/Error Messages */}
       {submitSuccess && (
-        <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 text-green-800">
+        <div className="mb-6 bg-green-50 border border-green-200 rounded-xl p-4 text-green-800 shadow-sm animate-slide-down flex items-center gap-2">
+          <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
           {submitSuccess}
         </div>
       )}
       {submitError && (
-        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 shadow-sm animate-slide-down">
           {submitError}
         </div>
       )}
 
-      {/* Profile Card */}
-      <section className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8" aria-label="프로필 정보">
-        <div className="p-8 flex items-center">
-          <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 text-2xl font-bold mr-6" role="img" aria-label={`${user?.fullName || user?.username || '사용자'} 프로필 이미지`}>
-            {userInitials}
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              {user?.fullName || user?.username || '사용자'}
-            </h2>
-            <p className="text-gray-600">{user?.email || 'email@example.com'}</p>
-            <div className="mt-2 flex space-x-2">
-              <span className="px-3 py-1 bg-primary-100 text-primary-700 text-xs font-medium rounded-full" role="status">
-                {totalQuizzesTaken}개 퀴즈 완료
-              </span>
+      {/* Enhanced Profile Card */}
+      <section className="bg-white rounded-2xl shadow-soft border border-gray-100 overflow-hidden mb-8 transition-all hover:shadow-medium" aria-label="프로필 정보">
+        <div className="p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+            {/* Avatar with edit button */}
+            <div className="relative self-center sm:self-start">
+              <div className="w-20 h-20 bg-gradient-to-br from-primary to-secondary rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-glow" role="img" aria-label={`${user?.fullName || user?.username || '사용자'} 프로필 이미지`}>
+                {userInitials}
+              </div>
+              <button
+                onClick={() => setIsProfileModalOpen(true)}
+                className="absolute -bottom-1 -right-1 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center border border-gray-200 hover:bg-gray-50 transition-colors touch-target"
+                aria-label="프로필 사진 변경"
+              >
+                <Camera size={14} className="text-gray-600" />
+              </button>
+            </div>
+
+            {/* User Info */}
+            <div className="flex-1 text-center sm:text-left">
+              <div className="flex items-center justify-center sm:justify-start gap-2">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {user?.fullName || user?.username || '사용자'}
+                </h2>
+                <button
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="p-1 text-gray-400 hover:text-primary transition-colors"
+                  aria-label="프로필 수정"
+                >
+                  <Edit3 size={16} />
+                </button>
+              </div>
+              <p className="text-gray-600">{user?.email || 'email@example.com'}</p>
+              <div className="mt-3 flex flex-wrap gap-2 justify-center sm:justify-start">
+                <span className="px-3 py-1 bg-primary/10 text-primary font-medium text-xs rounded-full" role="status">
+                  {totalQuizzesTaken}개 퀴즈 완료
+                </span>
+                {currentStreak > 0 && (
+                  <span className="px-3 py-1 bg-orange-100 text-orange-600 font-medium text-xs rounded-full">
+                    {currentStreak}일 연속 학습중
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -275,52 +401,33 @@ const MyPageEnhanced: React.FC = () => {
       <div className="grid md:grid-cols-3 gap-6">
         {/* Left Column - Settings */}
         <div className="md:col-span-2 space-y-6">
-          {/* Account Settings */}
-          <nav className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden" aria-label="계정 설정">
-            <h3 className="p-4 border-b border-gray-100 font-bold text-gray-900">
-              계정 설정
-            </h3>
-            <div className="divide-y divide-gray-100" role="list">
-              <MenuItem
-                icon={<User size={20} />}
-                label="프로필 정보"
-                onClick={() => setIsProfileModalOpen(true)}
-              />
-              <MenuItem
-                icon={<Heart size={20} />}
-                label="건강 프로필"
-                onClick={() => setIsHealthModalOpen(true)}
-              />
-              <MenuItem
-                icon={<Settings size={20} />}
-                label="환경 설정"
-                onClick={() => setIsSettingsModalOpen(true)}
-              />
-              <MenuItem icon={<CreditCard size={20} />} label="구독 및 결제" />
-              <MenuItem icon={<Bell size={20} />} label="알림 설정" />
-            </div>
-          </nav>
-
-          {/* Content & Activity */}
-          <nav className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden" aria-label="콘텐츠 및 활동">
-            <h3 className="p-4 border-b border-gray-100 font-bold text-gray-900">
-              콘텐츠 및 활동
-            </h3>
-            <div className="divide-y divide-gray-100" role="list">
-              <MenuItem
-                icon={<FileText size={20} />}
-                label="북마크한 논문"
-                onClick={() => setIsBookmarksModalOpen(true)}
-                badge={bookmarkedPapers.length}
-              />
-              <MenuItem
-                icon={<FileText size={20} />}
-                label="내 커뮤니티 게시글"
-                onClick={() => setIsPostsModalOpen(true)}
-                badge={myPosts.length}
-              />
-            </div>
-          </nav>
+          {/* Dynamic Menu Sections */}
+          {menuSections.map((section, sectionIndex) => (
+            <nav
+              key={section.title}
+              className="bg-white rounded-2xl shadow-soft border border-gray-100 overflow-hidden"
+              aria-label={section.title}
+              style={{ animationDelay: `${sectionIndex * 100}ms` }}
+            >
+              <h3 className="p-4 border-b border-gray-100 font-bold text-gray-900 bg-gray-50/50">
+                {section.title}
+              </h3>
+              <div className="divide-y divide-gray-100" role="list">
+                {section.items.map((item) => {
+                  const IconComponent = item.icon;
+                  return (
+                    <MenuItem
+                      key={item.label}
+                      icon={<IconComponent size={20} />}
+                      label={item.label}
+                      onClick={item.onClick}
+                      badge={item.badge}
+                    />
+                  );
+                })}
+              </div>
+            </nav>
+          ))}
         </div>
 
         {/* Right Column - Stats & Actions */}
@@ -333,16 +440,15 @@ const MyPageEnhanced: React.FC = () => {
           ) : !hasQuizData ? (
             <QuizStatsEmpty onStartQuiz={() => navigate('/quiz')} />
           ) : (
-            <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6" aria-labelledby="quiz-stats-heading-enhanced">
+            <section className="bg-white rounded-2xl shadow-soft border border-gray-100 p-6" aria-labelledby="quiz-stats-heading-enhanced">
               <div className="flex items-center gap-2 mb-4">
-                <Trophy className="text-primary-600" size={24} aria-hidden="true" />
+                <Trophy className="text-primary" size={24} aria-hidden="true" />
                 <h3 id="quiz-stats-heading-enhanced" className="font-bold text-gray-900">퀴즈 통계</h3>
               </div>
 
               {/* Total Points Card */}
               <div
-                className="rounded-xl p-4 mb-4"
-                style={{ background: 'var(--gradient-primary)' }}
+                className="rounded-xl p-4 mb-4 bg-gradient-to-br from-primary to-secondary shadow-lg shadow-primary/20"
                 role="region"
                 aria-label="총 획득 점수"
               >
@@ -357,17 +463,17 @@ const MyPageEnhanced: React.FC = () => {
 
               {/* Detailed Stats */}
               <dl className="space-y-3 text-sm">
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
                   <dt className="text-gray-600 flex items-center gap-2">
-                    <Trophy size={16} className="text-primary-500" aria-hidden="true" />
+                    <Trophy size={16} className="text-primary" aria-hidden="true" />
                     완료한 퀴즈
                   </dt>
                   <dd className="font-semibold text-gray-900">{totalQuizzesTaken}개</dd>
                 </div>
 
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
                   <dt className="text-gray-600 flex items-center gap-2">
-                    <Target size={16} className="text-accent-purple" aria-hidden="true" />
+                    <Target size={16} className="text-secondary" aria-hidden="true" />
                     맞춘 문제
                   </dt>
                   <dd className="font-semibold text-gray-900">
@@ -375,17 +481,17 @@ const MyPageEnhanced: React.FC = () => {
                   </dd>
                 </div>
 
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
                   <dt className="text-gray-600 flex items-center gap-2">
-                    <Target size={16} className="text-primary-500" aria-hidden="true" />
+                    <Target size={16} className="text-primary" aria-hidden="true" />
                     정답률
                   </dt>
-                  <dd className="font-semibold text-primary-600">
+                  <dd className="font-semibold text-primary">
                     {accuracyRate.toFixed(1)}%
                   </dd>
                 </div>
 
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
                   <dt className="text-gray-600 flex items-center gap-2">
                     <TrendingUp size={16} className="text-orange-500" aria-hidden="true" />
                     현재 연속
@@ -396,7 +502,7 @@ const MyPageEnhanced: React.FC = () => {
                   </dd>
                 </div>
 
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
                   <dt className="text-gray-600 flex items-center gap-2">
                     <TrendingUp size={16} className="text-amber-500" aria-hidden="true" />
                     최고 연속
@@ -413,13 +519,45 @@ const MyPageEnhanced: React.FC = () => {
           {/* Logout Button */}
           <button
             onClick={handleLogout}
-            className="w-full bg-red-50 text-red-600 py-3 px-4 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[44px]"
+            className="w-full bg-red-50 text-red-600 py-3 px-4 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[44px] touch-target"
             aria-label="로그아웃"
           >
             <LogOut size={18} className="mr-2" aria-hidden="true" /> 로그아웃
           </button>
         </div>
       </div>
+
+      {/* Logout Confirmation Dialog */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 animate-fade-in" onClick={() => setShowLogoutConfirm(false)}>
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center">
+              <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+                <LogOut size={24} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">로그아웃 하시겠습니까?</h3>
+              <p className="text-sm text-gray-500 mb-6">다시 로그인하면 모든 데이터를 확인할 수 있습니다.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="flex-1 py-3 px-4 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors touch-target"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={confirmLogout}
+                  className="flex-1 py-3 px-4 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors touch-target"
+                >
+                  로그아웃
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       <ProfileEditModal
@@ -472,12 +610,12 @@ const MenuItem: React.FC<{
 }> = ({ icon, label, onClick, badge }) => (
   <button
     onClick={onClick}
-    className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors text-left group focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 min-h-[44px]"
+    className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors text-left group focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/20 min-h-[44px]"
     role="listitem"
     aria-label={badge ? `${label}, ${badge}개` : label}
   >
     <div className="flex items-center">
-      <div className="text-gray-500 mr-4 group-hover:text-primary-600 transition-colors" aria-hidden="true">
+      <div className="text-gray-400 mr-4 group-hover:text-primary transition-colors" aria-hidden="true">
         {icon}
       </div>
       <span className="text-gray-700 font-medium group-hover:text-gray-900">
@@ -485,7 +623,7 @@ const MenuItem: React.FC<{
       </span>
     </div>
     {badge !== undefined && badge > 0 && (
-      <span className="px-2.5 py-0.5 bg-primary-100 text-primary-700 text-xs font-semibold rounded-full" aria-hidden="true">
+      <span className="px-2.5 py-0.5 bg-primary/10 text-primary text-xs font-semibold rounded-full" aria-hidden="true">
         {badge}
       </span>
     )}

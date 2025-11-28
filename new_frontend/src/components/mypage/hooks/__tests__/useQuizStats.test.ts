@@ -3,11 +3,12 @@
  * 퀴즈 통계 훅 테스트
  */
 import { renderHook, waitFor } from '@testing-library/react';
+import { vi, describe, it, expect } from 'vitest';
 import { useQuizStats } from '../useQuizStats';
 
 // Mock the quiz API
-jest.mock('../../../../services/quizApi', () => ({
-  getUserQuizStats: jest.fn(() =>
+vi.mock('../../../../services/quizApi', () => ({
+  getUserQuizStats: vi.fn(() =>
     Promise.resolve({
       userId: 'user123',
       totalSessions: 42,

@@ -54,18 +54,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({ post, onClick, onDelete, l
     }
   };
 
-  // Post type badge color
-  const getBadgeStyle = (type: PostType): string => {
-    switch (type) {
-      case 'BOARD':
-        return 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
-      case 'CHALLENGE':
-        return 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300';
-      case 'SURVEY':
-        return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
-      default:
-        return 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
-    }
+  // Post type badge color - unified teal color per design system
+  const getBadgeStyle = (_type: PostType): string => {
+    // All categories use the same teal color for visual consistency
+    return 'bg-[#F2FFFD] dark:bg-teal-900/30 text-[#00C8B4] dark:text-teal-300';
   };
 
   // Post type label
@@ -163,6 +155,18 @@ const PostCardComponent: React.FC<PostCardProps> = ({ post, onClick, onDelete, l
       {/* Author & Time */}
       <div className="flex items-center text-sm text-gray-600 dark:text-gray-400 mb-3">
         <span className="font-medium">{post.authorName}</span>
+        {post.authorType && post.knowledgeLevel && (
+          <span
+            className="text-xs px-2 py-1 rounded ml-2"
+            style={{
+              background: '#F3F4F6',
+              color: '#6B7280',
+              fontSize: '11px'
+            }}
+          >
+            {post.authorType} | {language === 'ko' ? '레벨' : 'Level'} {post.knowledgeLevel}
+          </span>
+        )}
         <span className="mx-2">•</span>
         <span>{formatTimeAgo(post.createdAt)}</span>
       </div>

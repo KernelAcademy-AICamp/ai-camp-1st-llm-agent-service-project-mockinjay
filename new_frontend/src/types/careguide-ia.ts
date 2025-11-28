@@ -293,32 +293,32 @@ export const CAREGUIDE_IA: ParentRoute[] = [
     ],
   },
 
-  // 5. Trends
-  {
-    id: 'trends',
-    name: '트렌드',
-    nameEn: 'Trends',
-    path: ROUTES.TRENDS,
-    description: '시계열 통계, 설문 결과 분석, 데이터 시각화',
-    depth: 1,
-    requiredRole: ['researcher', 'admin'],
-    children: [
-      {
-        id: 'trends-list',
-        name: '목록 페이지',
-        path: ROUTES.TRENDS_LIST,
-        description: '트렌드 대시보드 목록',
-        depth: 2,
-      },
-      {
-        id: 'trends-detail',
-        name: '상세 페이지',
-        path: ROUTES.TRENDS_DETAIL,
-        description: '트렌드 상세 분석',
-        depth: 2,
-      },
-    ],
-  },
+  // // 5. Trends
+  // {
+  //   id: 'trends',
+  //   name: '트렌드',
+  //   nameEn: 'Trends',
+  //   path: ROUTES.TRENDS,
+  //   description: '시계열 통계, 설문 결과 분석, 데이터 시각화',
+  //   depth: 1,
+  //   requiredRole: ['researcher', 'admin'],
+  //   children: [
+  //     {
+  //       id: 'trends-list',
+  //       name: '목록 페이지',
+  //       path: ROUTES.TRENDS_LIST,
+  //       description: '트렌드 대시보드 목록',
+  //       depth: 2,
+  //     },
+  //     {
+  //       id: 'trends-detail',
+  //       name: '상세 페이지',
+  //       path: ROUTES.TRENDS_DETAIL,
+  //       description: '트렌드 상세 분석',
+  //       depth: 2,
+  //     },
+  //   ],
+  // },
 
   // 6. Utility
   {

@@ -96,8 +96,8 @@ interface BookmarkedPaper {
   id: string;
   title: string;
   authors: string;
-  journal: string;
-  year: string;
+  journal?: string;
+  year?: string;
   bookmarkedAt: string;
 }
 

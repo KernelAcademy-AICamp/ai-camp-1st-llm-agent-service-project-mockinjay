@@ -3,7 +3,7 @@
  * Displays meal history with calendar view and meal details
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Calendar,
   ChevronLeft,
@@ -15,8 +15,10 @@ import {
   Utensils,
   TrendingUp,
   TrendingDown,
-  Minus
+  Minus,
+  Loader2
 } from 'lucide-react';
+import { getMealHistory, type MealRecord as APIMealRecord } from '../../services/api';
 
 export interface MealHistoryContentProps {
   language: 'en' | 'ko';
@@ -37,40 +39,6 @@ interface MealRecord {
   }[];
   notes?: string;
 }
-
-// Mock data for demonstration
-const MOCK_MEAL_HISTORY: MealRecord[] = [
-  {
-    id: '1',
-    date: new Date().toISOString().split('T')[0],
-    mealType: 'breakfast',
-    foods: [
-      { name: '오트밀', amount: '1컵', calories: 150, protein_g: 5, sodium_mg: 0, potassium_mg: 130, phosphorus_mg: 180 },
-      { name: '바나나', amount: '1개', calories: 105, protein_g: 1.3, sodium_mg: 1, potassium_mg: 422, phosphorus_mg: 26 },
-    ],
-    notes: '오늘 아침은 가볍게',
-  },
-  {
-    id: '2',
-    date: new Date().toISOString().split('T')[0],
-    mealType: 'lunch',
-    foods: [
-      { name: '현미밥', amount: '1공기', calories: 218, protein_g: 4.5, sodium_mg: 0, potassium_mg: 83, phosphorus_mg: 162 },
-      { name: '구운 닭가슴살', amount: '100g', calories: 165, protein_g: 31, sodium_mg: 74, potassium_mg: 256, phosphorus_mg: 196 },
-      { name: '채소 샐러드', amount: '1접시', calories: 50, protein_g: 2, sodium_mg: 30, potassium_mg: 200, phosphorus_mg: 40 },
-    ],
-  },
-  {
-    id: '3',
-    date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-    mealType: 'dinner',
-    foods: [
-      { name: '파스타', amount: '1인분', calories: 350, protein_g: 12, sodium_mg: 200, potassium_mg: 150, phosphorus_mg: 120 },
-      { name: '토마토 소스', amount: '100g', calories: 80, protein_g: 2, sodium_mg: 400, potassium_mg: 300, phosphorus_mg: 30 },
-    ],
-    notes: '나트륨 섭취 주의',
-  },
-];
 
 const MEAL_TYPE_CONFIG = {
   breakfast: {
@@ -102,8 +70,52 @@ const MEAL_TYPE_CONFIG = {
 export const MealHistoryContent: React.FC<MealHistoryContentProps> = ({ language }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [mealHistory, setMealHistory] = useState<MealRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const isKo = language === 'ko';
+
+  // Convert API meal record to component format
+  const convertAPIToMealRecord = useCallback((apiMeal: APIMealRecord): MealRecord => {
+    return {
+      id: apiMeal.id,
+      date: apiMeal.logged_at.split('T')[0],
+      mealType: apiMeal.meal_type,
+      foods: apiMeal.foods,
+      notes: apiMeal.notes,
+    };
+  }, []);
+
+  // Fetch meal history when month changes
+  const fetchMealHistory = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Get first and last day of current month view (plus padding for adjacent months)
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      const startDate = new Date(year, month - 1, 1).toISOString();
+      const endDate = new Date(year, month + 2, 0).toISOString();
+
+      const response = await getMealHistory(startDate, endDate);
+
+      // Convert API response to component format
+      const meals = response.meals.map(convertAPIToMealRecord);
+      setMealHistory(meals);
+    } catch (err) {
+      console.error('Failed to fetch meal history:', err);
+      setError(isKo ? '식사 기록을 불러오는데 실패했습니다.' : 'Failed to load meal history.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentMonth, convertAPIToMealRecord, isKo]);
+
+  // Fetch data on mount and when month changes
+  useEffect(() => {
+    fetchMealHistory();
+  }, [fetchMealHistory]);
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
@@ -129,8 +141,8 @@ export const MealHistoryContent: React.FC<MealHistoryContentProps> = ({ language
 
   // Get meals for selected date
   const selectedDateMeals = useMemo(() => {
-    return MOCK_MEAL_HISTORY.filter(meal => meal.date === selectedDate);
-  }, [selectedDate]);
+    return mealHistory.filter(meal => meal.date === selectedDate);
+  }, [selectedDate, mealHistory]);
 
   // Calculate daily totals
   const dailyTotals = useMemo(() => {
@@ -182,8 +194,28 @@ export const MealHistoryContent: React.FC<MealHistoryContentProps> = ({ language
 
   return (
     <div className="space-y-6">
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-300">
+          {error}
+          <button
+            onClick={fetchMealHistory}
+            className="ml-2 underline hover:no-underline"
+          >
+            {isKo ? '다시 시도' : 'Retry'}
+          </button>
+        </div>
+      )}
+
       {/* Calendar Section */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg relative">
+        {/* Loading Overlay */}
+        {isLoading && (
+          <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 flex items-center justify-center z-10 rounded-xl">
+            <Loader2 className="animate-spin text-blue-500" size={32} />
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
             <Calendar className="text-blue-500" size={24} />
@@ -227,7 +259,7 @@ export const MealHistoryContent: React.FC<MealHistoryContentProps> = ({ language
             }
 
             const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const hasMeals = MOCK_MEAL_HISTORY.some(meal => meal.date === dateStr);
+            const hasMeals = mealHistory.some(meal => meal.date === dateStr);
             const isSelected = selectedDate === dateStr;
             const isToday = dateStr === new Date().toISOString().split('T')[0];
 

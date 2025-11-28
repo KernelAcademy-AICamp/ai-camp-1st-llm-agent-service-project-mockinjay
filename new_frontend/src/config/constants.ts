@@ -8,6 +8,7 @@
 export const STORAGE_KEYS = {
   // 인증 관련 (Authentication)
   TOKEN: 'careguide_token',
+  TOKEN_EXPIRY: 'careguide_token_expiry',
   USER: 'careguide_user',
   USER_ID: 'careguide_user_id',
   SESSION_ID: 'careguide_session_id',
@@ -32,6 +33,9 @@ export const STORAGE_KEYS = {
   THEME: 'careguide_theme',
   LANGUAGE: 'careguide_language',
   PREFERENCES: 'careguide_preferences',
+
+  // 기능 플래그 (Feature Flags)
+  FEATURE_FLAGS: 'careguide_feature_flags',
 } as const;
 
 export type StorageKey = typeof STORAGE_KEYS[keyof typeof STORAGE_KEYS];

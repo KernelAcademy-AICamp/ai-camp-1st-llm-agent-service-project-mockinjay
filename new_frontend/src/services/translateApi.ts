@@ -44,7 +44,7 @@ function getFromCache(text: string): string | null {
 function saveToCache(originalText: string, translatedText: string): void {
   try {
     const cache = localStorage.getItem(CACHE_KEY);
-    let parsed: TranslationCache = cache ? JSON.parse(cache) : {};
+    const parsed: TranslationCache = cache ? JSON.parse(cache) : {};
 
     // 캐시 크기 제한 (오래된 항목 삭제)
     const keys = Object.keys(parsed);

@@ -17,7 +17,7 @@ import {
   User as UserIcon,
   FileText,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '../../types/careguide-ia';
 
 interface ChatHeaderProps {
@@ -27,6 +27,8 @@ interface ChatHeaderProps {
   onStopStream: () => void;
   onResetSession: () => void;
   onResetAllSessions: () => void;
+  /** Whether messages exist in current chat - used for tab lock */
+  hasMessages?: boolean;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -36,11 +38,21 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onStopStream,
   onResetSession,
   onResetAllSessions,
+  hasMessages = false,
 }) => {
+  const navigate = useNavigate();
   const isMainChat = currentPath === ROUTES.CHAT;
   const isMedicalWelfare = currentPath === ROUTES.CHAT_MEDICAL_WELFARE;
   const isNutrition = currentPath === ROUTES.CHAT_NUTRITION;
   const isResearch = currentPath === ROUTES.CHAT_RESEARCH;
+
+  /**
+   * Check if a tab should be disabled (Tab Lock feature)
+   * 탭이 비활성화되어야 하는지 확인 (Tab Lock 기능)
+   */
+  const isTabLocked = (tabPath: string): boolean => {
+    return hasMessages && currentPath !== tabPath;
+  };
 
   /**
    * Handle reset session with confirmation
@@ -62,181 +74,171 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     }
   };
 
+  const getTabClass = (isActive: boolean, isLocked: boolean) => {
+    const baseClass = "flex-1 min-w-[110px] h-11 flex items-center justify-center gap-1 lg:gap-2 rounded-xl transition-all duration-300 border-2";
+    
+    if (isLocked) {
+      return `${baseClass} bg-gray-50 text-gray-400 border-gray-100 opacity-50 cursor-not-allowed`;
+    }
+    
+    if (isActive) {
+      return `${baseClass} bg-white text-primary font-bold border-transparent shadow-sm relative bg-clip-padding before:absolute before:inset-0 before:rounded-xl before:p-[2px] before:bg-gradient-to-r before:from-primary before:to-secondary before:-z-10 before:content-[''] z-10`;
+    }
+    
+    return `${baseClass} bg-white text-gray-500 border-gray-100 hover:border-primary/30 hover:text-primary hover:bg-primary/5`;
+  };
+
   return (
-    <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-      {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 py-3">
-        {/* Left: Menu and Title */}
-        <div className="flex items-center gap-3">
+    <header className="bg-white/80 backdrop-blur-md border-b border-[#E0E0E0] z-30 sticky top-0">
+      {/* Top Bar - Matches MobileHeader.tsx standard */}
+      <div className="relative flex items-center justify-between px-4 py-3 h-[52px] md:h-auto border-b md:border-none border-[#E0E0E0]">
+        {/* Left: Menu */}
+        <div className="flex items-center w-10 z-10">
           <button
             onClick={onToggleSidebar}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors lg:hidden"
-            aria-label="Toggle sidebar"
-            title="메뉴 열기"
+            className="p-1 -ml-1 rounded-full hover:bg-gray-100 transition-colors text-[#1F2937]"
+            aria-label="메뉴 열기"
           >
-            <Menu size={20} className="text-gray-700 dark:text-gray-300" />
+            <Menu size={24} strokeWidth={2} />
           </button>
-          <h1 className="text-lg lg:text-xl font-semibold text-gray-900 dark:text-white">
-            AI 챗봇
-          </h1>
         </div>
 
-        {/* Right: Controls */}
-        <div className="flex items-center gap-2">
-          {/* Stop Streaming Button */}
-          {isStreaming && (
+        {/* Mobile Title - Absolute Center (Matches MobileHeader) */}
+        <h1 className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 text-[16px] font-bold text-[#1F2937] md:hidden truncate max-w-[60%]">
+          AI 챗봇
+        </h1>
+
+        {/* Desktop Title (Hidden to avoid duplication with Global Header) */}
+        <h1 className="text-lg md:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 hidden ml-3">
+          AI 챗봇
+        </h1>
+
+        {/* Right: User Profile & Controls */}
+        <div className="flex items-center justify-end w-10 md:w-auto z-10">
+          {/* Mobile: User Profile Icon (Matches MobileHeader) */}
+          <button
+            onClick={() => navigate('/mypage')}
+            className="p-1 -mr-1 relative rounded-full hover:bg-gray-100 transition-colors md:hidden"
+            aria-label="마이페이지"
+          >
+            <UserIcon size={24} color="#999999" strokeWidth={2} />
+            <span className="absolute top-0 right-0 w-2 h-2 rounded-full" style={{ background: '#00C9B7' }} />
+          </button>
+
+          {/* Desktop: Controls (Hidden on mobile) */}
+          <div className="hidden md:flex items-center gap-1 md:gap-2">
+            {/* Stop Streaming Button */}
+            {isStreaming && (
+              <button
+                onClick={onStopStream}
+                className="flex items-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all shadow-md hover:shadow-lg text-sm font-medium animate-pulse"
+                aria-label="Stop streaming"
+                title="응답 중지"
+              >
+                <StopCircle size={16} />
+                <span className="hidden sm:inline">중지</span>
+              </button>
+            )}
+
+            {/* Reset Session Button */}
             <button
-              onClick={onStopStream}
-              className="flex items-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors text-sm font-medium"
-              aria-label="Stop streaming"
-              title="응답 중지"
+              onClick={handleResetSession}
+              className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-500 hover:text-primary"
+              aria-label="Reset current session"
+              title="현재 대화 초기화"
             >
-              <StopCircle size={16} />
-              <span className="hidden sm:inline">중지</span>
+              <RotateCcw size={18} />
             </button>
-          )}
 
-          {/* Reset Session Button */}
-          <button
-            onClick={handleResetSession}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            aria-label="Reset current session"
-            title="현재 대화 초기화"
-          >
-            <RotateCcw size={18} className="text-gray-600 dark:text-gray-400" />
-          </button>
-
-          {/* Reset All Sessions Button */}
-          <button
-            onClick={handleResetAllSessions}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            aria-label="Reset all sessions"
-            title="모든 대화 삭제"
-          >
-            <Trash2 size={18} className="text-gray-600 dark:text-gray-400" />
-          </button>
+            {/* Reset All Sessions Button */}
+            <button
+              onClick={handleResetAllSessions}
+              className="p-2 hover:bg-red-50 rounded-xl transition-colors text-gray-500 hover:text-red-500"
+              aria-label="Reset all sessions"
+              title="모든 대화 삭제"
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Agent Type Tabs */}
-      <div className="flex gap-2 lg:gap-4 px-4 pb-3 overflow-x-auto hide-scrollbar">
-        <Link
-          to={ROUTES.CHAT}
-          className="flex-1 min-w-[110px] h-11 flex items-center justify-center gap-1 lg:gap-2 rounded-xl transition-all duration-200"
-          style={
-            isMainChat
-              ? {
-                  backgroundColor: '#FFFFFF',
-                  color: 'var(--color-primary)',
-                  fontWeight: 'bold',
-                  border: '2px solid transparent',
-                  backgroundImage:
-                    'linear-gradient(white, white), var(--gradient-primary)',
-                  backgroundOrigin: 'border-box',
-                  backgroundClip: 'padding-box, border-box',
-                }
-              : {
-                  backgroundColor: '#FFFFFF',
-                  color: '#666666',
-                  border: '2px solid #E5E7EB',
-                }
-          }
-          aria-current={isMainChat ? 'page' : undefined}
-        >
-          <Sparkles size={16} strokeWidth={1.5} />
-          <span className="text-xs lg:text-sm whitespace-nowrap">Auto</span>
-        </Link>
+      <div className="flex flex-col px-3 md:px-4 pb-2 md:pb-3">
+        <div className="flex gap-2 md:gap-4 overflow-x-auto hide-scrollbar pb-1">
+          {/* Auto Tab */}
+          {isTabLocked(ROUTES.CHAT) ? (
+            <button disabled className={getTabClass(false, true)}>
+              <Sparkles size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">Auto</span>
+            </button>
+          ) : (
+            <Link to={ROUTES.CHAT} className={getTabClass(isMainChat, false)}>
+              <Sparkles size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">Auto</span>
+            </Link>
+          )}
 
-        <Link
-          to={ROUTES.CHAT_MEDICAL_WELFARE}
-          className="flex-1 min-w-[110px] h-11 flex items-center justify-center gap-1 lg:gap-2 rounded-xl transition-all duration-200"
-          style={
-            isMedicalWelfare
-              ? {
-                  backgroundColor: '#FFFFFF',
-                  color: 'var(--color-primary)',
-                  fontWeight: 'bold',
-                  border: '2px solid transparent',
-                  backgroundImage:
-                    'linear-gradient(white, white), var(--gradient-primary)',
-                  backgroundOrigin: 'border-box',
-                  backgroundClip: 'padding-box, border-box',
-                }
-              : {
-                  backgroundColor: '#FFFFFF',
-                  color: '#666666',
-                  border: '2px solid #E5E7EB',
-                }
-          }
-          aria-current={isMedicalWelfare ? 'page' : undefined}
-        >
-          <Heart size={16} strokeWidth={1.5} />
-          <span className="text-xs lg:text-sm whitespace-nowrap">의료 복지</span>
-        </Link>
+          {/* Medical Welfare Tab */}
+          {isTabLocked(ROUTES.CHAT_MEDICAL_WELFARE) ? (
+            <button disabled className={getTabClass(false, true)}>
+              <Heart size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">의료 복지</span>
+            </button>
+          ) : (
+            <Link to={ROUTES.CHAT_MEDICAL_WELFARE} className={getTabClass(isMedicalWelfare, false)}>
+              <Heart size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">의료 복지</span>
+            </Link>
+          )}
 
-        <Link
-          to={ROUTES.CHAT_NUTRITION}
-          className="flex-1 min-w-[110px] h-11 flex items-center justify-center gap-1 lg:gap-2 rounded-xl transition-all duration-200"
-          style={
-            isNutrition
-              ? {
-                  backgroundColor: '#FFFFFF',
-                  color: 'var(--color-primary)',
-                  fontWeight: 'bold',
-                  border: '2px solid transparent',
-                  backgroundImage:
-                    'linear-gradient(white, white), var(--gradient-primary)',
-                  backgroundOrigin: 'border-box',
-                  backgroundClip: 'padding-box, border-box',
-                }
-              : {
-                  backgroundColor: '#FFFFFF',
-                  color: '#666666',
-                  border: '2px solid #E5E7EB',
-                }
-          }
-          aria-current={isNutrition ? 'page' : undefined}
-        >
-          <UserIcon size={16} strokeWidth={1.5} />
-          <span className="text-xs lg:text-sm whitespace-nowrap">식이 영양</span>
-        </Link>
+          {/* Nutrition Tab */}
+          {isTabLocked(ROUTES.CHAT_NUTRITION) ? (
+            <button disabled className={getTabClass(false, true)}>
+              <UserIcon size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">식이 영양</span>
+            </button>
+          ) : (
+            <Link to={ROUTES.CHAT_NUTRITION} className={getTabClass(isNutrition, false)}>
+              <UserIcon size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">식이 영양</span>
+            </Link>
+          )}
 
-        <Link
-          to={ROUTES.CHAT_RESEARCH}
-          className="flex-1 min-w-[110px] h-11 flex items-center justify-center gap-1 lg:gap-2 rounded-xl transition-all duration-200"
-          style={
-            isResearch
-              ? {
-                  backgroundColor: '#FFFFFF',
-                  color: 'var(--color-primary)',
-                  fontWeight: 'bold',
-                  border: '2px solid transparent',
-                  backgroundImage:
-                    'linear-gradient(white, white), var(--gradient-primary)',
-                  backgroundOrigin: 'border-box',
-                  backgroundClip: 'padding-box, border-box',
-                }
-              : {
-                  backgroundColor: '#FFFFFF',
-                  color: '#666666',
-                  border: '2px solid #E5E7EB',
-                }
-          }
-          aria-current={isResearch ? 'page' : undefined}
-        >
-          <FileText size={16} strokeWidth={1.5} />
-          <span className="text-xs lg:text-sm whitespace-nowrap">연구 논문</span>
-        </Link>
+          {/* Research Tab */}
+          {isTabLocked(ROUTES.CHAT_RESEARCH) ? (
+            <button disabled className={getTabClass(false, true)}>
+              <FileText size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">연구 논문</span>
+            </button>
+          ) : (
+            <Link to={ROUTES.CHAT_RESEARCH} className={getTabClass(isResearch, false)}>
+              <FileText size={16} strokeWidth={1.5} />
+              <span className="text-xs md:text-sm whitespace-nowrap">연구 논문</span>
+            </Link>
+          )}
+        </div>
+
+        {/* Tab Lock Notice */}
+        {hasMessages && (
+          <div className="text-[10px] text-gray-400 mt-2 text-center animate-fade-in">
+            대화 중에는 다른 에이전트로 변경할 수 없습니다
+          </div>
+        )}
       </div>
 
-      {/* Disclaimer */}
-      <div className="mx-4 mb-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-2 lg:p-3">
-        <p className="text-xs text-yellow-900 dark:text-yellow-100">
-          ⚠️ <strong>주의사항</strong>: 이 AI는 참고용 정보를 제공하며 전문적인
-          의학적 진단이나 치료를 대체할 수 없습니다. 응급 상황 시 즉시 119에
-          연락하거나 병원을 방문하세요.
+      {/* Disclaimer - Compact on mobile */}
+      <div className="mx-3 md:mx-4 mb-2 md:mb-3 bg-yellow-50/50 border border-yellow-200 rounded-xl p-2 md:p-3 backdrop-blur-sm">
+        <p className="text-[10px] md:text-xs text-yellow-800 flex items-start gap-2">
+          <span className="text-base md:text-lg leading-none">⚠️</span>
+          <span>
+            <strong className="hidden sm:inline">주의사항: </strong>
+            이 AI는 참고용 정보를 제공하며 전문적인 의학적 진단이나 치료를 대체할 수 없습니다. 
+            <span className="hidden sm:inline"> 응급 상황 시 즉시 119에 연락하거나 병원을 방문하세요.</span>
+          </span>
         </p>
       </div>
     </header>
   );
 };
+

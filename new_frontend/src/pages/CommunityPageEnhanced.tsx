@@ -17,10 +17,13 @@ import {
   Send,
   Calendar,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 
 // Components
 import { PostCard, FeaturedCard, CreatePostModal } from '../components/community';
+import EditPostModal from '../components/community/EditPostModal';
+import { MobileHeader } from '../components/layout/MobileHeader';
 
 // API
 import { fetchPosts, fetchFeaturedPosts, fetchPostDetailPage, createComment, deleteComment, toggleLike, deletePost } from '../services/communityApi';
@@ -53,6 +56,7 @@ const PostDetailView: React.FC<{ postId: string; language: 'en' | 'ko' }> = ({ p
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [isCommentAnonymous, setIsCommentAnonymous] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   const isLoggedIn = !!storage.get('careguide_token');
 
@@ -219,6 +223,14 @@ const PostDetailView: React.FC<{ postId: string; language: 'en' | 'ko' }> = ({ p
           {canDeletePost && (
             <div className="flex gap-2">
               <button
+                onClick={() => setIsEditModalOpen(true)}
+                className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center gap-1"
+                title={language === 'ko' ? '게시글 수정' : 'Edit post'}
+              >
+                <Pencil size={20} />
+                <span className="text-sm">{language === 'ko' ? '수정' : 'Edit'}</span>
+              </button>
+              <button
                 onClick={handleDeletePost}
                 className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center gap-1"
                 title={language === 'ko' ? '게시글 삭제' : 'Delete post'}
@@ -368,6 +380,18 @@ const PostDetailView: React.FC<{ postId: string; language: 'en' | 'ko' }> = ({ p
           )}
         </div>
       </div>
+
+      {/* Edit Post Modal */}
+      <EditPostModal
+        isOpen={isEditModalOpen}
+        post={post}
+        onClose={() => setIsEditModalOpen(false)}
+        onSuccess={(updatedPost) => {
+          setPost(updatedPost);
+          setIsEditModalOpen(false);
+        }}
+        language={language}
+      />
     </div>
   );
 };
@@ -502,8 +526,17 @@ const CommunityListView: React.FC<{ language: 'en' | 'ko' }> = ({ language }) =>
 
   return (
     <div className="max-w-6xl mx-auto">
+      {/* Mobile Header */}
+      <div className="lg:hidden">
+        <MobileHeader 
+          title={t.title} 
+          showMenu={true} 
+          showProfile={true}
+        />
+      </div>
+
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6 hidden lg:block">
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
             <Users className="text-primary-600" />
@@ -548,7 +581,7 @@ const CommunityListView: React.FC<{ language: 'en' | 'ko' }> = ({ language }) =>
       </div>
 
       {/* Main Posts List */}
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {posts.map((post, index) => {
           const uniqueKey = `post-${post.id}-${index}`;
           if (posts.length === index + 1) {

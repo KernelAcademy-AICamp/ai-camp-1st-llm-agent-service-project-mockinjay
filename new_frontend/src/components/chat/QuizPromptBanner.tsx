@@ -54,12 +54,16 @@ export const QuizPromptBanner: React.FC<QuizPromptBannerProps> = ({ userMessageC
   if (!isVisible) return null;
 
   return (
-    <div className="flex justify-center my-4 px-4 animate-fadeIn">
-      <div className="relative bg-gradient-to-r from-[#00C8B4] to-[#00a896] rounded-xl p-5 shadow-lg max-w-md w-full">
+    <div className="flex justify-center my-6 px-4 animate-fade-in">
+      <div className="relative bg-gradient-to-r from-primary to-secondary rounded-2xl p-6 shadow-medium max-w-md w-full overflow-hidden group">
+        {/* Background Decoration */}
+        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-black/5 rounded-full blur-xl -ml-10 -mb-10 pointer-events-none" />
+
         {/* Dismiss button */}
         <button
           onClick={handleDismiss}
-          className="absolute top-2 right-2 text-white/80 hover:text-white transition-colors p-1 rounded-full hover:bg-white/20"
+          className="absolute top-3 right-3 text-white/70 hover:text-white transition-colors p-1.5 rounded-full hover:bg-white/20 z-10"
           aria-label="닫기"
         >
           <X size={18} />
@@ -68,27 +72,28 @@ export const QuizPromptBanner: React.FC<QuizPromptBannerProps> = ({ userMessageC
         {/* Main content - clickable area */}
         <div
           onClick={handleClick}
-          className="cursor-pointer hover:scale-[1.02] transition-transform duration-200"
+          className="cursor-pointer relative z-0"
         >
-          <div className="flex items-center gap-4 mb-3">
-            <div className="bg-white/20 rounded-full p-3 flex-shrink-0">
-              <Trophy className="text-white" size={32} />
+          <div className="flex items-center gap-5 mb-4">
+            <div className="bg-white/20 backdrop-blur-sm rounded-2xl p-3.5 flex-shrink-0 shadow-inner">
+              <Trophy className="text-white drop-shadow-sm" size={32} strokeWidth={1.5} />
             </div>
             <div className="flex-1">
-              <h3 className="text-white font-bold text-lg mb-1 flex items-center gap-2">
+              <h3 className="text-white font-bold text-lg mb-1.5 flex items-center gap-2">
                 오늘의 퀴즈에 도전해보세요!
-                <Star className="text-yellow-300 animate-pulse" size={18} />
+                <Star className="text-yellow-300 animate-pulse-slow fill-yellow-300" size={18} />
               </h3>
-              <p className="text-white/90 text-sm">
-                퀴즈를 풀고 포인트를 획득하세요
+              <p className="text-white/90 text-sm font-medium leading-relaxed">
+                퀴즈를 풀고 건강 지식도 쌓고<br/>포인트도 획득하세요
               </p>
             </div>
           </div>
 
           {/* CTA */}
-          <div className="text-center mt-4">
-            <span className="inline-block bg-white/20 text-white text-xs font-medium px-4 py-2 rounded-full hover:bg-white/30 transition-colors">
-              클릭하여 시작하기 →
+          <div className="flex justify-end">
+            <span className="inline-flex items-center gap-1 bg-white text-primary text-xs font-bold px-4 py-2 rounded-xl shadow-sm group-hover:scale-105 transition-transform duration-200">
+              퀴즈 풀러 가기
+              <span className="text-lg leading-none">→</span>
             </span>
           </div>
         </div>

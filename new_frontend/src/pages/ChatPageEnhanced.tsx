@@ -22,6 +22,7 @@ import { ChatSidebar } from '../components/chat/ChatSidebar';
 import { ChatHeader } from '../components/chat/ChatHeader';
 import { ChatMessages } from '../components/chat/ChatMessages';
 import { ChatInput } from '../components/chat/ChatInput';
+import { QuizPromptBanner } from '../components/chat/QuizPromptBanner';
 
 // Hooks
 import { useChatRooms } from '../hooks/useChatRooms';
@@ -30,6 +31,7 @@ import { useChatRooms } from '../hooks/useChatRooms';
 import type { ChatMessage, UserProfile } from '../types/chat';
 import type { IntentCategory } from '../types/intent';
 import { routeQueryStream, type AgentType } from '../services/intentRouter';
+import { getChatHistoryBySession } from '../services/api';
 
 /**
  * Location state interface for navigation
@@ -148,6 +150,12 @@ const ChatPageEnhanced: React.FC = () => {
    * 현재 방의 메시지 가져오기
    */
   const currentMessages = currentRoomId ? messagesByRoom[currentRoomId] || [] : [];
+
+  /**
+   * Calculate user message count for quiz prompt
+   * 퀴즈 프롬프트를 위한 사용자 메시지 수 계산
+   */
+  const userMessageCount = currentMessages.filter(msg => msg.role === 'user').length;
 
   // Page enter animation
   useEffect(() => {
@@ -309,19 +317,59 @@ const ChatPageEnhanced: React.FC = () => {
    * 히스토리 복원 처리
    */
   const handleRestoreHistory = useCallback(async () => {
-    if (!user?.id || !currentRoomId) return;
+    if (!currentRoomId) return;
 
     setIsRestoringHistory(true);
     try {
-      // TODO: Implement API call to fetch history from backend
-      // API 호출로 백엔드에서 히스토리 가져오기 구현 필요
+      // Fetch chat history from backend using session/room ID
+      const historyResponse = await getChatHistoryBySession(currentRoomId, 100);
+
+      if (historyResponse.conversations && historyResponse.conversations.length > 0) {
+        // Convert backend conversation format to ChatMessage format
+        // Backend returns user_input and agent_response, so we need to expand each conversation
+        const restoredMessages: ChatMessage[] = [];
+        historyResponse.conversations.forEach((conv, index) => {
+          // Add user message
+          restoredMessages.push({
+            id: `restored_${currentRoomId}_${index}_user_${Date.now()}`,
+            role: 'user',
+            content: conv.user_input,
+            timestamp: conv.timestamp ? new Date(conv.timestamp) : new Date(),
+            intents: [],
+            agents: [],
+            confidence: undefined,
+            isDirectResponse: false,
+            isEmergency: false,
+          });
+          // Add assistant response
+          restoredMessages.push({
+            id: `restored_${currentRoomId}_${index}_assistant_${Date.now()}`,
+            role: 'assistant',
+            content: conv.agent_response,
+            timestamp: conv.timestamp ? new Date(conv.timestamp) : new Date(),
+            intents: [],
+            agents: [],
+            confidence: undefined,
+            isDirectResponse: false,
+            isEmergency: false,
+            roomId: currentRoomId,
+          });
+        });
+
+        // Update messages for current room
+        setMessagesByRoom((prev) => ({
+          ...prev,
+          [currentRoomId]: restoredMessages,
+        }));
+      }
+
       setIsSessionExpired(false);
     } catch (error) {
       console.error('Failed to restore history:', error);
     } finally {
       setIsRestoringHistory(false);
     }
-  }, [user?.id, currentRoomId]);
+  }, [currentRoomId]);
 
   /**
    * Handle start new conversation
@@ -355,11 +403,12 @@ const ChatPageEnhanced: React.FC = () => {
   }, []);
 
   /**
-   * Handle send message
-   * 메시지 전송 처리
+   * Handle send message with custom message
+   * 커스텀 메시지로 전송 처리
    */
-  const handleSend = useCallback(async () => {
-    if (!input.trim() && !selectedImage) return;
+  const handleSendWithMessage = useCallback(async (customMessage?: string) => {
+    const messageToSend = customMessage || input;
+    if (!messageToSend.trim() && !selectedImage) return;
 
     // Cancel any existing request
     if (abortControllerRef.current) {
@@ -375,8 +424,8 @@ const ChatPageEnhanced: React.FC = () => {
     })();
 
     const messageContent = selectedImage
-      ? `${input || '음식 이미지 분석'} [이미지 첨부]`
-      : input;
+      ? `${messageToSend || '음식 이미지 분석'} [이미지 첨부]`
+      : messageToSend;
 
     // Create user message
     const userMessage: ChatMessage = {
@@ -398,7 +447,6 @@ const ChatPageEnhanced: React.FC = () => {
     incrementMessageCount(roomId);
 
     // Clear input
-    const currentInput = input;
     const currentImage = selectedImage;
     setInput('');
     setSelectedImage(null);
@@ -413,7 +461,7 @@ const ChatPageEnhanced: React.FC = () => {
       if (isNutrition && currentImage) {
         const formData = new FormData();
         formData.append('session_id', `session_${Date.now()}`);
-        formData.append('text', currentInput || '음식 이미지 분석');
+        formData.append('text', messageToSend || '음식 이미지 분석');
         formData.append('user_profile', user?.profile || 'patient');
         formData.append('image', currentImage);
 
@@ -449,7 +497,7 @@ const ChatPageEnhanced: React.FC = () => {
       } else {
         // Stream text response
         const response = await routeQueryStream(
-          currentInput,
+          messageToSend,
           // onChunk callback
           (content, _isComplete) => {
             setStreamingContent(content);
@@ -499,6 +547,7 @@ const ChatPageEnhanced: React.FC = () => {
         content: '죄송합니다. 오류가 발생했습니다. 다시 시도해주세요.',
         timestamp: new Date(),
         roomId,
+        fallbackType: 'RESPONSE_GENERATION_FAILED',
       };
 
       setMessagesByRoom((prev) => ({
@@ -522,12 +571,38 @@ const ChatPageEnhanced: React.FC = () => {
     incrementMessageCount,
   ]);
 
+  /**
+   * Handle send message (delegates to handleSendWithMessage)
+   * 메시지 전송 처리 (handleSendWithMessage에 위임)
+   */
+  const handleSend = useCallback(async () => {
+    await handleSendWithMessage();
+  }, [handleSendWithMessage]);
+
+  /**
+   * Handle suggestion click
+   * 제안 클릭 처리
+   */
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    // Directly call handleSendWithMessage with the suggestion
+    handleSendWithMessage(suggestion);
+  }, [handleSendWithMessage]);
+
   return (
     <div
-      className={`flex h-[calc(100vh-80px)] lg:h-[calc(100vh-120px)] transition-all duration-500 ${
+      className={`flex flex-col lg:flex-row h-full transition-all duration-500 bg-surface-alt lg:rounded-2xl lg:overflow-hidden lg:shadow-soft ${
         pageVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
       }`}
+      role="main"
+      aria-label="AI 채팅"
     >
+      {/* Screen reader announcement for streaming */}
+      {isStreaming && (
+        <div className="sr-only" role="status" aria-live="polite">
+          AI가 응답을 생성하고 있습니다...
+        </div>
+      )}
+
       {/* Sidebar */}
       <ChatSidebar
         rooms={activeRooms}
@@ -542,7 +617,7 @@ const ChatPageEnhanced: React.FC = () => {
       />
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-white/50 backdrop-blur-sm">
         {/* Header */}
         <ChatHeader
           currentPath={location.pathname}
@@ -551,6 +626,7 @@ const ChatPageEnhanced: React.FC = () => {
           onStopStream={handleStopStream}
           onResetSession={handleResetSession}
           onResetAllSessions={handleResetAllSessions}
+          hasMessages={currentMessages.length > 0}
         />
 
         {/* Messages */}
@@ -562,7 +638,12 @@ const ChatPageEnhanced: React.FC = () => {
           isRestoringHistory={isRestoringHistory}
           onRestoreHistory={handleRestoreHistory}
           onStartNewConversation={handleStartNewConversation}
+          agentType={getCurrentAgentType() === 'research_paper' ? 'research' : getCurrentAgentType() as 'auto' | 'medical_welfare' | 'nutrition'}
+          onSuggestionClick={handleSuggestionClick}
         />
+
+        {/* Quiz Prompt Banner - Shows after 4 user messages */}
+        <QuizPromptBanner userMessageCount={userMessageCount} />
 
         {/* Input */}
         <ChatInput

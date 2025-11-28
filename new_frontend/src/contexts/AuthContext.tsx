@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
 import api from '../services/api';
 import { storage } from '../utils/storage';
+import { secureTokenStorage, resetCSRFToken } from '../utils/security';
 
 interface User {
   id: string;
@@ -27,6 +28,20 @@ interface SignupData {
   password: string;
   fullName?: string;
   profile: 'general' | 'patient' | 'researcher';
+  // 추가 필드 (Additional fields)
+  nickname?: string;
+  gender?: '남성' | '여성' | '기타';
+  birthDate?: string;
+  height?: number;
+  weight?: number;
+  diseaseInfo?: string; // CKD 단계 (CKD1, CKD2, ..., None)
+  // 약관 동의 (Terms and agreements)
+  agreements?: {
+    service: boolean;
+    privacyRequired: boolean;
+    privacyOptional: boolean;
+    marketing: boolean;
+  };
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -102,7 +117,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setToken(access_token);
       setUser(userData);
 
-      storage.set('careguide_token', access_token);
+      // 보안 토큰 저장소 사용 (메모리 + localStorage 이중 저장)
+      // Use secure token storage (memory + localStorage dual storage)
+      secureTokenStorage.set(access_token, {
+        // 24시간 후 만료 (백엔드 토큰 만료와 동기화 권장)
+        // Expires in 24 hours (sync with backend token expiry recommended)
+        expiresIn: 24 * 60 * 60 * 1000,
+      });
       storage.set('careguide_user', userData);
 
       // axios 기본 헤더에 토큰 설정 (모든 API 요청에 자동 포함)
@@ -130,13 +151,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signup = async (data: SignupData) => {
     try {
       // 회원가입 API 호출 (Call signup API)
-      const response = await api.post('/api/auth/signup', {
+      // 모든 확장 필드를 포함한 요청 페이로드 구성
+      // Construct request payload including all extended fields
+      const signupPayload = {
         email: data.email,
         password: data.password,
         name: data.fullName || data.username,
         profile: data.profile,
         role: 'user',
-      });
+        // 추가 사용자 정보 (Additional user information)
+        ...(data.nickname && { nickname: data.nickname }),
+        ...(data.gender && { gender: data.gender }),
+        ...(data.birthDate && { birthDate: data.birthDate }),
+        ...(data.height && { height: data.height }),
+        ...(data.weight && { weight: data.weight }),
+        ...(data.diseaseInfo && { diseaseInfo: data.diseaseInfo }),
+        // 약관 동의 정보 (Terms and agreements)
+        ...(data.agreements && { agreements: data.agreements }),
+      };
+
+      const response = await api.post('/api/auth/signup', signupPayload);
 
       // 회원가입 후 자동 로그인 (토큰이 반환된 경우)
       // Auto-login after signup (if token is returned)
@@ -169,6 +203,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 인증 상태 초기화 (Clear authentication state)
     setUser(null);
     setToken(null);
+
+    // 보안 토큰 저장소 클리어 (메모리 + localStorage)
+    // Clear secure token storage (memory + localStorage)
+    secureTokenStorage.clear();
+
+    // CSRF 토큰 리셋 (새 세션 시작을 위해)
+    // Reset CSRF token (for new session)
+    resetCSRFToken();
 
     // 인증 데이터 삭제 (Clear auth data)
     storage.remove('careguide_token');

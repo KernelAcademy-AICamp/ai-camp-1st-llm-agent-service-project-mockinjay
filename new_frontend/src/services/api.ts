@@ -2,22 +2,33 @@ import axios, { AxiosError } from 'axios';
 import { env } from '../config/env';
 import { toast } from 'sonner';
 import { storage } from '../utils/storage';
+import { getCSRFToken, secureTokenStorage } from '../utils/security';
 
 const api = axios.create({
   baseURL: env.apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
+  // XSS 보호를 위한 쿠키 설정 (백엔드에서 httpOnly 쿠키 지원 시)
+  // Cookie settings for XSS protection (when backend supports httpOnly cookies)
+  withCredentials: true,
 });
 
-// Request interceptor - Add authorization token
+// Request interceptor - Add authorization token and CSRF protection
 api.interceptors.request.use(
   (config) => {
-    // Get token from storage
-    const token = storage.get<string>('careguide_token');
+    // Get token from secure storage (memory-first, then localStorage)
+    const token = secureTokenStorage.get() || storage.get<string>('careguide_token');
 
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // CSRF 토큰 추가 (상태 변경 요청에만)
+    // Add CSRF token (only for state-changing requests)
+    const mutationMethods = ['post', 'put', 'patch', 'delete'];
+    if (config.method && mutationMethods.includes(config.method.toLowerCase())) {
+      config.headers['X-CSRF-Token'] = getCSRFToken();
     }
 
     return config;
@@ -455,6 +466,460 @@ export async function getRoomHistory(
   } catch (error) {
     console.error('Failed to fetch room history:', error);
     return { count: 0, conversations: [] };
+  }
+}
+
+/**
+ * Terms API Types and Functions
+ * 약관 API 타입 및 함수들
+ */
+
+export interface TermData {
+  title: string;
+  required: boolean;
+  content: string;
+}
+
+export interface TermsData {
+  service_terms: TermData;
+  privacy_required: TermData;
+  privacy_optional: TermData;
+  marketing: TermData;
+}
+
+export interface TermsResponse {
+  status: string;
+  terms: TermsData;
+}
+
+/**
+ * Get all terms and conditions
+ * 모든 약관 데이터 가져오기
+ *
+ * @returns Promise with terms data
+ */
+export async function getTerms(): Promise<TermsData | null> {
+  try {
+    const response = await api.get<TermsResponse>('/api/terms/all', {
+      timeout: 3000, // 3초 타임아웃
+    });
+    if (response.data.status === 'success') {
+      return response.data.terms;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to fetch terms:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if email is already registered
+ * 이메일 중복 확인
+ *
+ * @param email - Email to check
+ * @returns Promise with availability status
+ */
+export async function checkEmailDuplicate(email: string): Promise<{ available: boolean; message: string }> {
+  try {
+    const response = await api.get<{ available: boolean; message: string }>(
+      `/api/auth/check-email?email=${encodeURIComponent(email)}`
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Email check failed:', error);
+    return {
+      available: false,
+      message: error.response?.data?.message || error.response?.data?.detail || '이메일 확인에 실패했습니다.'
+    };
+  }
+}
+
+/**
+ * Check if nickname/username is already registered
+ * 닉네임 중복 확인
+ *
+ * @param nickname - Nickname/username to check
+ * @returns Promise with availability status
+ */
+export async function checkNicknameDuplicate(nickname: string): Promise<{ available: boolean; message: string }> {
+  try {
+    const response = await api.get<{ available: boolean; message: string }>(
+      `/api/auth/check-username?username=${encodeURIComponent(nickname)}`
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Nickname check failed:', error);
+    return {
+      available: false,
+      message: error.response?.data?.message || error.response?.data?.detail || '닉네임 확인에 실패했습니다.'
+    };
+  }
+}
+
+// ============================================================================
+// MyPage API Functions
+// 마이페이지 API 함수들
+// ============================================================================
+
+/**
+ * User Profile Types
+ */
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  fullName?: string;
+  bio?: string;
+  profileImage?: string;
+  profile: string;
+  role: string;
+  createdAt: string;
+}
+
+export interface UserProfileUpdateData {
+  fullName?: string;
+  bio?: string;
+  profileImage?: string;
+}
+
+/**
+ * Health Profile Types
+ */
+export interface HealthProfile {
+  userId: string;
+  conditions: string[];
+  allergies: string[];
+  dietaryRestrictions: string[];
+  age?: number;
+  gender?: string;
+  updatedAt?: string;
+}
+
+export interface HealthProfileUpdateData {
+  conditions?: string[];
+  allergies?: string[];
+  dietaryRestrictions?: string[];
+  age?: number;
+  gender?: string;
+}
+
+/**
+ * User Preferences Types
+ */
+export interface UserPreferences {
+  userId: string;
+  theme: string;
+  language: string;
+  notifications: {
+    email: boolean;
+    push: boolean;
+    community: boolean;
+    trends: boolean;
+  };
+  updatedAt?: string;
+}
+
+export interface UserPreferencesUpdateData {
+  theme?: string;
+  language?: string;
+  notifications?: {
+    email?: boolean;
+    push?: boolean;
+    community?: boolean;
+    trends?: boolean;
+  };
+}
+
+/**
+ * Bookmark Types
+ */
+export interface BookmarkedPaper {
+  id: string;
+  userId: string;
+  paperId: string;
+  paperData: {
+    title: string;
+    authors: string;
+    journal?: string;
+    year?: string;
+    abstract?: string;
+  };
+  createdAt: string;
+}
+
+/**
+ * User Post Types (for MyPage)
+ */
+export interface UserPost {
+  id: string;
+  title: string;
+  content: string;
+  postType: 'BOARD' | 'CHALLENGE' | 'SURVEY';
+  likes: number;
+  commentCount: number;
+  createdAt: string;
+}
+
+/**
+ * Get current user's profile
+ */
+export async function getUserProfile(): Promise<UserProfile | null> {
+  try {
+    const response = await api.get<UserProfile>('/api/mypage/profile');
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch user profile:', error);
+    return null;
+  }
+}
+
+/**
+ * Update user profile
+ */
+export async function updateUserProfile(data: UserProfileUpdateData): Promise<UserProfile | null> {
+  try {
+    const response = await api.put<UserProfile>('/api/mypage/profile', data);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to update user profile:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get user's health profile
+ */
+export async function getHealthProfile(): Promise<HealthProfile | null> {
+  try {
+    const response = await api.get<HealthProfile>('/api/mypage/health-profile');
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch health profile:', error);
+    return null;
+  }
+}
+
+/**
+ * Update user's health profile
+ */
+export async function updateHealthProfile(data: HealthProfileUpdateData): Promise<HealthProfile | null> {
+  try {
+    const response = await api.put<HealthProfile>('/api/mypage/health-profile', data);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to update health profile:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get user preferences
+ */
+export async function getUserPreferences(): Promise<UserPreferences | null> {
+  try {
+    const response = await api.get<UserPreferences>('/api/mypage/preferences');
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch user preferences:', error);
+    return null;
+  }
+}
+
+/**
+ * Update user preferences
+ */
+export async function updateUserPreferences(data: UserPreferencesUpdateData): Promise<UserPreferences | null> {
+  try {
+    const response = await api.put<UserPreferences>('/api/mypage/preferences', data);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to update user preferences:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get user's bookmarked papers
+ */
+export async function getUserBookmarks(limit: number = 20, offset: number = 0): Promise<{
+  bookmarks: BookmarkedPaper[];
+  total: number;
+  hasMore: boolean;
+}> {
+  try {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const response = await api.get(`/api/mypage/bookmarks?${params.toString()}`);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch bookmarks:', error);
+    return { bookmarks: [], total: 0, hasMore: false };
+  }
+}
+
+/**
+ * Remove a bookmarked paper
+ */
+export async function removeBookmark(paperId: string): Promise<boolean> {
+  try {
+    await api.delete(`/api/mypage/bookmarks/${paperId}`);
+    return true;
+  } catch (error) {
+    console.error('Failed to remove bookmark:', error);
+    return false;
+  }
+}
+
+/**
+ * Get user's community posts
+ */
+export async function getUserPosts(limit: number = 20, offset: number = 0): Promise<{
+  posts: UserPost[];
+  total: number;
+  hasMore: boolean;
+}> {
+  try {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const response = await api.get(`/api/mypage/posts?${params.toString()}`);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch user posts:', error);
+    return { posts: [], total: 0, hasMore: false };
+  }
+}
+
+/**
+ * Delete a user's post
+ */
+export async function deleteUserPost(postId: string): Promise<boolean> {
+  try {
+    await api.delete(`/api/community/posts/${postId}`);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete post:', error);
+    return false;
+  }
+}
+
+// ============================================================================
+// Diet Care API Functions
+// 식단 관리 API 함수들
+// ============================================================================
+
+/**
+ * Meal Food Item Type
+ */
+export interface MealFoodItem {
+  name: string;
+  amount: string;
+  calories: number;
+  protein_g: number;
+  sodium_mg: number;
+  potassium_mg: number;
+  phosphorus_mg: number;
+}
+
+/**
+ * Meal Record Type
+ */
+export interface MealRecord {
+  id: string;
+  user_id: string;
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  foods: MealFoodItem[];
+  total_calories: number;
+  total_protein_g: number;
+  total_sodium_mg: number;
+  total_potassium_mg: number;
+  total_phosphorus_mg: number;
+  logged_at: string;
+  notes?: string;
+  image_url?: string;
+  created_at: string;
+}
+
+/**
+ * Meal List Response
+ */
+export interface MealListResponse {
+  meals: MealRecord[];
+  total_count: number;
+  date_range: {
+    start: string;
+    end: string;
+  };
+}
+
+/**
+ * Get meal history for a date range
+ * @param startDate - ISO date string (default: 7 days ago)
+ * @param endDate - ISO date string (default: today)
+ */
+export async function getMealHistory(
+  startDate?: string,
+  endDate?: string
+): Promise<MealListResponse> {
+  try {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const url = params.toString()
+      ? `/api/diet-care/meals?${params.toString()}`
+      : '/api/diet-care/meals';
+
+    const response = await api.get<MealListResponse>(url);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch meal history:', error);
+    return {
+      meals: [],
+      total_count: 0,
+      date_range: { start: '', end: '' }
+    };
+  }
+}
+
+/**
+ * Create a meal request type
+ */
+export interface CreateMealRequest {
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  foods: MealFoodItem[];
+  logged_at?: string;
+  notes?: string;
+  image_url?: string;
+}
+
+/**
+ * Log a new meal entry
+ */
+export async function createMeal(meal: CreateMealRequest): Promise<MealRecord | null> {
+  try {
+    const response = await api.post<MealRecord>('/api/diet-care/meals', meal);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to create meal:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete a meal entry
+ */
+export async function deleteMeal(mealId: string): Promise<boolean> {
+  try {
+    await api.delete(`/api/diet-care/meals/${mealId}`);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete meal:', error);
+    return false;
   }
 }
 

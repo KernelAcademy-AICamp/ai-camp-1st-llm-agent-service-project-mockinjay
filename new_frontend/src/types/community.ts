@@ -46,6 +46,8 @@ export interface PostCard {
   likes: number;
   commentCount: number;
   previewText: string; // First 100 chars of content
+  authorType?: '일반인' | '환우' | '연구자'; // Author type
+  knowledgeLevel?: number; // Knowledge level (1-5)
 }
 
 /**

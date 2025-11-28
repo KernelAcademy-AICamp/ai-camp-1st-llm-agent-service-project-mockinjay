@@ -92,39 +92,62 @@ export const GoalSettingForm: React.FC<GoalSettingFormProps> = ({ language }) =>
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg">
-      <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
-        {language === 'ko' ? '식단 관리 목표 등록' : 'Set Diet Management Goals'}
-      </h2>
-
-      <form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          {goalFields.map((field) => (
-            <div key={field.name} className="border border-gray-200 dark:border-gray-700 p-4 rounded-lg">
-              <label className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">
-                {field.label}
-              </label>
-              <input
-                type="number"
-                placeholder={field.placeholder}
-                value={formData[field.name] || ''}
-                onChange={handleChange(field.name)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                  bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                  focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          ))}
-        </div>
-
+    <div className="space-y-4">
+      {/* Header with Save Button */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+          {language === 'ko' ? '목표 설정' : 'Goal Settings'}
+        </h2>
         <button
           type="submit"
+          form="goal-form"
           disabled={saving}
-          className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md font-medium transition-colors flex items-center gap-2"
+          className="px-4 py-2 rounded-xl text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          style={{ backgroundColor: 'rgb(0, 201, 183)' }}
+          onMouseEnter={(e) => {
+            if (!saving) {
+              e.currentTarget.style.backgroundColor = 'rgb(0, 181, 165)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgb(0, 201, 183)';
+          }}
         >
           {saving && <Loader2 className="animate-spin" size={16} />}
           {language === 'ko' ? '목표 저장' : 'Save Goals'}
         </button>
+      </div>
+
+      {/* Form Card with Gradient Background */}
+      <form id="goal-form" onSubmit={handleSubmit}>
+        <div
+          className="p-6 rounded-2xl transition-all duration-200 dark:bg-gray-800 dark:border dark:border-gray-700"
+          style={{
+            background: 'linear-gradient(135deg, #F2FFFD 0%, #F8F4FE 100%)'
+          }}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {goalFields.map((field) => (
+              <div key={field.name}>
+                <label className="block text-sm mb-2 text-gray-600 dark:text-gray-300">
+                  {field.label}
+                </label>
+                <input
+                  type="number"
+                  placeholder={field.placeholder}
+                  value={formData[field.name] || ''}
+                  onChange={handleChange(field.name)}
+                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-2xl
+                    bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                    transition-all duration-200
+                    focus:border-teal-500 focus:outline-none focus:ring-0
+                    placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                  min="0"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
       </form>
     </div>
   );

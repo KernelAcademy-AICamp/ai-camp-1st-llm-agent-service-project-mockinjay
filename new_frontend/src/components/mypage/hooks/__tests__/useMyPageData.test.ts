@@ -3,12 +3,13 @@
  * 마이페이지 데이터 훅 테스트
  */
 import { renderHook, waitFor } from '@testing-library/react';
+import { vi, describe, it, expect } from 'vitest';
 import { useMyPageData } from '../useMyPageData';
 import type { BookmarkedPaper } from '../../../../types/mypage';
 
 // Mock the API
-jest.mock('../../../../services/mypageApi', () => ({
-  getBookmarkedPapers: jest.fn(() =>
+vi.mock('../../../../services/mypageApi', () => ({
+  getBookmarkedPapers: vi.fn(() =>
     Promise.resolve({
       bookmarks: [
         {
@@ -29,7 +30,7 @@ jest.mock('../../../../services/mypageApi', () => ({
       offset: 0,
     })
   ),
-  getUserPosts: jest.fn(() =>
+  getUserPosts: vi.fn(() =>
     Promise.resolve({
       posts: [
         {

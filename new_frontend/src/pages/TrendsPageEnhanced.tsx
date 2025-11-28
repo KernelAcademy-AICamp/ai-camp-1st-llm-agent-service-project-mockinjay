@@ -1,14 +1,36 @@
 /**
  * TrendsPageEnhanced
  * PubMed 기반 연구 트렌드 분석 페이지
+ *
+ * Quick Access Tabs 포함:
+ * - 연구 분석: 기존 Step 기반 PubMed 분석
+ * - 뉴스: 신장 질환 관련 뉴스 피드
+ * - 임상시험: ClinicalTrials.gov 기반 임상시험 정보
+ * - 대시보드: 인기 키워드 + 연구 트렌드 차트
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useApp } from '../contexts/AppContext';
-import { TrendingUp, ArrowLeft, AlertCircle, RefreshCw } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+// import { useNavigate } from 'react-router-dom'; // Reserved for future use
+import { TrendingUp, ArrowLeft, AlertCircle, RefreshCw, Search, Newspaper, FlaskConical, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
 
+// Hooks
+import { useBookmarks } from '../hooks/useBookmarks';
+
 // Components
-import { QueryBuilder, AnalysisSelector, ChartRenderer, PaperList, SummaryPanel, PaperComparison } from '../components/trends';
+import {
+  QueryBuilder,
+  AnalysisSelector,
+  ChartRenderer,
+  PaperList,
+  SummaryPanel,
+  PaperComparison,
+  NewsFeed,
+  ClinicalTrialsTab,
+  ResearchDashboardContent
+} from '../components/trends';
+import { MobileHeader } from '../components/layout/MobileHeader';
 
 // API & Types
 import {
@@ -27,6 +49,7 @@ import {
 // ==================== Types ====================
 
 type Step = 'query' | 'analysis' | 'results';
+type QuickTab = 'analysis' | 'news' | 'clinical-trials' | 'dashboard';
 
 interface QueryState {
   query: string;
@@ -47,8 +70,16 @@ interface ResultState {
 
 const TrendsPageEnhanced: React.FC = () => {
   const { language } = useApp();
+  const { user } = useAuth();
 
-  // Step state
+  // Bookmark management
+  const { bookmarks, addBookmark, removeBookmarkByPaperId } = useBookmarks(user?.id, true);
+  const bookmarkedPaperIds = useMemo(() => new Set(bookmarks.map(b => b.paperId)), [bookmarks]);
+
+  // Quick Tab state (for landing page)
+  const [activeTab, setActiveTab] = useState<QuickTab>('analysis');
+
+  // Step state (for analysis flow)
   const [step, setStep] = useState<Step>('query');
 
   // Query state
@@ -66,6 +97,7 @@ const TrendsPageEnhanced: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bookmarkLoadingPapers, setBookmarkLoadingPapers] = useState<Set<string>>(new Set());
 
   // Summary state
   const [aiSummary, setAiSummary] = useState<MultiplePaperSummary | null>(null);
@@ -87,6 +119,11 @@ const TrendsPageEnhanced: React.FC = () => {
     stepQuery: language === 'ko' ? '1. 검색어 입력' : '1. Enter Query',
     stepAnalysis: language === 'ko' ? '2. 분석 유형 선택' : '2. Select Analysis',
     stepResults: language === 'ko' ? '3. 결과 확인' : '3. View Results',
+    // Quick Tabs
+    tabAnalysis: language === 'ko' ? '연구 분석' : 'Research Analysis',
+    tabNews: language === 'ko' ? '뉴스' : 'News',
+    tabClinicalTrials: language === 'ko' ? '임상시험' : 'Clinical Trials',
+    tabDashboard: language === 'ko' ? '대시보드' : 'Dashboard',
   };
 
   // Handle query submission
@@ -221,6 +258,7 @@ const TrendsPageEnhanced: React.FC = () => {
   // Handle reset
   const handleReset = useCallback(() => {
     setStep('query');
+    setActiveTab('analysis');
     setQueryState({
       query: '',
       keywords: [],
@@ -232,6 +270,22 @@ const TrendsPageEnhanced: React.FC = () => {
     setError(null);
     setSelectedPapers([]);
     setShowComparison(false);
+  }, []);
+
+  // Handle keyword click from PopularKeywords
+  const handleKeywordClick = useCallback((keyword: string) => {
+    setQueryState(prev => ({
+      ...prev,
+      query: keyword,
+    }));
+    setActiveTab('analysis');
+    toast.info(language === 'ko' ? `"${keyword}" 검색어가 입력되었습니다` : `Search term "${keyword}" has been entered`);
+  }, [language]);
+
+  // Handle clinical trial click
+  const handleTrialClick = useCallback((nctId: string) => {
+    // Navigate to clinical trial detail page (or open modal)
+    window.open(`https://clinicaltrials.gov/ct2/show/${nctId}`, '_blank');
   }, []);
 
   // Handle paper selection for comparison
@@ -257,6 +311,26 @@ const TrendsPageEnhanced: React.FC = () => {
     }
     setShowComparison(true);
   }, [selectedPapers.length, language]);
+
+  // Handle bookmark toggle
+  const handleToggleBookmark = useCallback(async (paper: PaperResult) => {
+    try {
+      setBookmarkLoadingPapers(prev => new Set([...prev, paper.pmid]));
+      if (bookmarkedPaperIds.has(paper.pmid)) {
+        await removeBookmarkByPaperId(paper.pmid);
+      } else {
+        await addBookmark(paper);
+      }
+    } catch (error) {
+      console.error('Failed to toggle bookmark:', error);
+    } finally {
+      setBookmarkLoadingPapers(prev => {
+        const next = new Set(prev);
+        next.delete(paper.pmid);
+        return next;
+      });
+    }
+  }, [bookmarkedPaperIds, addBookmark, removeBookmarkByPaperId]);
 
   // Render step indicator
   const renderStepIndicator = () => (
@@ -292,6 +366,67 @@ const TrendsPageEnhanced: React.FC = () => {
     </div>
   );
 
+  // Render Quick Access Tabs (shown when step is 'query')
+  const renderQuickTabs = () => (
+    <div className="mb-8">
+      <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+        {([
+          { key: 'analysis', label: t.tabAnalysis, icon: Search },
+          { key: 'news', label: t.tabNews, icon: Newspaper },
+          { key: 'clinical-trials', label: t.tabClinicalTrials, icon: FlaskConical },
+          { key: 'dashboard', label: t.tabDashboard, icon: BarChart3 },
+        ] as const).map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                isActive
+                  ? 'bg-white dark:bg-gray-700 text-[#00C8B4] shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              <Icon size={18} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // Render News Tab Content
+  const renderNewsTab = () => (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 rounded-2xl p-6 border border-blue-100 dark:border-blue-800">
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">
+          {language === 'ko' ? '📰 신장 질환 관련 뉴스' : '📰 Kidney Disease News'}
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          {language === 'ko'
+            ? '최신 신장 질환 관련 뉴스와 건강 정보를 확인하세요.'
+            : 'Stay updated with the latest kidney disease news and health information.'}
+        </p>
+      </div>
+      <NewsFeed />
+    </div>
+  );
+
+  // Render Clinical Trials Tab Content
+  const renderClinicalTrialsTab = () => (
+    <ClinicalTrialsTab onTrialClick={handleTrialClick} />
+  );
+
+  // Render Dashboard Tab Content (Real API-driven dashboard)
+  const renderDashboardTab = () => (
+    <ResearchDashboardContent
+      onKeywordClick={handleKeywordClick}
+      language={language}
+    />
+  );
+
   // Render error
   const renderError = () =>
     error && (
@@ -314,8 +449,17 @@ const TrendsPageEnhanced: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto">
+      {/* Mobile Header */}
+      <div className="lg:hidden">
+        <MobileHeader 
+          title={t.title} 
+          showMenu={true} 
+          showProfile={true}
+        />
+      </div>
+
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-8 hidden lg:block">
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
             <TrendingUp className="text-purple-600" />
@@ -348,28 +492,45 @@ const TrendsPageEnhanced: React.FC = () => {
         <p className="text-gray-600 dark:text-gray-400">{t.subtitle}</p>
       </div>
 
-      {/* Step Indicator */}
-      {renderStepIndicator()}
-
       {/* Error Display */}
       {renderError()}
 
+      {/* Quick Access Tabs (only show on query step) */}
+      {step === 'query' && renderQuickTabs()}
+
       {/* Step Content */}
-      {step === 'query' && (
-        <QueryBuilder onSubmit={handleQuerySubmit} loading={loading} language={language} />
+      {step === 'query' && activeTab === 'analysis' && (
+        <>
+          {renderStepIndicator()}
+          <QueryBuilder
+            onSubmit={handleQuerySubmit}
+            loading={loading}
+            language={language}
+          />
+        </>
       )}
 
+      {step === 'query' && activeTab === 'news' && renderNewsTab()}
+
+      {step === 'query' && activeTab === 'clinical-trials' && renderClinicalTrialsTab()}
+
+      {step === 'query' && activeTab === 'dashboard' && renderDashboardTab()}
+
       {step === 'analysis' && (
-        <AnalysisSelector
-          onSelect={handleAnalysisSelect}
-          hasMultipleKeywords={queryState.keywords.length >= 2}
-          loading={loading}
-          language={language}
-        />
+        <>
+          {renderStepIndicator()}
+          <AnalysisSelector
+            onSelect={handleAnalysisSelect}
+            hasMultipleKeywords={queryState.keywords.length >= 2}
+            loading={loading}
+            language={language}
+          />
+        </>
       )}
 
       {step === 'results' && resultState && (
         <div className="space-y-6">
+          {renderStepIndicator()}
           {/* Explanation */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700">
             <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4">
@@ -439,6 +600,9 @@ const TrendsPageEnhanced: React.FC = () => {
               language={language}
               selectedPapers={selectedPapers}
               onPaperSelect={handlePaperSelect}
+              bookmarkedPaperIds={bookmarkedPaperIds}
+              onToggleBookmark={handleToggleBookmark}
+              bookmarkLoading={bookmarkLoadingPapers}
             />
           )}
 

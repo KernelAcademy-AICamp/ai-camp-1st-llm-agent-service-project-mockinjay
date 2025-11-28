@@ -8,6 +8,9 @@ import React, { useMemo } from 'react';
 import { Apple } from 'lucide-react';
 import { DietTypeCard } from './DietTypeCard';
 import { FoodImageAnalyzer } from './FoodImageAnalyzer';
+import { NutrientEducationSection } from './NutrientEducationSection';
+import { SafeFoodCard, WarningFoodCard } from './FoodInfoCard';
+import { potassiumData, phosphorusData, toFoodCategories } from './nutritionData';
 
 export interface NutriCoachContentProps {
   language: 'en' | 'ko';
@@ -70,6 +73,82 @@ export const NutriCoachContent: React.FC<NutriCoachContentProps> = React.memo(({
 
   return (
     <div className="space-y-6">
+      {/* Educational Content Section */}
+      <section
+        className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg space-y-12"
+        aria-labelledby="educational-content-heading"
+      >
+        <div>
+          <h2
+            id="educational-content-heading"
+            className="text-2xl font-bold mb-2 text-gray-900 dark:text-white"
+          >
+            {language === 'ko' ? '영양소 관리 가이드' : 'Nutrient Management Guide'}
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-8">
+            {language === 'ko'
+              ? '만성콩팥병 환자를 위한 칼륨과 인 섭취 관리 정보입니다.'
+              : 'Potassium and phosphorus intake management information for CKD patients.'}
+          </p>
+        </div>
+
+        {/* Potassium Section */}
+        <NutrientEducationSection nutrient={potassiumData.info} language={language}>
+          <div className="grid md:grid-cols-2 gap-6">
+            <SafeFoodCard
+              title={
+                language === 'ko'
+                  ? '저칼륨 음식 (먹어도 되는 음식)'
+                  : 'Low Potassium Foods (Safe to Eat)'
+              }
+              categories={toFoodCategories(
+                potassiumData.safe[language === 'ko' ? 'ko' : 'en']
+              )}
+              language={language}
+            />
+            <WarningFoodCard
+              title={
+                language === 'ko'
+                  ? '고칼륨 음식 (피해야 하는 음식)'
+                  : 'High Potassium Foods (Avoid)'
+              }
+              categories={toFoodCategories(
+                potassiumData.warning[language === 'ko' ? 'ko' : 'en']
+              )}
+              language={language}
+            />
+          </div>
+        </NutrientEducationSection>
+
+        {/* Phosphorus Section */}
+        <NutrientEducationSection nutrient={phosphorusData.info} language={language}>
+          <div className="grid md:grid-cols-2 gap-6">
+            <SafeFoodCard
+              title={
+                language === 'ko'
+                  ? '저인 음식 (먹어도 되는 음식)'
+                  : 'Low Phosphorus Foods (Safe to Eat)'
+              }
+              categories={toFoodCategories(
+                phosphorusData.safe[language === 'ko' ? 'ko' : 'en']
+              )}
+              language={language}
+            />
+            <WarningFoodCard
+              title={
+                language === 'ko'
+                  ? '고인 음식 (피해야 하는 음식)'
+                  : 'High Phosphorus Foods (Avoid)'
+              }
+              categories={toFoodCategories(
+                phosphorusData.warning[language === 'ko' ? 'ko' : 'en']
+              )}
+              language={language}
+            />
+          </div>
+        </NutrientEducationSection>
+      </section>
+
       {/* Diet Information Section */}
       <section
         className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg"

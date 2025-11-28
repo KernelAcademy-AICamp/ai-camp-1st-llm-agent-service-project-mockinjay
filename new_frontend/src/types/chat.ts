@@ -26,6 +26,7 @@ export interface ChatMessage {
   roomId?: string;
   sessionId?: string;
   imageUrl?: string;
+  fallbackType?: string;
 }
 
 /**
@@ -76,6 +77,7 @@ export interface StoredMessage {
   roomId?: string;
   sessionId?: string;
   imageUrl?: string;
+  fallbackType?: string;
 }
 
 /**
