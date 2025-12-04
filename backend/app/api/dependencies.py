@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
-from app.db.connection import users_collection
+from app.db.connection import get_users_collection
 from bson import ObjectId
 import os
 
@@ -59,7 +59,7 @@ async def require_admin(user_id: str = Depends(get_current_user)) -> str:
     Raises:
         HTTPException: 관리자가 아닌 경우
     """
-    user = users_collection.find_one({"_id": ObjectId(user_id)})
+    user = await get_users_collection().find_one({"_id": ObjectId(user_id)})
 
     if not user:
         raise HTTPException(

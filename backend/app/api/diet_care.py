@@ -18,9 +18,9 @@ from bson import ObjectId
 
 from app.api.dependencies import get_current_user
 from app.db.connection import (
-    diet_sessions_collection,
-    diet_meals_collection,
-    diet_goals_collection
+    get_diet_sessions_collection,
+    get_diet_meals_collection,
+    get_diet_goals_collection
 )
 from app.models.diet_care import (
     CreateSessionRequest,
@@ -103,7 +103,7 @@ def get_default_goals() -> NutritionGoals:
 
 async def get_user_goals(user_id: str) -> NutritionGoals:
     """Get user's nutrition goals or return defaults"""
-    goals_doc = diet_goals_collection.find_one({"user_id": user_id})
+    goals_doc = await get_diet_goals_collection().find_one({"user_id": user_id})
 
     if goals_doc:
         return NutritionGoals(**goals_doc["goals"])
@@ -142,7 +142,7 @@ async def create_analysis_session(
         "image_url": None
     }
 
-    diet_sessions_collection.insert_one(session_doc)
+    await get_diet_sessions_collection().insert_one(session_doc)
 
     logger.info(f"Created analysis session {session_id} for user {user_id}")
 
@@ -184,7 +184,7 @@ async def analyze_nutrition(
         NutriCoachResponse: Detailed nutrition analysis
     """
     # Validate session
-    session = diet_sessions_collection.find_one({"session_id": session_id})
+    session = await get_diet_sessions_collection().find_one({"session_id": session_id})
 
     if not session:
         raise HTTPException(
@@ -211,7 +211,7 @@ async def analyze_nutrition(
         )
 
     # Update session status
-    diet_sessions_collection.update_one(
+    await get_diet_sessions_collection().update_one(
         {"session_id": session_id},
         {"$set": {"status": AnalysisStatus.PROCESSING.value}}
     )
@@ -244,7 +244,7 @@ async def analyze_nutrition(
 
         # Update session with result
         analyzed_at = datetime.utcnow()
-        diet_sessions_collection.update_one(
+        await get_diet_sessions_collection().update_one(
             {"session_id": session_id},
             {
                 "$set": {
@@ -266,7 +266,7 @@ async def analyze_nutrition(
 
     except ValueError as e:
         # Update session with failed status
-        diet_sessions_collection.update_one(
+        await get_diet_sessions_collection().update_one(
             {"session_id": session_id},
             {"$set": {"status": AnalysisStatus.FAILED.value}}
         )
@@ -277,7 +277,7 @@ async def analyze_nutrition(
         )
     except Exception as e:
         # Update session with failed status
-        diet_sessions_collection.update_one(
+        await get_diet_sessions_collection().update_one(
             {"session_id": session_id},
             {"$set": {"status": AnalysisStatus.FAILED.value}}
         )
@@ -329,7 +329,7 @@ async def create_meal(
         "updated_at": created_at
     }
 
-    result = diet_meals_collection.insert_one(meal_doc)
+    result = await get_diet_meals_collection().insert_one(meal_doc)
 
     logger.info(f"Created meal {result.inserted_id} for user {user_id}")
 
@@ -382,7 +382,8 @@ async def get_meals(
         }
     }
 
-    meals = list(diet_meals_collection.find(query).sort("logged_at", -1))
+    cursor = get_diet_meals_collection().find(query).sort("logged_at", -1)
+    meals = await cursor.to_list(length=None)
 
     # Convert to response models
     meal_responses = []
@@ -438,7 +439,7 @@ async def delete_meal(
         )
 
     # Find meal
-    meal = diet_meals_collection.find_one({"_id": meal_object_id})
+    meal = await get_diet_meals_collection().find_one({"_id": meal_object_id})
 
     if not meal:
         raise HTTPException(
@@ -454,7 +455,7 @@ async def delete_meal(
         )
 
     # Delete meal
-    diet_meals_collection.delete_one({"_id": meal_object_id})
+    await get_diet_meals_collection().delete_one({"_id": meal_object_id})
 
     logger.info(f"Deleted meal {meal_id} for user {user_id}")
 
@@ -475,7 +476,7 @@ async def get_nutrition_goals(
     Returns:
         GoalsResponse: Nutrition goals
     """
-    goals_doc = diet_goals_collection.find_one({"user_id": user_id})
+    goals_doc = await get_diet_goals_collection().find_one({"user_id": user_id})
 
     if goals_doc:
         return GoalsResponse(
@@ -526,7 +527,7 @@ async def update_nutrition_goals(
 
     # Save to database
     updated_at = datetime.utcnow()
-    diet_goals_collection.update_one(
+    await get_diet_goals_collection().update_one(
         {"user_id": user_id},
         {
             "$set": {
@@ -589,7 +590,8 @@ async def get_daily_progress(
         }
     }
 
-    meals = list(diet_meals_collection.find(query))
+    cursor = get_diet_meals_collection().find(query)
+    meals = await cursor.to_list(length=None)
 
     # Calculate totals
     total_calories = sum(m["total_calories"] for m in meals)
@@ -642,7 +644,8 @@ async def get_weekly_progress(
         }
     }
 
-    meals = list(diet_meals_collection.find(query))
+    cursor = get_diet_meals_collection().find(query)
+    meals = await cursor.to_list(length=None)
 
     # Group meals by date
     meals_by_date = {}
@@ -732,9 +735,10 @@ async def get_logging_streak(
         StreakResponse: Current and longest streak information
     """
     # Get all meals for the user
-    meals = list(diet_meals_collection.find(
+    cursor = get_diet_meals_collection().find(
         {"user_id": user_id}
-    ).sort("logged_at", -1))
+    ).sort("logged_at", -1)
+    meals = await cursor.to_list(length=None)
 
     if not meals:
         return StreakResponse(

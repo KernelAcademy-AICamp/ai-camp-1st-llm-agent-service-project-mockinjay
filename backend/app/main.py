@@ -147,9 +147,9 @@ def health_check():
 
 
 @app.get("/db-check")
-def database_check():
+async def database_check():
     """MongoDB 연결 상태 확인"""
-    return check_connection()
+    return await check_connection()
 
 
 @app.get("/test/error/500")

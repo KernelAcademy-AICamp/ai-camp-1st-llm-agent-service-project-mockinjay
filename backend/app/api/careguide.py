@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api import chat, trends, community, auth, user, notification, diet, header, footer, quiz, nutrition, rooms, session, mypage, bookmarks
+from app.api import chat, trends, community, auth, user, notification, header, footer, quiz, nutrition, rooms, session, mypage, bookmarks
 
 # Create the master router matching CareGuide IA
 router = APIRouter()
@@ -20,8 +20,8 @@ router.include_router(session.router)
 # --------------------------------------------------------------------------
 # 3. Diet Care (IA: /diet-care -> API: /api/diet-care)
 # --------------------------------------------------------------------------
-# diet.router has prefix="/diet-care", so we add "/api"
-router.include_router(diet.router, prefix="/api")
+# Note: diet_care_router is registered separately in main.py
+# The diet.py router has been deprecated in favor of diet_care.py
 
 # Nutrition API (Frontend compatibility endpoint: /api/nutrition/analyze)
 router.include_router(nutrition.router)
