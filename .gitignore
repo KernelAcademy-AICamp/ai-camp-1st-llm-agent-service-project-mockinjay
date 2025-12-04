@@ -385,3 +385,4 @@ docs
 *.bak
 *~
 .playwright-mcp
+eval/*.csv
