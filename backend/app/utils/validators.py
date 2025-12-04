@@ -8,7 +8,7 @@ from typing import List, Tuple
 class PasswordValidator:
     """Validates password strength and complexity"""
 
-    # Password requirements
+    # Password requirements (simplified: 8자 이상, 소문자, 숫자)
     MIN_LENGTH = 8
     MAX_LENGTH = 128
 
@@ -36,17 +36,9 @@ class PasswordValidator:
         if not re.search(r'[a-z]', password):
             errors.append("비밀번호에 소문자가 포함되어야 합니다")
 
-        # Check for uppercase letters
-        if not re.search(r'[A-Z]', password):
-            errors.append("비밀번호에 대문자가 포함되어야 합니다")
-
         # Check for digits
         if not re.search(r'\d', password):
             errors.append("비밀번호에 숫자가 포함되어야 합니다")
-
-        # Check for special characters
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/;\'`~]', password):
-            errors.append("비밀번호에 특수문자가 포함되어야 합니다")
 
         # Check for common patterns
         if cls._has_common_patterns(password):
@@ -84,10 +76,8 @@ class PasswordValidator:
         return (
             f"비밀번호 요구사항:\n"
             f"- 최소 {cls.MIN_LENGTH}자 이상\n"
-            f"- 대문자 포함\n"
             f"- 소문자 포함\n"
             f"- 숫자 포함\n"
-            f"- 특수문자 포함\n"
             f"- 단순한 패턴 사용 금지"
         )
 

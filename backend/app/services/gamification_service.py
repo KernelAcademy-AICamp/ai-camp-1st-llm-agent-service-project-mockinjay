@@ -4,7 +4,7 @@ Gamification service - Points and Level System business logic
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from bson import ObjectId
-from app.db.connection import points_collection, points_transactions_collection, users_collection
+from app.db.connection import get_points_collection, get_points_transactions_collection, get_users_collection
 
 
 # Level configuration
@@ -61,7 +61,7 @@ def calculate_level(points: int) -> Dict[str, Any]:
     }
 
 
-def get_user_points(user_id: str) -> Dict[str, Any]:
+async def get_user_points(user_id: str) -> Dict[str, Any]:
     """
     Get user's points and level information
 
@@ -72,7 +72,7 @@ def get_user_points(user_id: str) -> Dict[str, Any]:
         Dict containing points, level, and related info
     """
     # Get or create points record
-    points_doc = points_collection.find_one({"user_id": user_id})
+    points_doc = await get_points_collection().find_one({"user_id": user_id})
 
     if not points_doc:
         # Initialize with 0 points
@@ -82,7 +82,7 @@ def get_user_points(user_id: str) -> Dict[str, Any]:
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        points_collection.insert_one(points_doc)
+        await get_points_collection().insert_one(points_doc)
 
     points = points_doc["points"]
     level_info = calculate_level(points)
@@ -101,7 +101,7 @@ def get_user_points(user_id: str) -> Dict[str, Any]:
     }
 
 
-def add_points(user_id: str, points: int, reason: str, transaction_type: str) -> Dict[str, Any]:
+async def add_points(user_id: str, points: int, reason: str, transaction_type: str) -> Dict[str, Any]:
     """
     Add or deduct points for a user
 
@@ -115,7 +115,7 @@ def add_points(user_id: str, points: int, reason: str, transaction_type: str) ->
         Dict containing transaction details
     """
     # Get current points
-    points_doc = points_collection.find_one({"user_id": user_id})
+    points_doc = await get_points_collection().find_one({"user_id": user_id})
 
     if not points_doc:
         # Initialize with 0 points
@@ -125,7 +125,7 @@ def add_points(user_id: str, points: int, reason: str, transaction_type: str) ->
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        points_collection.insert_one(points_doc)
+        await get_points_collection().insert_one(points_doc)
 
     points_before = points_doc["points"]
     level_before_info = calculate_level(points_before)
@@ -140,7 +140,7 @@ def add_points(user_id: str, points: int, reason: str, transaction_type: str) ->
     level_up = level_after > level_before
 
     # Update points
-    points_collection.update_one(
+    await get_points_collection().update_one(
         {"user_id": user_id},
         {
             "$set": {
@@ -162,7 +162,7 @@ def add_points(user_id: str, points: int, reason: str, transaction_type: str) ->
         "transaction_type": transaction_type,
         "created_at": datetime.utcnow()
     }
-    points_transactions_collection.insert_one(transaction)
+    await get_points_transactions_collection().insert_one(transaction)
 
     return {
         "user_id": user_id,
@@ -178,7 +178,7 @@ def add_points(user_id: str, points: int, reason: str, transaction_type: str) ->
     }
 
 
-def get_user_level(user_id: str) -> Dict[str, Any]:
+async def get_user_level(user_id: str) -> Dict[str, Any]:
     """
     Get detailed user level information
 
@@ -188,7 +188,7 @@ def get_user_level(user_id: str) -> Dict[str, Any]:
     Returns:
         Dict containing detailed level information
     """
-    points_doc = points_collection.find_one({"user_id": user_id})
+    points_doc = await get_points_collection().find_one({"user_id": user_id})
 
     if not points_doc:
         # Initialize with 0 points
@@ -198,7 +198,7 @@ def get_user_level(user_id: str) -> Dict[str, Any]:
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        points_collection.insert_one(points_doc)
+        await get_points_collection().insert_one(points_doc)
 
     points = points_doc["points"]
     level_info = calculate_level(points)
@@ -214,7 +214,7 @@ def get_user_level(user_id: str) -> Dict[str, Any]:
     }
 
 
-def get_points_history(
+async def get_points_history(
     user_id: str,
     page: int = 1,
     page_size: int = 20
@@ -233,12 +233,14 @@ def get_points_history(
     skip = (page - 1) * page_size
 
     # Get transactions
-    transactions_cursor = points_transactions_collection.find(
+    cursor = get_points_transactions_collection().find(
         {"user_id": user_id}
     ).sort("created_at", -1).skip(skip).limit(page_size)
 
+    transactions_list = await cursor.to_list(length=page_size)
+
     transactions = []
-    for txn in transactions_cursor:
+    for txn in transactions_list:
         transactions.append({
             "id": str(txn["_id"]),
             "user_id": txn["user_id"],
@@ -253,7 +255,7 @@ def get_points_history(
         })
 
     # Get total count
-    total_count = points_transactions_collection.count_documents({"user_id": user_id})
+    total_count = await get_points_transactions_collection().count_documents({"user_id": user_id})
 
     return {
         "transactions": transactions,

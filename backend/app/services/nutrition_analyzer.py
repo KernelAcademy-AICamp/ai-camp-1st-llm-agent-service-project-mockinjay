@@ -42,7 +42,7 @@ class NutritionAnalyzer:
             raise ValueError("OPENAI_API_KEY environment variable is required")
 
         self.client = AsyncOpenAI(api_key=api_key)
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4-vision-preview")
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4o")  # gpt-4-vision-preview deprecated
         self.max_tokens = int(os.getenv("OPENAI_MAX_TOKENS", "4096"))
 
     async def analyze_meal(

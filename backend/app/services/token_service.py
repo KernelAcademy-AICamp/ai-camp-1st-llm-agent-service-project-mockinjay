@@ -4,7 +4,7 @@ Token service - AI usage token management
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from bson import ObjectId
-from app.db.connection import tokens_collection, token_transactions_collection, points_collection
+from app.db.connection import get_tokens_collection, get_token_transactions_collection, get_points_collection
 
 
 # Token configuration
@@ -12,7 +12,7 @@ POINTS_PER_TOKEN = 10  # 10 points = 1 token
 DAILY_TOKEN_LIMIT = 100  # Maximum tokens per day
 
 
-def get_token_balance(user_id: str) -> Dict[str, Any]:
+async def get_token_balance(user_id: str) -> Dict[str, Any]:
     """
     Get user's token balance and daily usage
 
@@ -23,7 +23,7 @@ def get_token_balance(user_id: str) -> Dict[str, Any]:
         Dict containing token balance and usage info
     """
     # Get or create token record
-    token_doc = tokens_collection.find_one({"user_id": user_id})
+    token_doc = await get_tokens_collection().find_one({"user_id": user_id})
 
     if not token_doc:
         # Initialize with 0 tokens
@@ -36,10 +36,10 @@ def get_token_balance(user_id: str) -> Dict[str, Any]:
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        tokens_collection.insert_one(token_doc)
+        await get_tokens_collection().insert_one(token_doc)
     else:
         # Check if we need to reset daily usage
-        token_doc = reset_daily_usage_if_needed(user_id, token_doc)
+        token_doc = await reset_daily_usage_if_needed(user_id, token_doc)
 
     remaining_today = max(0, token_doc["daily_limit"] - token_doc["tokens_used_today"])
 
@@ -53,7 +53,7 @@ def get_token_balance(user_id: str) -> Dict[str, Any]:
     }
 
 
-def reset_daily_usage_if_needed(user_id: str, token_doc: Dict[str, Any]) -> Dict[str, Any]:
+async def reset_daily_usage_if_needed(user_id: str, token_doc: Dict[str, Any]) -> Dict[str, Any]:
     """
     Reset daily usage if a new day has started
 
@@ -70,7 +70,7 @@ def reset_daily_usage_if_needed(user_id: str, token_doc: Dict[str, Any]) -> Dict
     # Check if it's a new day (UTC)
     if last_reset.date() < now.date():
         # Reset daily usage
-        tokens_collection.update_one(
+        await get_tokens_collection().update_one(
             {"user_id": user_id},
             {
                 "$set": {
@@ -86,7 +86,7 @@ def reset_daily_usage_if_needed(user_id: str, token_doc: Dict[str, Any]) -> Dict
     return token_doc
 
 
-def convert_points_to_tokens(
+async def convert_points_to_tokens(
     user_id: str,
     points: int
 ) -> Dict[str, Any]:
@@ -110,7 +110,7 @@ def convert_points_to_tokens(
         raise ValueError(f"포인트는 {POINTS_PER_TOKEN}의 배수여야 합니다")
 
     # Check user has enough points
-    points_doc = points_collection.find_one({"user_id": user_id})
+    points_doc = await get_points_collection().find_one({"user_id": user_id})
     if not points_doc or points_doc["points"] < points:
         raise ValueError("포인트가 부족합니다")
 
@@ -119,7 +119,7 @@ def convert_points_to_tokens(
 
     # Deduct points
     points_after = points_before - points
-    points_collection.update_one(
+    await get_points_collection().update_one(
         {"user_id": user_id},
         {
             "$set": {
@@ -130,7 +130,7 @@ def convert_points_to_tokens(
     )
 
     # Add tokens
-    token_doc = tokens_collection.find_one({"user_id": user_id})
+    token_doc = await get_tokens_collection().find_one({"user_id": user_id})
 
     if not token_doc:
         token_doc = {
@@ -142,12 +142,12 @@ def convert_points_to_tokens(
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        tokens_collection.insert_one(token_doc)
+        await get_tokens_collection().insert_one(token_doc)
 
     tokens_before = token_doc["tokens"]
     tokens_after = tokens_before + tokens_to_add
 
-    tokens_collection.update_one(
+    await get_tokens_collection().update_one(
         {"user_id": user_id},
         {
             "$set": {
@@ -170,7 +170,7 @@ def convert_points_to_tokens(
         "transaction_type": "conversion",
         "created_at": datetime.utcnow()
     }
-    token_transactions_collection.insert_one(transaction)
+    await get_token_transactions_collection().insert_one(transaction)
 
     return {
         "user_id": user_id,
@@ -185,7 +185,7 @@ def convert_points_to_tokens(
     }
 
 
-def use_tokens(
+async def use_tokens(
     user_id: str,
     tokens_used: int,
     usage_type: str,
@@ -210,13 +210,13 @@ def use_tokens(
         raise ValueError("토큰 사용량은 0보다 커야 합니다")
 
     # Get token balance
-    token_doc = tokens_collection.find_one({"user_id": user_id})
+    token_doc = await get_tokens_collection().find_one({"user_id": user_id})
 
     if not token_doc:
         raise ValueError("토큰 잔액이 없습니다")
 
     # Reset daily usage if needed
-    token_doc = reset_daily_usage_if_needed(user_id, token_doc)
+    token_doc = await reset_daily_usage_if_needed(user_id, token_doc)
 
     # Check if sufficient tokens
     if token_doc["tokens"] < tokens_used:
@@ -231,7 +231,7 @@ def use_tokens(
     tokens_after = tokens_before - tokens_used
 
     # Update token balance
-    tokens_collection.update_one(
+    await get_tokens_collection().update_one(
         {"user_id": user_id},
         {
             "$set": {
@@ -253,7 +253,7 @@ def use_tokens(
         "transaction_type": "usage",
         "created_at": datetime.utcnow()
     }
-    token_transactions_collection.insert_one(transaction)
+    await get_token_transactions_collection().insert_one(transaction)
 
     remaining_daily = token_doc["daily_limit"] - new_daily_usage
 
