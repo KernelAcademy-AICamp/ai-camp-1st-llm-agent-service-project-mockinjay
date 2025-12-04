@@ -32,6 +32,7 @@ import type { ChatMessage, UserProfile } from '../types/chat';
 import type { IntentCategory } from '../types/intent';
 import { routeQueryStream, type AgentType } from '../services/intentRouter';
 import { getChatHistoryBySession } from '../services/api';
+import { createSession, analyzeNutrition } from '../services/dietCareApi';
 
 /**
  * Location state interface for navigation
@@ -459,23 +460,23 @@ const ChatPageEnhanced: React.FC = () => {
     try {
       // Handle nutrition image upload (non-streaming)
       if (isNutrition && currentImage) {
-        const formData = new FormData();
-        formData.append('session_id', `session_${Date.now()}`);
-        formData.append('text', messageToSend || '음식 이미지 분석');
-        formData.append('user_profile', user?.profile || 'patient');
-        formData.append('image', currentImage);
+        // Create a valid session first
+        const sessionResponse = await createSession(user?.id);
 
-        const response = await fetch(`${env.apiBaseUrl}/diet-care/nutri-coach`, {
-          method: 'POST',
-          body: formData,
-          signal: abortControllerRef.current.signal,
+        // Call nutrition analysis API with proper session
+        const nutritionResponse = await analyzeNutrition({
+          session_id: sessionResponse.session_id,
+          image: currentImage,
+          text: messageToSend || '음식 이미지 분석',
         });
 
-        const data = await response.json();
-        const assistantContent =
-          data.result?.response ||
-          data.result?.metadata?.response ||
-          '영양 분석 결과를 가져오는 중 오류가 발생했습니다.';
+        // Format the analysis result for display
+        const analysis = nutritionResponse.analysis;
+        const foodsText = analysis.foods
+          .map(f => `- ${f.name}: ${f.calories}kcal, 단백질 ${f.protein_g}g, 나트륨 ${f.sodium_mg}mg`)
+          .join('\n');
+
+        const assistantContent = `## 영양 분석 결과\n\n**식품 목록:**\n${foodsText}\n\n**총 영양소:**\n- 칼로리: ${analysis.total_calories}kcal\n- 단백질: ${analysis.total_protein_g}g\n- 나트륨: ${analysis.total_sodium_mg}mg\n- 칼륨: ${analysis.total_potassium_mg}mg\n- 인: ${analysis.total_phosphorus_mg}mg\n\n**권장사항:**\n${analysis.recommendations.map(r => `- ${r}`).join('\n')}${analysis.warnings.length > 0 ? `\n\n**주의사항:**\n${analysis.warnings.map(w => `⚠️ ${w}`).join('\n')}` : ''}`;
 
         const assistantMessage: ChatMessage = {
           id: assistantMessageId,

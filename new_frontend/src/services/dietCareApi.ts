@@ -87,11 +87,13 @@ export async function analyzeNutrition(
     formData.append('activity_level', request.activity_level);
   }
 
+  // Set Content-Type to undefined to remove the default 'application/json' header.
+  // This allows axios to automatically set the correct multipart/form-data with boundary.
   const response = await api.post<NutritionAnalysisResponse>(
     ENDPOINTS.NUTRI_COACH,
     formData,
     {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined },
     }
   );
   return response.data;
