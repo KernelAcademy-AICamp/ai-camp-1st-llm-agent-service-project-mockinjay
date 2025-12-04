@@ -18,8 +18,11 @@ Date: 2025-11-19
 """
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any
+from enum import Enum
 import os
+import hashlib
+import json
 from dotenv import load_dotenv
 from pymongo import ASCENDING, TEXT
 import logging
@@ -28,6 +31,13 @@ import asyncio
 from bson import ObjectId
 
 from app.db.vector_manager import OptimizedVectorDBManager
+
+
+class SearchStatus(Enum):
+    """Status indicators for search operations."""
+    SUCCESS = "success"          # All search components succeeded
+    PARTIAL = "partial"          # Some components failed, using fallback
+    FAILED = "failed"            # Search completely failed
 
 load_dotenv()
 
@@ -89,12 +99,93 @@ class WelfareManager:
         self.keyword_weight = 0.4
         self.semantic_weight = 0.6
 
+        # Connection management (same as hospital_manager)
+        self._connection_lock = asyncio.Lock()
+        self._last_health_check = 0
+        self._health_check_interval = 60
+        self._max_retries = 3
+        self._retry_base_delay = 1.0
+
+        # Vector search metrics for monitoring
+        self._vector_search_successes = 0
+        self._vector_search_failures = 0
+
         logger.info(f"WelfareManager initialized: {self.db_name}")
 
     async def _ensure_connection(self):
-        """Ensure the MongoDB client/DB is initialized."""
-        if self.client is None or self.db is None:
-            await self.connect()
+        """Ensure MongoDB connection exists and is healthy with thread-safe locking."""
+        async with self._connection_lock:
+            if self.client is None or self.db is None:
+                await self._connect_with_retry()
+                return
+
+            # Periodic health check
+            now = time.time()
+            if now - self._last_health_check > self._health_check_interval:
+                try:
+                    await asyncio.wait_for(self.db.command("ping"), timeout=5.0)
+                    self._last_health_check = now
+                except Exception as e:
+                    logger.warning(f"Welfare connection health check failed: {e}, reconnecting...")
+                    await self._connect_with_retry()
+
+    async def _connect_with_retry(self):
+        """Connect to MongoDB with exponential backoff retry logic."""
+        last_error = None
+
+        for attempt in range(self._max_retries):
+            try:
+                if self.client:
+                    try:
+                        self.client.close()
+                    except Exception:
+                        pass
+                    self.client = None
+                    self.db = None
+
+                self.client = AsyncIOMotorClient(
+                    self.uri,
+                    maxPoolSize=self.max_pool_size,
+                    minPoolSize=self.min_pool_size,
+                    maxIdleTimeMS=30000,
+                    waitQueueTimeoutMS=5000,
+                    serverSelectionTimeoutMS=5000,
+                    connectTimeoutMS=2000,
+                    socketTimeoutMS=10000,
+                    retryWrites=True,
+                    retryReads=True
+                )
+                self.db = self.client[self.db_name]
+
+                await asyncio.wait_for(self.db.command("ping"), timeout=10.0)
+                await self.create_indexes()
+
+                self._last_health_check = time.time()
+                logger.info(f"✅ WelfareManager connected: {self.db_name}")
+                return
+
+            except Exception as e:
+                last_error = e
+                if attempt < self._max_retries - 1:
+                    delay = self._retry_base_delay * (2 ** attempt)
+                    logger.warning(f"Welfare MongoDB connection attempt {attempt + 1}/{self._max_retries} failed: {e}. Retrying in {delay:.1f}s...")
+                    await asyncio.sleep(delay)
+
+        logger.error(f"Failed to connect to MongoDB after {self._max_retries} attempts: {last_error}")
+        raise ConnectionError(f"MongoDB connection failed: {last_error}")
+
+    def get_vector_search_metrics(self) -> Dict[str, Any]:
+        """Get vector search performance metrics for monitoring."""
+        total = self._vector_search_successes + self._vector_search_failures
+        failure_rate = self._vector_search_failures / total if total > 0 else 0.0
+        return {
+            "successes": self._vector_search_successes,
+            "failures": self._vector_search_failures,
+            "total": total,
+            "failure_rate": failure_rate,
+            "vector_ready": self._vector_ready,
+            "vector_init_failed": self._vector_init_failed
+        }
 
     async def _ensure_vector_manager(self) -> bool:
         """Initialize Pinecone vector manager if enabled."""
@@ -387,6 +478,7 @@ class WelfareManager:
 
         keyword_results: List[Dict] = []
         semantic_results: List[Dict] = []
+        semantic_status = SearchStatus.SUCCESS
 
         if query:
             # Run keyword and semantic search concurrently
@@ -404,10 +496,13 @@ class WelfareManager:
                 ckd_stage=ckd_stage
             ))
 
-            keyword_results, semantic_results = await asyncio.gather(
+            keyword_results, semantic_result_tuple = await asyncio.gather(
                 keyword_task,
                 semantic_task
             )
+
+            # Unpack semantic search results and status
+            semantic_results, semantic_status = semantic_result_tuple
 
         fallback_limit = max(limit * 2, limit)
         fallback_results = await self._filter_only_program_search(filters, fallback_limit)
@@ -419,12 +514,27 @@ class WelfareManager:
             limit
         )
 
-        logger.debug(
-            "Hybrid welfare search complete: query=%s, filters=%s, results=%d",
-            query,
-            filters,
-            len(merged)
-        )
+        # Log with status information for monitoring
+        if semantic_status == SearchStatus.FAILED:
+            logger.warning(
+                "Hybrid welfare search degraded (vector search failed): query=%s, "
+                "keyword_results=%d, fallback_results=%d, merged=%d",
+                query[:50] if query else None,
+                len(keyword_results),
+                len(fallback_results),
+                len(merged)
+            )
+        else:
+            logger.debug(
+                "Hybrid welfare search complete: query=%s, filters=%s, "
+                "keyword=%d, semantic=%d, merged=%d, status=%s",
+                query[:50] if query else None,
+                filters,
+                len(keyword_results),
+                len(semantic_results),
+                len(merged),
+                semantic_status.value
+            )
 
         return merged
 
@@ -446,14 +556,16 @@ class WelfareManager:
         category: Optional[str],
         disease: Optional[str],
         ckd_stage: Optional[int]
-    ) -> List[Dict]:
-        """Semantic welfare search via Pinecone."""
+    ) -> Tuple[List[Dict], SearchStatus]:
+        """Semantic welfare search via Pinecone with status reporting."""
         if not query:
-            return []
+            return [], SearchStatus.SUCCESS
 
         vector_ready = await self._ensure_vector_manager()
         if not vector_ready or not self.vector_manager:
-            return []
+            logger.warning("Welfare vector manager not ready for semantic search")
+            self._vector_search_failures += 1
+            return [], SearchStatus.FAILED
 
         try:
             matches = await self.vector_manager.semantic_search(
@@ -461,9 +573,20 @@ class WelfareManager:
                 top_k=max(limit * 3, limit),
                 namespace=self.vector_namespace
             )
+            self._vector_search_successes += 1
         except Exception as e:
-            logger.warning(f"Welfare semantic search failed: {e}")
-            return []
+            self._vector_search_failures += 1
+            metrics = self.get_vector_search_metrics()
+            logger.error(
+                f"Welfare semantic search failed: {e}",
+                exc_info=True,
+                extra={
+                    "query": query[:50] if query else None,
+                    "namespace": self.vector_namespace,
+                    "failure_rate": f"{metrics['failure_rate']:.2%}"
+                }
+            )
+            return [], SearchStatus.FAILED
 
         doc_ids = []
         scores = []
@@ -498,7 +621,10 @@ class WelfareManager:
             if len(semantic_results) >= limit:
                 break
 
-        return semantic_results
+        if not semantic_results and matches:
+            return [], SearchStatus.PARTIAL
+
+        return semantic_results, SearchStatus.SUCCESS
 
     async def _get_welfare_docs_by_ids(self, doc_ids: List[str]) -> Dict[str, Dict]:
         """Fetch welfare docs by Mongo _id or programId."""
@@ -604,6 +730,7 @@ class WelfareManager:
                 else:
                     entry["fallback_order"] = min(entry["fallback_order"], fallback_order)
 
+        # Normalize keyword scores (0-1 range)
         max_keyword_score = max(
             [doc.get("score", 0) for doc in keyword_results],
             default=0.0
@@ -614,25 +741,39 @@ class WelfareManager:
                 doc.get("score", 0) / max_keyword_score
                 if max_keyword_score > 0 else 0.0
             )
-            add_result(doc, keyword_score=normalized, semantic_score=doc.get("semantic_score", 0.0))
+            add_result(doc, keyword_score=normalized)
+
+        # Normalize semantic scores (0-1 range) - FIX: was not normalized before
+        max_semantic_score = max(
+            [doc.get("semantic_score", 0) for doc in semantic_results],
+            default=0.0
+        )
 
         for doc in semantic_results:
-            add_result(doc, semantic_score=doc.get("semantic_score", 0.0))
+            raw_score = doc.get("semantic_score", 0.0)
+            normalized_semantic = (
+                raw_score / max_semantic_score
+                if max_semantic_score > 0 else 0.0
+            )
+            add_result(doc, semantic_score=normalized_semantic)
 
+        # Add fallback results with order-based scoring
         fallback_counter = 0
         for doc in fallback_results:
             fallback_counter += 1
             add_result(doc, fallback_order=fallback_counter)
 
+        # Calculate final hybrid scores
         merged_docs: List[Dict] = []
         for entry in combined.values():
+            # Weighted combination of normalized scores
             final_score = (
                 entry["keyword_score"] * self.keyword_weight +
                 entry["semantic_score"] * self.semantic_weight
             )
 
+            # For documents only found in fallback, use order-based scoring
             if final_score == 0 and entry["fallback_order"] is not None:
-                # Assign a slight bonus to preserve fallback ordering
                 final_score = max(1e-4, 1e-4 * (len(fallback_results) - entry["fallback_order"]))
 
             entry["doc"]["keyword_score"] = entry["keyword_score"]

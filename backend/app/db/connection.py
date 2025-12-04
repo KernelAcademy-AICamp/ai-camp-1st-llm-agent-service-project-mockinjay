@@ -78,6 +78,26 @@ def get_bookmarks_collection() -> AsyncIOMotorCollection:
     return Database.get_collection("bookmarks")
 
 
+def get_points_collection() -> AsyncIOMotorCollection:
+    """포인트 컬렉션 반환"""
+    return Database.get_collection("points")
+
+
+def get_points_transactions_collection() -> AsyncIOMotorCollection:
+    """포인트 트랜잭션 컬렉션 반환"""
+    return Database.get_collection("points_transactions")
+
+
+def get_tokens_collection() -> AsyncIOMotorCollection:
+    """토큰 컬렉션 반환"""
+    return Database.get_collection("tokens")
+
+
+def get_token_transactions_collection() -> AsyncIOMotorCollection:
+    """토큰 트랜잭션 컬렉션 반환"""
+    return Database.get_collection("token_transactions")
+
+
 # 하위 호환성을 위한 전역 변수 (점진적 마이그레이션용)
 # 주의: 이 변수들은 비동기 컨텍스트에서만 사용해야 합니다
 users_collection = None
