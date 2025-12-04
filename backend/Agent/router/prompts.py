@@ -117,8 +117,8 @@ Detection Criteria:
 - Health metrics (수치, 값, value, level)
 - Specific biomarkers (크레아티닌, eGFR, BUN, creatinine)
 
-## 4. WELFARE_INFO (복지 정보)
-Description: Welfare programs, financial support, insurance, subsidies
+## 4. WELFARE_INFO (복지 정보 + 병원/시설 검색)
+Description: Welfare programs, financial support, insurance, subsidies, AND hospital/pharmacy/dialysis center searches
 Risk Level: LOW
 Recommended Agent: medical_welfare
 
@@ -127,12 +127,20 @@ Examples:
 - "신장 질환자 의료비 지원 제도는?"
 - "장애인 등록 절차가 어떻게 되나요?"
 - "건강보험 혜택"
+- "강남구 투석 가능 병원 알려줘"  # Hospital search
+- "근처 약국 찾아줘"  # Pharmacy search
+- "야간 투석 가능한 병원"  # Dialysis center search
+- "인공신장실 있는 의원"  # Dialysis facility search
 
 Detection Criteria:
 - Financial support (지원금, 복지, 지원, support, subsidy)
 - Insurance (보험, 건강보험, insurance)
 - Government programs (제도, 정책, program)
 - Disability registration (장애인 등록, disability)
+- Hospital/facility searches (병원, 약국, 의원, 클리닉, 센터, hospital, pharmacy, clinic)
+- Dialysis facilities (투석 병원, 인공신장실, 혈액투석, 복막투석, 야간투석, dialysis center)
+
+**IMPORTANT**: All hospital, pharmacy, and dialysis center search queries MUST be classified as WELFARE_INFO, NOT MEDICAL_INFO.
 
 ## 5. RESEARCH (연구 논문)
 Description: Academic research, papers, meta-analysis, latest studies

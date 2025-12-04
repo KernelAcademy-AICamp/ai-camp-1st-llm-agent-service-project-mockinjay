@@ -380,13 +380,18 @@ class MedicalWelfareAgent(LocalAgent):
         # user_id가 있으면 데이터베이스에서 가져오기 시도
         if request.user_id:
             try:
-                from app.db.connection import get_users_collection
-                users = get_users_collection()
-                user = await users.find_one({"_id": __import__('bson').ObjectId(request.user_id)})
-                if user and user.get('parlant_customer_id'):
-                    customer_id = user['parlant_customer_id']
-                    logger.info(f"✅ Using customer ID from user DB: {customer_id}")
-                    return customer_id
+                from app.db.connection import Database, get_users_collection
+                # Check if database is initialized before querying
+                # 쿼리 전에 데이터베이스가 초기화되었는지 확인
+                if Database.db is not None:
+                    users = get_users_collection()
+                    user = await users.find_one({"_id": __import__('bson').ObjectId(request.user_id)})
+                    if user and user.get('parlant_customer_id'):
+                        customer_id = user['parlant_customer_id']
+                        logger.info(f"✅ Using customer ID from user DB: {customer_id}")
+                        return customer_id
+                else:
+                    logger.debug("Database not initialized, skipping user lookup")
             except Exception as e:
                 logger.warning(f"Could not fetch user parlant_customer_id: {e}")
 
@@ -504,6 +509,11 @@ class MedicalWelfareAgent(LocalAgent):
             # Fallback idle detection
             idle_start_time = None
             idle_timeout = 60
+            
+            # Parlant 1:N pattern support - wait for additional messages after ready
+            ready_received = False
+            ready_timer_start = None
+            ready_wait_timeout = 10  # Wait 10s after ready for more messages
 
             logger.info(f"📡 Listening for events from continuous polling (max {max_wait}s)")
 
@@ -515,9 +525,15 @@ class MedicalWelfareAgent(LocalAgent):
                     logger.warning(f"⏰ Max wait time exceeded ({elapsed:.1f}s)")
                     break
 
-                # Check if response is complete
+                # Check ready timeout
+                if ready_received and ready_timer_start is not None:
+                    if time.time() - ready_timer_start > ready_wait_timeout:
+                        logger.info(f"✅ Response complete (ready timeout expired)")
+                        response_complete = True
+                        break
+
+                # Check if response is complete (only if explicitly set via other means, though we rely on ready timeout now)
                 if response_complete:
-                    logger.info(f"✅ Response complete (status:ready received)")
                     break
 
                 # Fallback idle timeout
@@ -539,9 +555,19 @@ class MedicalWelfareAgent(LocalAgent):
 
                     # Reset idle timer on event
                     idle_start_time = None
+                    
+                    # Reset ready timer on any event
+                    if ready_received:
+                        ready_timer_start = time.time()
 
                     # Process message events
                     if hasattr(event, 'kind') and event.kind == 'message' and event.source in ('agent', 'ai_agent'):
+                        # Reset ready timer on new message
+                        if ready_received:
+                            logger.info(f"📨 New message after ready - resetting timer")
+                            ready_received = False
+                            ready_timer_start = None
+                            
                         agent_messages.append(event)
                         logger.info(f"📨 Received message (total: {len(agent_messages)})")
 
@@ -552,13 +578,13 @@ class MedicalWelfareAgent(LocalAgent):
 
                         logger.debug(f"📊 Status event: {status}")
 
-                        # ready = response complete (but polling continues)
-                        # ready = 응답 완료 (그러나 폴링은 계속됨)
+                        # ready = potentially response complete (start wait timer)
                         if status == 'ready' and agent_messages:
-                            response_complete = True
-                            logger.info(f"✅ Agent status: ready - response complete")
-                            break
-
+                            if not ready_received:
+                                ready_received = True
+                                ready_timer_start = time.time()
+                                logger.info(f"✅ Agent status: ready - waiting {ready_wait_timeout}s for more messages")
+                            
                         # error = agent error
                         elif status == 'error':
                             error_data = event_data.get('data', {})

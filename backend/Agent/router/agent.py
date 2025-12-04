@@ -81,18 +81,20 @@ class RouterAgent(LocalAgent):
         }
         return aliases.get(agent_name.lower(), agent_name)
 
-    async def _classify_intent(self, query: str) -> List[str]:
+    async def _analyze_intent_raw(self, query: str) -> Dict[str, Any]:
         """
-        Classify the user query into agent types using sophisticated prompts.
-        Returns a list of agent types to execute.
-
-        Uses Chain-of-Thought reasoning with False Negative prevention
-        to ensure medical queries are never missed.
+        Analyze intent and return the raw classification result (JSON).
         """
         # Quick emergency check
         if is_emergency_query(query):
             logger.warning(f"🚨 EMERGENCY DETECTED in query: {query}")
-            return ["research_paper"]  # Route to research_paper which handles medical info
+            return {
+                "intents": ["MEDICAL_INFO"],
+                "confidence": 1.0,
+                "reasoning": "Emergency keywords detected",
+                "is_emergency": True,
+                "primary_intent": "MEDICAL_INFO"
+            }
 
         # Use formatted prompt from prompts.py with sophisticated classification
         messages = format_classification_prompt(query)
@@ -110,74 +112,83 @@ class RouterAgent(LocalAgent):
 
             # Parse JSON response
             result = json.loads(content)
+            return result
 
-            # Validate response structure
-            if not isinstance(result, dict) or "intents" not in result:
-                logger.warning("Invalid classification response structure, using fallback")
-                return self._rule_based_intent(query)
-
-            intents = result.get("intents", [])
-            confidence = result.get("confidence", 0.0)
-            reasoning = result.get("reasoning", "")
-            is_emergency = result.get("is_emergency", False)
-
-            # Log classification details
-            logger.info(f"📊 Intent Classification:")
-            logger.info(f"   Query: {query}")
-            logger.info(f"   Intents: {intents}")
-            logger.info(f"   Confidence: {confidence:.2f}")
-            logger.info(f"   Emergency: {is_emergency}")
-            logger.info(f"   Reasoning: {reasoning[:200]}...")
-
-            # Check emergency flag
-            if is_emergency:
-                logger.warning(f"🚨 EMERGENCY FLAG SET for query: {query}")
-
-            # Validate intents is a list
-            if not isinstance(intents, list) or not intents:
-                logger.warning("Empty or invalid intents list, using rule-based fallback")
-                return self._rule_based_intent(query)
-
-            # Map frontend intent categories to backend agent names
-            agent_mapping = {
-                IntentCategory.MEDICAL_INFO: "research_paper",  # medical_welfare can also be used
-                IntentCategory.DIET_INFO: "nutrition",
-                IntentCategory.HEALTH_RECORD: "research_paper",  # medical_welfare for record interpretation
-                IntentCategory.WELFARE_INFO: "medical_welfare",
-                IntentCategory.RESEARCH: "research_paper",
-                IntentCategory.LEARNING: "quiz",
-                IntentCategory.POLICY: "research_paper",
-                IntentCategory.CHIT_CHAT: "research_paper",
-                IntentCategory.NON_MEDICAL: "research_paper",
-                IntentCategory.ILLEGAL_REQUEST: "research_paper"
+        except Exception as e:
+            logger.error(f"Intent analysis failed: {e}")
+            # Return a fallback structure
+            return {
+                "intents": [],
+                "confidence": 0.0,
+                "reasoning": f"Error: {str(e)}",
+                "is_emergency": False,
+                "error": True
             }
 
-            # Convert intents to agent types
-            agents = []
-            for intent in intents:
-                agent = agent_mapping.get(intent)
-                if agent and agent not in agents:
-                    agents.append(agent)
-
-            # If no valid agents found, use fallback
-            if not agents:
-                logger.warning("No valid agents mapped from intents, using fallback")
-                return self._rule_based_intent(query)
-
-            # Normalize agent names (e.g., 'research' -> 'research_paper')
-            agents = [self._normalize_agent_name(a) for a in agents]
-
-            return agents
-
-        except json.JSONDecodeError as decode_err:
-            logger.warning(f"Router response was not valid JSON ({decode_err}); falling back to heuristics")
-            logger.warning(f"Raw content: {content[:200]}...")
+    async def _classify_intent(self, query: str) -> List[str]:
+        """
+        Classify the user query into agent types using sophisticated prompts.
+        Returns a list of agent types to execute.
+        """
+        result = await self._analyze_intent_raw(query)
+        
+        # Handle error or empty fallback
+        if result.get("error") or not result.get("intents"):
             return self._rule_based_intent(query)
-        except Exception as e:
-            logger.error(f"Routing failed: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+
+        intents = result.get("intents", [])
+        is_emergency = result.get("is_emergency", False)
+        
+        # Log classification details
+        logger.info(f"📊 Intent Classification:")
+        logger.info(f"   Query: {query}")
+        logger.info(f"   Intents: {intents}")
+        
+        if is_emergency:
+             logger.warning(f"🚨 EMERGENCY FLAG SET for query: {query}")
+
+        # Map frontend intent categories to backend agent names
+        agent_mapping = {
+            IntentCategory.MEDICAL_INFO: "research_paper",  # medical_welfare can also be used
+            IntentCategory.DIET_INFO: "nutrition",
+            IntentCategory.HEALTH_RECORD: "research_paper",  # medical_welfare for record interpretation
+            IntentCategory.WELFARE_INFO: "medical_welfare",
+            IntentCategory.RESEARCH: "research_paper",
+            IntentCategory.LEARNING: "quiz",
+            IntentCategory.POLICY: "research_paper",
+            IntentCategory.CHIT_CHAT: "research_paper",
+            IntentCategory.NON_MEDICAL: "research_paper",
+            IntentCategory.ILLEGAL_REQUEST: "research_paper"
+        }
+
+        # Convert intents to agent types
+        agents = []
+        for intent in intents:
+            agent = agent_mapping.get(intent)
+            if agent and agent not in agents:
+                agents.append(agent)
+
+        # If no valid agents found, use fallback
+        if not agents:
             return self._rule_based_intent(query)
+
+        # Normalize agent names
+        agents = [self._normalize_agent_name(a) for a in agents]
+
+        # Hospital-related queries should go ONLY to medical_welfare (not research_paper)
+        hospital_keywords = [
+            "병원", "약국", "투석", "dialysis", "인공신장", "센터", "의원", "클리닉",
+            "hospital", "pharmacy", "clinic", "야간투석", "혈액투석", "복막투석"
+        ]
+        query_lower = query.lower()
+        has_hospital_keyword = any(kw in query_lower for kw in hospital_keywords)
+
+        if has_hospital_keyword:
+            # Hospital queries go ONLY to medical_welfare
+            logger.info(f"🏥 Hospital keyword detected, routing ONLY to medical_welfare")
+            return ["medical_welfare"]
+
+        return agents
 
     async def _synthesize_answers(self, query: str, results: Dict[str, AgentResponse]) -> str:
         """Combine answers from multiple agents into one coherent response"""

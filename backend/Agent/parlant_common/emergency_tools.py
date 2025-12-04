@@ -9,12 +9,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 @p.tool
 async def check_emergency_keywords(context: ToolContext, text: str) -> ToolResult:
     """Emergency keyword detection tool
 
     Detects keywords indicating emergency situations in user input.
+    Categorizes emergencies into:
+    1. Immediate 119 Call (Critical)
+    2. Emergency Room Visit (Urgent)
+    3. Outpatient Visit (Non-urgent)
 
     Args:
         context: ToolContext
@@ -23,76 +26,81 @@ async def check_emergency_keywords(context: ToolContext, text: str) -> ToolResul
     Returns:
         Emergency status and guidance message
     """
-    # 영문 응급 키워드
-    EMERGENCY_KEYWORDS_EN = [
-        "chest pain", "difficulty breathing", "unconsciousness",
-        "severe edema", "generalized edema", "fainting", "collapse",
-        "seizure", "severe bleeding", "altered consciousness",
-        "sudden vision loss", "severe headache", "numbness"
+    # 1. Critical Emergency (Call 119)
+    # Includes: Severe chest pain/Arrhythmia, Breathing difficulty/Pulmonary edema, Altered consciousness/Seizure
+    CRITICAL_KEYWORDS = [
+        # English
+        "severe chest pain", "arrhythmia", "cardiac arrest", "hyperkalemia",
+        "difficulty breathing", "pulmonary edema", "suffocation",
+        "unconsciousness", "seizure", "uremic encephalopathy", "confusion", "tremor",
+        
+        # Korean
+        "심한 가슴 통증", "부정맥", "고칼륨혈증", "심장 박동", "심정지",
+        "호흡 곤란", "폐부종", "질식",
+        "의식 저하", "발작", "요독성 뇌병증", "의식 혼미", "손 떨림", "경련"
     ]
 
-    # 한글 응급 키워드
-    EMERGENCY_KEYWORDS_KO = [
-        # 흉통
-        "흉통", "가슴 통증", "가슴이 아", "가슴 답답",
-
-        # 호흡곤란
-        "호흡곤란", "숨쉬기 힘", "숨이 차", "숨을 쉴 수 없",
-
-        # 의식저하
-        "의식저하", "의식 없", "정신 없", "깨어나지 않",
-
-        # 경련
-        "경련", "발작", "몸이 떨",
-
-        # 출혈
-        "심한출혈", "피가 많이", "출혈이 멈추지",
-
-        # 실신
-        "쓰러짐", "실신", "기절", "정신 잃",
-
-        # 부종
-        "부종 심", "전신 부종", "몸이 부", "얼굴이 부",
-
-        # 기타
-        "갑자기 안 보", "시력 상실", "심한 두통", "마비"
+    # 2. Urgent (Visit ER)
+    # Includes: Sudden urine decrease, Severe flank pain, Cola-colored urine
+    URGENT_KEYWORDS = [
+        # English
+        "sudden urine decrease", "oliguria", "anuria", "acute renal failure",
+        "severe flank pain", "kidney stone", "hematuria",
+        "cola-colored urine", "red urine", "acute kidney injury",
+        
+        # Korean
+        "갑작스러운 소변량 감소", "소변량 급격히 줄", "아예 배출되지 않", "급성 신부전",
+        "극심한 옆구리 통증", "요로 결석", "소변 흐름이 막히",
+        "콜라색 소변", "육안적 혈뇨", "소변이 붉", "소변이 검붉", "급성 신장 손상"
     ]
 
-    # 통합
-    EMERGENCY_KEYWORDS = EMERGENCY_KEYWORDS_EN + EMERGENCY_KEYWORDS_KO
+    # 3. Non-Urgent (Outpatient)
+    # Includes: CKD suspicion, Nephrotoxic drugs
+    NON_URGENT_KEYWORDS = [
+        # English
+        "chronic kidney disease", "urine abnormality", "edema", "fatigue", "nocturia", "high blood pressure",
+        "nephrotoxic drug", "nsaid", "antibiotic",
+        
+        # Korean
+        "만성 콩팥병", "소변 이상", "부종", "피로", "야간뇨", "혈압 상승",
+        "신독성 약물", "소염진통제", "항생제", "불편감"
+    ]
 
-    found_keywords = [kw for kw in EMERGENCY_KEYWORDS if kw in text.lower()]
-    is_emergency = len(found_keywords) > 0
+    text_lower = text.lower()
+    
+    found_critical = [kw for kw in CRITICAL_KEYWORDS if kw in text_lower]
+    found_urgent = [kw for kw in URGENT_KEYWORDS if kw in text_lower]
+    found_non_urgent = [kw for kw in NON_URGENT_KEYWORDS if kw in text_lower]
 
-    if is_emergency:
-        # 한글 키워드 포함 여부 확인
-        has_korean = any(kw in EMERGENCY_KEYWORDS_KO for kw in found_keywords)
-
-        if has_korean:
-            message = f"""🚨 **응급 상황 감지!**
-
-다음 응급 증상이 감지되었습니다:
-{chr(10).join([f'  • {kw}' for kw in found_keywords])}
-
-**즉시 조치가 필요합니다:**
-📞 119에 즉시 전화하세요
-🏥 가까운 응급실로 가세요
-⚠️ 의료 조치를 지연하지 마세요"""
-        else:
-            message = f"""🚨 **EMERGENCY DETECTED!**
-
-The following emergency keywords were detected:
-{chr(10).join([f'  • {kw}' for kw in found_keywords])}
-
-**IMMEDIATE ACTION REQUIRED:**
-📞 Call emergency services immediately (119/911)
-🏥 Go to the nearest emergency room
-⚠️ Do not delay seeking medical care"""
-
+    if found_critical:
+        message = f"🚨 **CRITICAL EMERGENCY DETECTED (119)** The following symptoms require IMMEDIATE action: {', '.join(found_critical)}. Call 119 immediately."
         return ToolResult(
             data={
                 "is_emergency": True,
-                "found_keywords": found_keywords,
+                "severity": "critical",
+                "found_keywords": found_critical,
+                "message": message
+            }
+        )
+
+    if found_urgent:
+        message = f"⚠️ **URGENT MEDICAL ATTENTION NEEDED (ER)** The following symptoms require an Emergency Room visit: {', '.join(found_urgent)}. Visit the ER immediately to prevent worsening of the condition."
+        return ToolResult(
+            data={
+                "is_emergency": True,
+                "severity": "urgent",
+                "found_keywords": found_urgent,
+                "message": message
+            }
+        )
+        
+    if found_non_urgent:
+        message = f"ℹ️ **MEDICAL CONSULTATION RECOMMENDED** The following items suggest a need for medical review: {', '.join(found_non_urgent)}. Schedule an outpatient visit to prevent worsening of the condition."
+        return ToolResult(
+            data={
+                "is_emergency": False,
+                "severity": "non_urgent",
+                "found_keywords": found_non_urgent,
                 "message": message
             }
         )
@@ -100,6 +108,8 @@ The following emergency keywords were detected:
     return ToolResult(
         data={
             "is_emergency": False,
-            "message": "No emergency situation detected."
+            "message": "No emergency situation detected. 💡 **Tip**: 119 is available for critical emergencies. For accurate diagnosis, describe your symptoms and onset time clearly at the ER."
         }
     )
+
+
