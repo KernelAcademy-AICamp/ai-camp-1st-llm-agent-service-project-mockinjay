@@ -16,6 +16,7 @@ import { useState, useEffect } from 'react';
 import { Logo } from '../common/Logo';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { HEADER } from './constants';
+import { ROUTES } from '../../types/careguide-ia';
 
 // ============================================================================
 // TYPES
@@ -80,7 +81,7 @@ export function Header({ variant = 'desktop' }: HeaderProps) {
   }, [location.pathname]);
 
   const handleLogoClick = () => {
-    navigate('/home');
+    navigate(ROUTES.MAIN);
   };
 
   const isDesktop = variant === 'desktop';
@@ -95,7 +96,7 @@ export function Header({ variant = 'desktop' }: HeaderProps) {
         <div className={`flex-shrink-0 ${isDesktop ? 'pl-6' : 'pl-4'}`}>
           {isDesktop ? (
             <a
-              href="/home"
+              href={ROUTES.MAIN}
               onClick={(e) => {
                 e.preventDefault();
                 handleLogoClick();

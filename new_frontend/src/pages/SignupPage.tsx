@@ -17,22 +17,23 @@ interface PasswordStrength {
   requirements: { met: boolean; text: string }[];
 }
 
+// Password requirements - simplified (8자 이상, 소문자, 숫자만 필수)
+const PASSWORD_MIN_LENGTH = 8;
+
 const getPasswordStrength = (password: string): PasswordStrength => {
   const requirements = [
-    { met: password.length >= 6, text: '6자 이상' },
-    { met: password.length >= 8, text: '8자 이상 (권장)' },
-    { met: /[A-Z]/.test(password), text: '대문자 포함' },
+    { met: password.length >= PASSWORD_MIN_LENGTH, text: `${PASSWORD_MIN_LENGTH}자 이상` },
+    { met: /[a-z]/.test(password), text: '소문자 포함' },
     { met: /[0-9]/.test(password), text: '숫자 포함' },
-    { met: /[!@#$%^&*(),.?":{}|<>]/.test(password), text: '특수문자 포함' },
   ];
 
   const score = requirements.filter(r => r.met).length;
 
-  if (score <= 1) return { score, label: '매우 약함', color: 'bg-red-500', requirements };
-  if (score === 2) return { score, label: '약함', color: 'bg-orange-500', requirements };
-  if (score === 3) return { score, label: '보통', color: 'bg-yellow-500', requirements };
-  if (score === 4) return { score, label: '강함', color: 'bg-green-500', requirements };
-  return { score, label: '매우 강함', color: 'bg-emerald-500', requirements };
+  // All 3 requirements must be met to be valid
+  if (score === 0) return { score, label: '매우 약함', color: 'bg-red-500', requirements };
+  if (score === 1) return { score, label: '약함', color: 'bg-orange-500', requirements };
+  if (score === 2) return { score, label: '보통', color: 'bg-yellow-500', requirements };
+  return { score, label: '강함', color: 'bg-green-500', requirements };
 };
 
 // Step indicator component
@@ -313,10 +314,26 @@ const SignupPage: React.FC = () => {
       setPasswordError('비밀번호를 입력해주세요.');
       return false;
     }
-    if (accountInfo.password.length < 6) {
-      setPasswordError('비밀번호는 6자 이상이어야 합니다.');
+
+    // Validate password (8자 이상, 소문자, 숫자만 필수)
+    const pwd = accountInfo.password;
+    const missingRequirements: string[] = [];
+
+    if (pwd.length < PASSWORD_MIN_LENGTH) {
+      missingRequirements.push(`${PASSWORD_MIN_LENGTH}자 이상`);
+    }
+    if (!/[a-z]/.test(pwd)) {
+      missingRequirements.push('소문자');
+    }
+    if (!/[0-9]/.test(pwd)) {
+      missingRequirements.push('숫자');
+    }
+
+    if (missingRequirements.length > 0) {
+      setPasswordError(`비밀번호에 다음이 필요합니다: ${missingRequirements.join(', ')}`);
       return false;
     }
+
     if (accountInfo.password !== accountInfo.passwordConfirm) {
       setPasswordError('비밀번호가 일치하지 않습니다.');
       return false;
@@ -335,14 +352,7 @@ const SignupPage: React.FC = () => {
       setNicknameError('닉네임은 2자 이상이어야 합니다.');
       return false;
     }
-    if (!personalInfo.gender) {
-      toast.error('성별을 선택해주세요.');
-      return false;
-    }
-    if (!personalInfo.birthDate) {
-      toast.error('생년월일을 입력해주세요.');
-      return false;
-    }
+    // Gender and birthDate are now optional - removed validation
     setNicknameError(null);
     return true;
   };
@@ -781,9 +791,9 @@ const SignupPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Gender Selection */}
+                {/* Gender Selection - Optional */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700 ml-1">성별 <span className="text-red-500">*</span></label>
+                  <label className="text-sm font-medium text-gray-700 ml-1">성별 <span className="text-gray-400 text-xs">(선택)</span></label>
                   <div className="grid grid-cols-3 gap-2">
                     {['남성', '여성', '기타'].map((gender) => (
                       <button
@@ -802,9 +812,9 @@ const SignupPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Birth Date */}
+                {/* Birth Date - Optional */}
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700 ml-1">생년월일 <span className="text-red-500">*</span></label>
+                  <label className="text-sm font-medium text-gray-700 ml-1">생년월일 <span className="text-gray-400 text-xs">(선택)</span></label>
                   <div className="relative">
                     <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                     <input
@@ -861,7 +871,7 @@ const SignupPage: React.FC = () => {
                 <button
                   type="submit"
                   className="btn-primary w-full mt-4 touch-target"
-                  disabled={!personalInfo.nickname || !personalInfo.gender || !personalInfo.birthDate}
+                  disabled={!personalInfo.nickname}
                 >
                   다음 단계로
                 </button>
