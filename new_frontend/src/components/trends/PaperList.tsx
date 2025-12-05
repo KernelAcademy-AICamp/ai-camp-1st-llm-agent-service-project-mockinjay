@@ -61,7 +61,7 @@ const PaperList: React.FC<PaperListProps> = ({
     try {
       const response = await generateOneLineSummaries([paper], language);
       // response.summaries is a Record<string, string> mapping PMID to summary
-      const summary = response.summaries[paper.pmid];
+      const summary = response?.summaries?.[paper.pmid];
       if (summary) {
         const newSummaries = new Map(oneLineSummaries);
         newSummaries.set(paper.pmid, summary);
@@ -92,7 +92,7 @@ const PaperList: React.FC<PaperListProps> = ({
     try {
       const response = await translateAbstracts([paper], 'ko');
       // response.translations is a Record<string, string> mapping PMID to translation
-      const translated = response.translations[paper.pmid];
+      const translated = response?.translations?.[paper.pmid];
       if (translated) {
         const newTranslations = new Map(translations);
         newTranslations.set(paper.pmid, translated);

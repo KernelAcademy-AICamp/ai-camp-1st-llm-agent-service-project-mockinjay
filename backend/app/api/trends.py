@@ -319,7 +319,8 @@ async def generate_one_line_summaries(request: OneLineSummaryRequest) -> Dict[st
     Generate one-line summaries for each paper
 
     Returns:
-        - Papers with one_line_summary field added
+        - summaries: Record<pmid, summary_text> mapping
+        - status: success or error
     """
     try:
         logger.info(f"One-line summaries request: {len(request.papers)} papers")
@@ -329,8 +330,16 @@ async def generate_one_line_summaries(request: OneLineSummaryRequest) -> Dict[st
             language=request.language
         )
 
+        # Convert to { summaries: { pmid: summary } } format for frontend
+        summaries = {}
+        for paper in papers_with_summaries:
+            pmid = paper.get('pmid', '')
+            summary = paper.get('one_line_summary', '')
+            if pmid:
+                summaries[pmid] = summary
+
         return {
-            'papers': papers_with_summaries,
+            'summaries': summaries,
             'status': 'success'
         }
 
@@ -345,7 +354,8 @@ async def translate_abstracts(request: TranslateRequest) -> Dict[str, Any]:
     Translate paper abstracts to target language
 
     Returns:
-        - Papers with abstract_translated field added
+        - translations: Record<pmid, translated_text> mapping
+        - status: success or error
     """
     try:
         logger.info(f"Translation request: {len(request.papers)} papers to {request.target_language}")
@@ -355,8 +365,16 @@ async def translate_abstracts(request: TranslateRequest) -> Dict[str, Any]:
             target_lang=request.target_language
         )
 
+        # Convert to { translations: { pmid: translated_abstract } } format for frontend
+        translations = {}
+        for paper in papers_with_translation:
+            pmid = paper.get('pmid', '')
+            translated = paper.get('abstract_translated', '')
+            if pmid:
+                translations[pmid] = translated
+
         return {
-            'papers': papers_with_translation,
+            'translations': translations,
             'status': 'success'
         }
 

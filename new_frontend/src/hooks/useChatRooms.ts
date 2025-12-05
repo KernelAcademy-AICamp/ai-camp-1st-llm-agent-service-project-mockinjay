@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ChatRoom, StoredRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
 import type { AgentType } from '../services/intentRouter';
+import { createRoomWithSession } from '../services/api';
 
 const ROOMS_STORAGE_KEY = 'careguide_chat_rooms' as const;
 const CURRENT_ROOM_KEY = 'careguide_current_room' as const;
@@ -109,27 +110,85 @@ export function useChatRooms() {
   }, [currentRoomId]);
 
   /**
-   * Create a new chat room
-   * 새 채팅 방 생성
+   * Create a new chat room with Parlant session (async)
+   * Parlant 세션과 함께 새 채팅 방 생성 (비동기)
+   *
+   * @param options - Room creation options
+   * @param userId - User ID for backend session creation
+   * @param profile - User profile for Parlant customer tags
    */
-  const createRoom = useCallback((options: CreateRoomOptions = {}): ChatRoom => {
-    const now = new Date();
-    const newRoom: ChatRoom = {
-      id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-      title: options.title || generateRoomTitle(options.agentType || 'auto'),
-      agentType: options.agentType || 'auto',
-      messageCount: 0,
-      createdAt: now,
-      updatedAt: now,
-      isPinned: false,
-      isArchived: false,
-    };
+  const createRoom = useCallback(
+    async (
+      options: CreateRoomOptions = {},
+      userId?: string,
+      profile: string = 'general'
+    ): Promise<ChatRoom> => {
+      const now = new Date();
+      const agentType = options.agentType || 'auto';
+      const title = options.title || generateRoomTitle(agentType);
 
-    setRooms((prev) => [newRoom, ...prev]);
-    setCurrentRoomId(newRoom.id);
+      // Parlant agents that need proactive session creation
+      const parlantAgents = ['medical_welfare', 'research_paper'];
+      const needsParlantSession = parlantAgents.includes(agentType) && userId;
 
-    return newRoom;
-  }, []);
+      if (needsParlantSession && userId) {
+        try {
+          // Call backend API to create room with Parlant session
+          // 백엔드 API를 호출하여 Parlant 세션과 함께 방 생성
+          const roomData = await createRoomWithSession(
+            userId,
+            agentType,
+            profile,
+            title
+          );
+
+          const newRoom: ChatRoom = {
+            id: roomData.id || roomData.room_id || `room_${Date.now()}`,
+            title: roomData.title || roomData.room_name || title,
+            agentType: (roomData.agent_type as AgentType) || agentType,
+            messageCount: roomData.message_count || 0,
+            createdAt: roomData.created_at ? new Date(roomData.created_at) : now,
+            updatedAt: roomData.updated_at ? new Date(roomData.updated_at) : now,
+            isPinned: false,
+            isArchived: false,
+            parlantSessionId: roomData.parlant_session_id,
+            parlantCustomerId: roomData.parlant_customer_id,
+          };
+
+          setRooms((prev) => [newRoom, ...prev]);
+          setCurrentRoomId(newRoom.id);
+
+          console.log(
+            `✅ Created room with Parlant session: ${newRoom.id} -> ${newRoom.parlantSessionId}`
+          );
+
+          return newRoom;
+        } catch (error) {
+          console.error('Failed to create room with session, falling back to local:', error);
+          // Fall through to local creation
+        }
+      }
+
+      // Fallback: Create room locally (for non-Parlant agents or when API fails)
+      // 폴백: 로컬에서 방 생성 (Parlant가 아닌 에이전트 또는 API 실패 시)
+      const newRoom: ChatRoom = {
+        id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        title,
+        agentType,
+        messageCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        isPinned: false,
+        isArchived: false,
+      };
+
+      setRooms((prev) => [newRoom, ...prev]);
+      setCurrentRoomId(newRoom.id);
+
+      return newRoom;
+    },
+    []
+  );
 
   /**
    * Delete a chat room

@@ -183,29 +183,43 @@ async def search_welfare_programs(
 ) -> ToolResult:
     """
     Search welfare programs for CKD patients
-    
+
     This tool searches for welfare programs for Chronic Kidney Disease patients.
-    
+
     Args:
         context: ToolContext
         query: Search query (e.g., "Dialysis Support", "Medical Expense Support") - **REQUIRED**
-        category: (Optional) Category filter (e.g., "medical_support", "social_welfare")
-        disease: (Optional) Disease filter (e.g., "CKD", "diabetes")
+        category: (Optional) Category filter. Valid values:
+            - "sangjung_special": 산정특례 (Special calculation for medical expenses)
+            - "disability": 장애인 복지 (Disability welfare)
+            - "medical_aid": 의료비 지원 (Medical expense support)
+            - "transplant": 신장이식 지원 (Kidney transplant support)
+            - "transport": 교통 및 생활 지원 (Transport and living support)
+            If not specified, searches all categories.
+        disease: (Optional) Disease filter (e.g., "CKD", "ESRD", "dialysis")
         ckd_stage: (Optional) CKD Stage (1-5), searches all stages if not provided
-    
+
     Returns:
         ToolResult with welfare program results
         - programs: List of programs
         - metadata: Search metadata
     """
     start_time = time.time()
-    
+
+    # Valid category values in the database
+    VALID_CATEGORIES = {"sangjung_special", "disability", "medical_aid", "transplant", "transport"}
+
     try:
         # Initialize
         await initialize_welfare_manager()
-        
+
+        # Validate and normalize category - ignore invalid values to avoid 0 results
+        if category and category not in VALID_CATEGORIES:
+            logger.warning(f"Invalid category '{category}' provided. Ignoring filter to search all categories.")
+            category = None
+
         logger.info(f"Welfare search: query='{query}', category={category}, disease={disease}, stage={ckd_stage}")
-        
+
         # Search welfare programs
         results = await WELFARE_MANAGER.search_programs(
             query=query,

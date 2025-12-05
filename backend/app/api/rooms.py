@@ -10,10 +10,12 @@ from datetime import datetime
 
 from app.models.chat import (
     RoomCreate, RoomUpdate, RoomResponse, RoomListResponse,
-    RoomHistoryResponse, ConversationItem, LastMessage
+    RoomHistoryResponse, ConversationItem, LastMessage,
+    RoomCreateWithSession, RoomResponseWithSession
 )
 from app.models.responses import SuccessResponse, ErrorResponse
 from app.core.context_system import context_system
+from Agent.core.contracts import AgentRequest
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,149 @@ async def create_room(request: RoomCreate):
     except Exception as e:
         logger.error(f"Error creating room: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create room: {str(e)}")
+
+
+@router.post("/with-session", response_model=SuccessResponse, status_code=201)
+async def create_room_with_parlant_session(request: RoomCreateWithSession):
+    """
+    Create a new chat room with proactive Parlant session creation.
+    새로운 채팅 방을 생성하고 Parlant 세션을 미리 생성합니다.
+
+    This endpoint creates:
+    1. MongoDB room record
+    2. Parlant customer (if needed)
+    3. Parlant session for the specified agent
+    4. Session cache entry linking room_id to parlant_session_id
+
+    이 엔드포인트는 다음을 생성합니다:
+    1. MongoDB 방 레코드
+    2. Parlant 고객 (필요한 경우)
+    3. 지정된 에이전트에 대한 Parlant 세션
+    4. room_id를 parlant_session_id에 연결하는 세션 캐시 항목
+
+    Args:
+        request: Room creation request with user_id, profile, agent_type
+
+    Returns:
+        Success response with room data and Parlant session info
+
+    Raises:
+        400: Invalid request data or room limit exceeded
+        500: Database or Parlant server error
+    """
+    try:
+        # Generate unique room ID
+        room_id = f"room_{str(uuid.uuid4())}"
+
+        # Default room name if not provided
+        room_name = request.room_name or f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+
+        # Prepare room document
+        room_doc = {
+            "room_id": room_id,
+            "user_id": request.user_id,
+            "room_name": room_name,
+            "created_at": datetime.utcnow(),
+            "last_activity": datetime.utcnow(),
+            "message_count": 0,
+            "metadata": {
+                **request.metadata,
+                "agent_type": request.agent_type,
+                "profile": request.profile
+            },
+            "is_deleted": False
+        }
+
+        # Insert into MongoDB
+        db_manager = context_system.context_engineer.db_manager
+        await db_manager.connect()
+
+        # Check room count limit (max 50 rooms per user)
+        existing_rooms = await db_manager.db.chat_rooms.count_documents({
+            "user_id": request.user_id,
+            "is_deleted": False
+        })
+
+        if existing_rooms >= 50:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum room limit (50) reached. Please delete old rooms."
+            )
+
+        await db_manager.db.chat_rooms.insert_one(room_doc)
+
+        # Register room in SessionManager (for in-memory tracking)
+        if request.user_id not in context_system.session_manager.user_rooms:
+            context_system.session_manager.user_rooms[request.user_id] = []
+        context_system.session_manager.user_rooms[request.user_id].append(room_id)
+
+        logger.info(f"Created room {room_id} for user {request.user_id}")
+
+        # --- Proactive Parlant Session Creation ---
+        parlant_session_id = None
+        parlant_customer_id = None
+
+        # Only create Parlant session if agent_type is specified and is a Parlant agent
+        parlant_agents = ["medical_welfare", "research_paper"]
+        if request.agent_type and request.agent_type in parlant_agents:
+            try:
+                # Import the appropriate agent
+                if request.agent_type == "medical_welfare":
+                    from Agent.medical_welfare.agent import MedicalWelfareAgent
+                    agent_class = MedicalWelfareAgent
+                elif request.agent_type == "research_paper":
+                    from Agent.research_paper.agent import ResearchPaperAgent
+                    agent_class = ResearchPaperAgent
+                else:
+                    agent_class = None
+
+                if agent_class:
+                    # Create agent request for session initialization
+                    agent_request = AgentRequest(
+                        query="",  # Empty query for session creation
+                        session_id=room_id,  # Use room_id as session_id
+                        user_id=request.user_id,
+                        profile=request.profile,
+                        context={}
+                    )
+
+                    # Initialize agent and create Parlant session
+                    agent_instance = agent_class()
+                    await agent_instance._initialize()
+
+                    # Create Parlant session proactively
+                    parlant_session_id, parlant_customer_id, _ = await agent_instance._get_valid_parlant_session(agent_request)
+
+                    logger.info(
+                        f"Created Parlant session for room {room_id}: "
+                        f"session={parlant_session_id}, customer={parlant_customer_id}, agent={request.agent_type}"
+                    )
+
+            except Exception as e:
+                # Log error but don't fail room creation
+                logger.error(f"Failed to create Parlant session for room {room_id}: {e}", exc_info=True)
+                logger.warning(f"Room {room_id} created without Parlant session (will be created on first message)")
+
+        return SuccessResponse(
+            message="Room created successfully with Parlant session",
+            data={
+                "room_id": room_id,
+                "user_id": request.user_id,
+                "room_name": room_name,
+                "created_at": room_doc["created_at"].isoformat(),
+                "last_activity": room_doc["last_activity"].isoformat(),
+                "message_count": 0,
+                "metadata": room_doc["metadata"],
+                "parlant_session_id": parlant_session_id,
+                "parlant_customer_id": parlant_customer_id
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating room with session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create room with session: {str(e)}")
 
 
 @router.get("", response_model=SuccessResponse)

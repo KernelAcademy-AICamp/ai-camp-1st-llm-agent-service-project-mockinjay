@@ -448,6 +448,9 @@ async def chat_stream(request: Request):
         user_id = body.get("user_id") # Optional
         room_id = body.get("room_id") # Optional - for multiple chat rooms
 
+        # Debug: Log session and room info for room-based session separation
+        logger.info(f"🔑 Stream request: session_id={session_id}, room_id={room_id}, user_id={user_id}")
+
         if not query:
             raise HTTPException(status_code=400, detail="Query is required")
 

@@ -44,6 +44,10 @@ export interface ChatRoom {
   updatedAt: Date;
   isPinned?: boolean;
   isArchived?: boolean;
+  // Parlant session info (populated when room is created with backend)
+  // Parlant 세션 정보 (백엔드에서 방 생성 시 채워짐)
+  parlantSessionId?: string;
+  parlantCustomerId?: string;
 }
 
 /**

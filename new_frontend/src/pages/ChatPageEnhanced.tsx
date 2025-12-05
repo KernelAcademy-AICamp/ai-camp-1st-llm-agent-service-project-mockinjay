@@ -30,7 +30,7 @@ import { useChatRooms } from '../hooks/useChatRooms';
 // Types
 import type { ChatMessage, UserProfile } from '../types/chat';
 import type { IntentCategory } from '../types/intent';
-import { routeQueryStream, type AgentType } from '../services/intentRouter';
+import { routeQueryStream, type AgentType, type StreamCallOptions } from '../services/intentRouter';
 import { getChatHistoryBySession } from '../services/api';
 import { createSession, analyzeNutrition } from '../services/dietCareApi';
 
@@ -198,11 +198,14 @@ const ChatPageEnhanced: React.FC = () => {
 
   // Create default room if none exists
   useEffect(() => {
-    if (rooms.length === 0) {
-      createRoom({ agentType: getCurrentAgentType() });
-    } else if (!currentRoomId && rooms.length > 0) {
-      setCurrentRoomId(rooms[0].id);
-    }
+    const initializeDefaultRoom = async () => {
+      if (rooms.length === 0) {
+        await createRoom({ agentType: getCurrentAgentType() });
+      } else if (!currentRoomId && rooms.length > 0) {
+        setCurrentRoomId(rooms[0].id);
+      }
+    };
+    initializeDefaultRoom();
   }, [rooms.length, currentRoomId, createRoom, getCurrentAgentType, setCurrentRoomId]);
 
   // Cleanup on unmount or route change
@@ -246,9 +249,13 @@ const ChatPageEnhanced: React.FC = () => {
    * Handle create new room
    * 새 방 생성 처리
    */
-  const handleCreateRoom = useCallback(() => {
-    createRoom({ agentType: getCurrentAgentType() });
-  }, [createRoom, getCurrentAgentType]);
+  const handleCreateRoom = useCallback(async () => {
+    await createRoom(
+      { agentType: getCurrentAgentType() },
+      user?.id,
+      (user?.profile as 'general' | 'patient' | 'researcher') || 'general'
+    );
+  }, [createRoom, getCurrentAgentType, user?.id, user?.profile]);
 
   /**
    * Handle delete room
@@ -304,13 +311,13 @@ const ChatPageEnhanced: React.FC = () => {
    * Handle reset all sessions
    * 모든 세션 초기화 처리
    */
-  const handleResetAllSessions = useCallback(() => {
+  const handleResetAllSessions = useCallback(async () => {
     setMessagesByRoom({});
     clearAllRooms();
     handleStopStream();
     setIsSessionExpired(false);
     // Create a new default room
-    createRoom({ agentType: getCurrentAgentType() });
+    await createRoom({ agentType: getCurrentAgentType() });
   }, [clearAllRooms, handleStopStream, createRoom, getCurrentAgentType]);
 
   /**
@@ -419,10 +426,17 @@ const ChatPageEnhanced: React.FC = () => {
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
 
-    const roomId = currentRoomId || (() => {
-      const newRoom = createRoom({ agentType: getCurrentAgentType() });
-      return newRoom.id;
-    })();
+    // Get or create room ID (must await if creating new room)
+    // 방 ID 가져오기 또는 생성 (새 방 생성 시 await 필요)
+    let roomId = currentRoomId;
+    if (!roomId) {
+      const newRoom = await createRoom(
+        { agentType: getCurrentAgentType() },
+        user?.id,
+        (user?.profile as 'general' | 'patient' | 'researcher') || 'general'
+      );
+      roomId = newRoom.id;
+    }
 
     const messageContent = selectedImage
       ? `${messageToSend || '음식 이미지 분석'} [이미지 첨부]`
@@ -496,7 +510,15 @@ const ChatPageEnhanced: React.FC = () => {
         updateRoomLastMessage(roomId, assistantContent, new Date());
         incrementMessageCount(roomId);
       } else {
-        // Stream text response
+        // Stream text response with room-based session separation
+        // 방 기반 세션 분리로 스트리밍 응답
+        const streamOptions: StreamCallOptions = {
+          sessionId: roomId,  // Use roomId as sessionId for Parlant session separation
+          roomId: roomId,
+          userId: user?.id,
+          userProfile: (user?.profile as 'general' | 'patient' | 'researcher') || 'general',
+        };
+
         const response = await routeQueryStream(
           messageToSend,
           // onChunk callback
@@ -509,8 +531,8 @@ const ChatPageEnhanced: React.FC = () => {
               console.error('Stream error:', error);
             }
           },
-          // User profile
-          user?.profile as UserProfile
+          // Options with sessionId = roomId for proper room separation
+          streamOptions
         );
 
         // Add final assistant message

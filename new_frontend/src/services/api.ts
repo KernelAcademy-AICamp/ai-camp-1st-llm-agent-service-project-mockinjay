@@ -230,6 +230,10 @@ export interface ChatRoomData {
   is_archived?: boolean;
   user_id?: string;
   metadata?: Record<string, unknown>;
+  // Parlant session info (from /api/rooms/with-session)
+  // Parlant 세션 정보 (/api/rooms/with-session에서 반환)
+  parlant_session_id?: string;
+  parlant_customer_id?: string;
 }
 
 /**
@@ -323,6 +327,53 @@ export async function createChatRoom(
       updated_at: now,
       user_id: userId,
     };
+  }
+}
+
+/**
+ * Create a new chat room with proactive Parlant session creation
+ * Parlant 세션을 미리 생성하는 새 채팅 방 생성
+ *
+ * This is preferred over createChatRoom for Parlant-based agents (medical_welfare, research_paper)
+ * as it eliminates the delay on the first message.
+ *
+ * @param userId - User ID
+ * @param agentType - Agent type ('medical_welfare', 'research_paper', etc.)
+ * @param profile - User profile for Parlant customer tags ('patient', 'researcher', 'general')
+ * @param roomName - Room name (optional)
+ * @param metadata - Additional metadata (optional)
+ * @returns Promise with room data including Parlant session info
+ */
+export async function createRoomWithSession(
+  userId: string,
+  agentType: string,
+  profile: string = 'general',
+  roomName?: string,
+  metadata?: Record<string, unknown>
+): Promise<ChatRoomData> {
+  try {
+    const response = await api.post<BackendRoomCreateResponse>('/api/rooms/with-session', {
+      user_id: userId,
+      agent_type: agentType,
+      profile: profile,
+      room_name: roomName,
+      metadata: metadata || {},
+    });
+
+    const data = response.data.data as unknown as BackendRoomResponse & {
+      parlant_session_id?: string;
+      parlant_customer_id?: string;
+    };
+
+    return {
+      ...mapBackendRoomToFrontend(data),
+      parlant_session_id: data.parlant_session_id,
+      parlant_customer_id: data.parlant_customer_id,
+    };
+  } catch (error) {
+    console.error('Failed to create room with session:', error);
+    // Fallback to basic room creation (session will be created lazily)
+    return createChatRoom(userId, roomName, { ...metadata, agent_type: agentType });
   }
 }
 

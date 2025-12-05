@@ -29,6 +29,7 @@ from Agent.core.execution_type import ExecutionType
 
 # Parlant client
 from parlant.client.client import AsyncParlantClient
+from parlant.client.errors.not_found_error import NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -427,6 +428,70 @@ class MedicalWelfareAgent(LocalAgent):
 
         return customer.id
 
+    async def _get_valid_parlant_session(self, request: AgentRequest) -> tuple:
+        """
+        Get or create a valid Parlant session, with automatic recovery for stale sessions.
+        스테일 세션에 대한 자동 복구 기능이 있는 유효한 Parlant 세션 가져오기/생성
+
+        Args:
+            request: AgentRequest with session_id, user_id, context
+
+        Returns:
+            Tuple of (parlant_session_id, customer_id, last_offset)
+            - last_offset: The last event offset in the session (-1 for new sessions)
+        """
+        session_key = request.session_id
+
+        # Debug: Log session key for room-based session separation
+        logger.info(f"🔑 Parlant session lookup: session_key={session_key}, cache_keys={list(self._session_cache.keys())}")
+
+        # If we have a cached session, validate it first
+        if session_key in self._session_cache:
+            parlant_session_id, customer_id = self._session_cache[session_key]
+
+            try:
+                # Validate session exists by trying to get it
+                await self.client.sessions.retrieve(session_id=parlant_session_id)
+
+                # Get existing events to find the last offset
+                # 기존 이벤트를 가져와서 마지막 offset 찾기
+                existing_events = await self.client.sessions.list_events(
+                    session_id=parlant_session_id,
+                    min_offset=0,
+                    wait_for_data=0  # Don't wait, just get existing events
+                )
+
+                if existing_events:
+                    last_offset = max(e.offset for e in existing_events)
+                    logger.info(f"✅ Session validated: {parlant_session_id} (last_offset: {last_offset}, {len(existing_events)} events)")
+                else:
+                    last_offset = -1
+                    logger.debug(f"✅ Session validated: {parlant_session_id} (no existing events)")
+
+                return parlant_session_id, customer_id, last_offset
+
+            except NotFoundError:
+                # Session is stale, remove from cache and create new one
+                logger.warning(f"⚠️ Stale session detected: {parlant_session_id}, creating new session...")
+                del self._session_cache[session_key]
+
+                # Also stop polling for the stale session if active
+                if parlant_session_id in self._active_sessions:
+                    await self._stop_session_polling(parlant_session_id)
+
+        # Create new session
+        customer_id = await self._get_or_create_customer(request)
+
+        parlant_session = await self.client.sessions.create(
+            agent_id=self._agent_id,
+            customer_id=customer_id
+        )
+
+        self._session_cache[session_key] = (parlant_session.id, customer_id)
+        logger.info(f"📝 Created new Parlant session: {parlant_session.id}")
+
+        return parlant_session.id, customer_id, -1  # New session starts at -1
+
     async def process(self, request: AgentRequest) -> AgentResponse:
         """
         Process welfare/hospital search request
@@ -438,38 +503,23 @@ class MedicalWelfareAgent(LocalAgent):
             AgentResponse with answer, sources
         """
         await self._initialize()
-        
+
         try:
             logger.info(f"🏥 Medical Welfare query: {request.query[:50]}...")
-            
-            # Get or create session
-            # 세션 가져오기 또는 생성
-            session_key = request.session_id
-            if session_key not in self._session_cache:
-                # Get or create customer (uses existing if available)
-                # 고객 가져오기 또는 생성 (가능한 경우 기존 고객 사용)
-                customer_id = await self._get_or_create_customer(request)
 
-                # Create session with customer
-                parlant_session = await self.client.sessions.create(
-                    agent_id=self._agent_id,
-                    customer_id=customer_id
-                )
+            # Get or create valid session (with automatic stale session recovery)
+            # 유효한 세션 가져오기/생성 (스테일 세션 자동 복구 포함)
+            parlant_session_id, _, last_offset = await self._get_valid_parlant_session(request)
 
-                self._session_cache[session_key] = (parlant_session.id, customer_id)
-                logger.info(f"📝 Created Parlant session: {parlant_session.id}")
-
-            parlant_session_id, _ = self._session_cache[session_key]
-            
             # Prepare message with context if available
             message_to_send = request.query
-            
+
             # Inject user context if available
             if request.context and 'user_history' in request.context:
                 user_history = request.context['user_history']
                 summary = user_history.get('summary', '')
                 keywords = user_history.get('keywords', [])
-                
+
                 if summary or keywords:
                     context_info = "[사용자 컨텍스트]\n"
                     if summary:
@@ -477,14 +527,14 @@ class MedicalWelfareAgent(LocalAgent):
                     if keywords:
                         context_info += f"관심 주제: {', '.join(keywords)}\n"
                     context_info += f"\n[현재 질문]\n{request.query}"
-                    
+
                     message_to_send = context_info
                     logger.info(f"✅ Context injected into Parlant message")
-            
-            # Start continuous polling if not already started
-            # 아직 시작하지 않았다면 연속 폴링 시작
+
+            # Start continuous polling if not already started (use last_offset from existing session)
+            # 아직 시작하지 않았다면 연속 폴링 시작 (기존 세션의 last_offset 사용)
             if parlant_session_id not in self._active_sessions:
-                event_queue = await self._start_session_polling(parlant_session_id, -1)
+                event_queue = await self._start_session_polling(parlant_session_id, last_offset)
             else:
                 event_queue = self._active_sessions[parlant_session_id]['queue']
 
@@ -676,34 +726,19 @@ class MedicalWelfareAgent(LocalAgent):
         try:
             logger.info(f"🏥 Medical Welfare query (stream): {request.query[:50]}...")
 
-            # Get or create session
-            # 세션 가져오기 또는 생성
-            session_key = request.session_id
-            if session_key not in self._session_cache:
-                # Get or create customer (uses existing if available)
-                # 고객 가져오기 또는 생성 (가능한 경우 기존 고객 사용)
-                customer_id = await self._get_or_create_customer(request)
+            # Get or create valid session (with automatic stale session recovery)
+            # 유효한 세션 가져오기/생성 (스테일 세션 자동 복구 포함)
+            parlant_session_id, _, last_offset = await self._get_valid_parlant_session(request)
 
-                # Create session with customer
-                parlant_session = await self.client.sessions.create(
-                    agent_id=self._agent_id,
-                    customer_id=customer_id
-                )
-
-                self._session_cache[session_key] = (parlant_session.id, customer_id)
-                logger.info(f"📝 Created Parlant session: {parlant_session.id}")
-
-            parlant_session_id, _ = self._session_cache[session_key]
-            
             # Prepare message with context if available
             message_to_send = request.query
-            
+
             # Inject user context if available
             if request.context and 'user_history' in request.context:
                 user_history = request.context['user_history']
                 summary = user_history.get('summary', '')
                 keywords = user_history.get('keywords', [])
-                
+
                 if summary or keywords:
                     context_info = "[사용자 컨텍스트]\n"
                     if summary:
@@ -711,14 +746,14 @@ class MedicalWelfareAgent(LocalAgent):
                     if keywords:
                         context_info += f"관심 주제: {', '.join(keywords)}\n"
                     context_info += f"\n[현재 질문]\n{request.query}"
-                    
+
                     message_to_send = context_info
                     logger.info(f"✅ Context injected into Parlant message")
-            
-            # Start continuous polling if not already started
-            # 아직 시작하지 않았다면 연속 폴링 시작
+
+            # Start continuous polling if not already started (use last_offset from existing session)
+            # 아직 시작하지 않았다면 연속 폴링 시작 (기존 세션의 last_offset 사용)
             if parlant_session_id not in self._active_sessions:
-                event_queue = await self._start_session_polling(parlant_session_id, -1)
+                event_queue = await self._start_session_polling(parlant_session_id, last_offset)
             else:
                 event_queue = self._active_sessions[parlant_session_id]['queue']
 
