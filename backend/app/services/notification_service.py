@@ -4,17 +4,17 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bson import ObjectId
-from app.db.connection import notifications_collection, notification_settings_collection
+from app.db.connection import get_notifications_collection, get_notification_settings_collection
 from app.models.notification import NotificationCreate, NotificationResponse, NotificationSettings
 
 
-def create_notification(notification: NotificationCreate) -> str:
+async def create_notification(notification: NotificationCreate) -> str:
     """
     새 알림 생성
-    
+
     Args:
         notification: 알림 생성 데이터
-        
+
     Returns:
         str: 생성된 알림 ID
     """
@@ -26,29 +26,31 @@ def create_notification(notification: NotificationCreate) -> str:
         "read_status": notification.read_status,
         "created_at": datetime.utcnow()
     }
-    
-    result = notifications_collection.insert_one(notification_doc)
+
+    result = await get_notifications_collection().insert_one(notification_doc)
     return str(result.inserted_id)
 
 
-def get_user_notifications(user_id: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
+async def get_user_notifications(user_id: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
     """
     사용자의 알림 목록 조회 (페이지네이션)
-    
+
     Args:
         user_id: 사용자 ID
         page: 페이지 번호 (1부터 시작)
         page_size: 페이지당 항목 수
-        
+
     Returns:
         List[Dict]: 알림 목록
     """
     skip = (page - 1) * page_size
-    
-    notifications = notifications_collection.find(
+
+    cursor = get_notifications_collection().find(
         {"user_id": user_id}
     ).sort("created_at", -1).skip(skip).limit(page_size)
-    
+
+    notifications = await cursor.to_list(length=page_size)
+
     result = []
     for notif in notifications:
         result.append({
@@ -60,76 +62,76 @@ def get_user_notifications(user_id: str, page: int = 1, page_size: int = 20) -> 
             "read_status": notif["read_status"],
             "created_at": notif["created_at"]
         })
-    
+
     return result
 
 
-def get_unread_count(user_id: str) -> int:
+async def get_unread_count(user_id: str) -> int:
     """
     사용자의 읽지 않은 알림 개수 조회
-    
+
     Args:
         user_id: 사용자 ID
-        
+
     Returns:
         int: 읽지 않은 알림 개수
     """
-    count = notifications_collection.count_documents({
+    count = await get_notifications_collection().count_documents({
         "user_id": user_id,
         "read_status": False
     })
-    
+
     return count
 
 
-def mark_as_read(notification_id: str, user_id: str) -> bool:
+async def mark_as_read(notification_id: str, user_id: str) -> bool:
     """
     알림을 읽음으로 표시
-    
+
     Args:
         notification_id: 알림 ID
         user_id: 사용자 ID (권한 확인용)
-        
+
     Returns:
         bool: 성공 여부
     """
-    result = notifications_collection.update_one(
+    result = await get_notifications_collection().update_one(
         {
             "_id": ObjectId(notification_id),
             "user_id": user_id
         },
         {"$set": {"read_status": True}}
     )
-    
+
     return result.modified_count > 0
 
 
-def delete_all_notifications(user_id: str) -> int:
+async def delete_all_notifications(user_id: str) -> int:
     """
     사용자의 모든 알림 삭제
-    
+
     Args:
         user_id: 사용자 ID
-        
+
     Returns:
         int: 삭제된 알림 개수
     """
-    result = notifications_collection.delete_many({"user_id": user_id})
+    result = await get_notifications_collection().delete_many({"user_id": user_id})
     return result.deleted_count
 
 
-def get_notification_settings(user_id: str) -> Dict[str, Any]:
+async def get_notification_settings(user_id: str) -> Dict[str, Any]:
     """
     사용자의 알림 설정 조회
-    
+
     Args:
         user_id: 사용자 ID
-        
+
     Returns:
         Dict: 알림 설정
     """
-    settings = notification_settings_collection.find_one({"user_id": user_id})
-    
+    settings = await get_notification_settings_collection().find_one({"user_id": user_id})
+
     if not settings:
         # 기본 설정 생성 (모두 ON)
         default_settings = {
@@ -143,9 +145,9 @@ def get_notification_settings(user_id: str) -> Dict[str, Any]:
             "point_notification": True,
             "update_notification": True
         }
-        notification_settings_collection.insert_one(default_settings)
+        await get_notification_settings_collection().insert_one(default_settings)
         settings = default_settings
-    
+
     return {
         "user_id": settings["user_id"],
         "quiz_notification": settings.get("quiz_notification", True),
@@ -159,20 +161,20 @@ def get_notification_settings(user_id: str) -> Dict[str, Any]:
     }
 
 
-def update_notification_settings(user_id: str, settings_update: Dict[str, bool]) -> bool:
+async def update_notification_settings(user_id: str, settings_update: Dict[str, bool]) -> bool:
     """
     사용자의 알림 설정 업데이트
-    
+
     Args:
         user_id: 사용자 ID
         settings_update: 업데이트할 설정 (필드명: 값)
-        
+
     Returns:
         bool: 성공 여부
     """
     # 기존 설정이 없으면 생성
-    existing = notification_settings_collection.find_one({"user_id": user_id})
-    
+    existing = await get_notification_settings_collection().find_one({"user_id": user_id})
+
     if not existing:
         default_settings = {
             "user_id": user_id,
@@ -185,17 +187,17 @@ def update_notification_settings(user_id: str, settings_update: Dict[str, bool])
             "point_notification": True,
             "update_notification": True
         }
-        notification_settings_collection.insert_one(default_settings)
-    
+        await get_notification_settings_collection().insert_one(default_settings)
+
     # None이 아닌 값만 업데이트
     update_fields = {k: v for k, v in settings_update.items() if v is not None}
-    
+
     if not update_fields:
         return False
-    
-    result = notification_settings_collection.update_one(
+
+    result = await get_notification_settings_collection().update_one(
         {"user_id": user_id},
         {"$set": update_fields}
     )
-    
+
     return result.modified_count > 0 or result.matched_count > 0

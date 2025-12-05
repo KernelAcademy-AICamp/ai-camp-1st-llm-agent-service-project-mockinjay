@@ -1,486 +1,898 @@
 """
-Research Paper Agent Implementation
-Integrates with Parlant healthcare_v2_en.py server
-Auto-starts server and uses singleton client pattern
+Research Paper Agent - Refactored for Independent Parlant Server
+
+Supports persistent Parlant customers linked to user accounts.
+사용자 계정에 연결된 영구 Parlant 고객을 지원합니다.
 """
 
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import logging
 import os
 import asyncio
 import subprocess
 import time
 import httpx
+from asyncio import Queue, Task
 
-# Add backend path for imports
+# Add backend path
 backend_path = Path(__file__).parent.parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-from Agent.base_agent import BaseAgent
+from Agent.core.local_agent import LocalAgent
+from Agent.core.agent_registry import AgentRegistry
 from Agent.core.contracts import AgentRequest, AgentResponse
+from Agent.core.execution_type import ExecutionType
 
-# Parlant client for connecting to healthcare_v2_en.py server
+# Parlant client
 from parlant.client.client import AsyncParlantClient
-PARLANT_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
 
 
-class ResearchPaperAgent(BaseAgent):
+@AgentRegistry.register("research_paper")
+class ResearchPaperAgent(LocalAgent):
     """
-    Research Paper Agent
-    Connects to Parlant healthcare_v2_en.py server and uses search_medical_qa tool
+    Research Paper Agent - Parlant Remote Agent with Session-Based Continuous Polling
+    세션 기반 연속 폴링을 사용하는 Research Paper 에이전트
     """
 
     # Class variables for singleton pattern
-    _parlant_client = None
+    _parlant_client: Optional[AsyncParlantClient] = None
     _parlant_server_process = None
-    _server_url = "http://localhost:8800"  # Parlant server URL
+    _server_url = "http://localhost:8800"  # Shared healthcare_v2_en.py on port 8800
     _agent_id = None
-    _customer_id = None
+    _session_cache = {}  # session_id -> (parlant_session_id, customer_id)
 
+    # Session-based polling management
+    # 세션 기반 폴링 관리
+    _active_sessions: Dict[str, Dict[str, Any]] = {}  # parlant_session_id -> {task, queue, last_offset, is_active}
+    
     def __init__(self):
         super().__init__(agent_type="research_paper")
         self._initialized = False
-        self._session_cache = {}  # Cache sessions per session_id
-
+    
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return {
+            "name": "Research Paper Agent",
+            "description": "CKD 관련 연구 논문 및 의료 정보 검색",
+            "version": "2.0-parlant",
+            "capabilities": [
+                "medical_qa_search",
+                "pubmed_search",
+                "paper_search",
+                "ckd_information",
+                "emergency_detection"
+            ],
+            "parlant_server": {
+                "url": self._server_url,
+                "port": 8800,
+                "server": "healthcare_v2_en.py (shared, port 8800)",
+                "tools": [
+                    "search_medical_qa",
+                    "check_emergency",
+                    "get_ckd_stage_info",
+                    "get_symptoms_info"
+                ]
+            }
+        }
+    
+    @property
+    def execution_type(self) -> ExecutionType:
+        return ExecutionType.REMOTE
+    
     @classmethod
     async def _check_server_running(cls) -> bool:
-        """Check if Parlant server is already running"""
+        """Check if Parlant server is running"""
         try:
             async with httpx.AsyncClient() as client:
-                # Parlant doesn't have /health, try /api/agents instead
                 response = await client.get(f"{cls._server_url}/api/agents", timeout=2.0)
-                # Any response (even error) means server is up
                 return response.status_code in [200, 401, 403, 404]
         except Exception:
             return False
-
+    
     @classmethod
     async def _ensure_server_running(cls):
-        """Ensure Parlant server is running, start if not"""
-        # Check if server is already running
+        """Ensure Parlant server is running"""
+        # Check if already running
         if await cls._check_server_running():
-            logger.info("✅ Parlant server already running")
+            logger.info("✅ Research Paper server already running")
             return
-
+        
         if cls._parlant_server_process is not None:
-            logger.info("✅ Parlant server process already started")
+            logger.info("✅ Research Paper server process already started")
             return
-
+        
         # Start the server
         logger.info("🚀 Starting Parlant healthcare server...")
-
-        # Use healthcare_v2_en.py directly from server folder
-        healthcare_server_path = Path(__file__).parent / "server" / "healthcare_v2_en.py"
-
-        if not healthcare_server_path.exists():
-            raise FileNotFoundError(
-                f"Parlant healthcare server not found at {healthcare_server_path}"
-            )
-
-        # Start server as subprocess - DON'T capture output, let it print to console
-        logger.info(f"📝 Server path: {healthcare_server_path}")
-        logger.info(f"📝 Python executable: {sys.executable}")
-
+        
+        server_path = Path(__file__).parent / "server" / "healthcare_v2_en.py"
+        
+        if not server_path.exists():
+            raise FileNotFoundError(f"Server not found: {server_path}")
+        
+        logger.info(f"📝 Server path: {server_path}")
+        
         cls._parlant_server_process = subprocess.Popen(
-            [sys.executable, str(healthcare_server_path)],
-            cwd=str(healthcare_server_path.parent),
-            env=os.environ.copy(),
-            # Don't redirect output - let errors show in console
+            [sys.executable, str(server_path)],
+            cwd=str(server_path.parent),
+            env=os.environ.copy()
         )
-
-        # Wait for server to be ready
+        
+        # Wait for server to start
         logger.info("⏳ Waiting for server to start...")
-        max_wait = 60  # 60 seconds max
+        max_wait = 60
         wait_interval = 2
         elapsed = 0
-
+        
         while elapsed < max_wait:
             await asyncio.sleep(wait_interval)
             elapsed += wait_interval
-
-            # Check if process is still running
-            poll_result = cls._parlant_server_process.poll()
-            if poll_result is not None:
-                logger.error(f"❌ Server process terminated with exit code: {poll_result}")
-                logger.error("Check the output above for error details")
-                raise RuntimeError(f"Parlant server process terminated unexpectedly with exit code {poll_result}")
-
+            
+            # Check process
+            if cls._parlant_server_process.poll() is not None:
+                raise RuntimeError(
+                    f"Server process terminated with exit code {cls._parlant_server_process.poll()}"
+                )
+            
             if await cls._check_server_running():
-                logger.info(f"✅ Parlant server started successfully (took {elapsed}s)")
+                logger.info(f"✅ Research Paper server started ({elapsed}s)")
                 return
-
-            # Log progress every 10 seconds
+            
             if elapsed % 10 == 0:
-                logger.info(f"⏳ Still waiting... ({elapsed}s elapsed)")
-
-        # If we get here, server didn't start
-        raise TimeoutError(
-            f"Parlant server failed to start within {max_wait} seconds. "
-            f"Check the output above for errors."
-        )
-
+                logger.info(f"⏳ Still waiting... ({elapsed}s)")
+        
+        raise TimeoutError(f"Server failed to start within {max_wait}s")
+    
     @classmethod
-    async def _get_client(cls):
+    async def _get_client(cls) -> AsyncParlantClient:
         """Get singleton Parlant client"""
         if cls._parlant_client is None:
-            if not PARLANT_AVAILABLE:
-                raise ImportError(
-                    "Parlant client not available. "
-                    "Install with: pip install parlant-client-server"
-                )
-
             # Ensure server is running
             await cls._ensure_server_running()
-
-            # Create client (base_url is keyword-only)
-            cls._parlant_client = AsyncParlantClient(base_url=cls._server_url)
-            logger.info(f"✅ Parlant client connected to {cls._server_url}")
-
-            # Get or create agent and customer
-            await cls._setup_agent_and_customer()
-
+            
+            # Create httpx client with extended timeout for long-polling
+            httpx_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=10.0,      # Connection timeout
+                    read=240.0,        # Read timeout - 4 minutes for long-polling
+                    write=10.0,        # Write timeout
+                    pool=None          # No pool timeout
+                )
+            )
+            
+            # Create client
+            cls._parlant_client = AsyncParlantClient(
+                base_url=cls._server_url,
+                httpx_client=httpx_client
+            )
+            logger.info(f"✅ Parlant client connected to {cls._server_url} (read timeout: 240s)")
+            
+            # Setup agent
+            await cls._setup_agent()
+        
         return cls._parlant_client
-
+    
     @classmethod
-    async def _setup_agent_and_customer(cls):
-        """Setup agent ID and customer ID"""
+    async def _setup_agent(cls):
+        """Setup agent ID"""
         try:
-            # List agents to get the CareGuide agent
+            # List agents
             agents_response = await cls._parlant_client.agents.list()
-
+            
             if agents_response and len(agents_response) > 0:
-                # Use the first agent (CareGuide_v2)
-                cls._agent_id = agents_response[0].id
-                logger.info(f"✅ Using agent: {agents_response[0].name} (ID: {cls._agent_id})")
+                # Find CareGuide_v2
+                target_agent = next(
+                    (a for a in agents_response if a.name == "CareGuide_v2"),
+                    None
+                )
+                
+                if target_agent:
+                    cls._agent_id = target_agent.id
+                    logger.info(f"✅ Using agent: {target_agent.name} (ID: {cls._agent_id})")
+                else:
+                    # Fallback to first agent if specific one not found
+                    cls._agent_id = agents_response[0].id
+                    logger.warning(f"⚠️ 'CareGuide_v2' not found, using first available: {agents_response[0].name} (ID: {cls._agent_id})")
             else:
                 raise ValueError("No agents found on Parlant server")
-
-            # Create a customer for this agent instance
-            customer = await cls._parlant_client.customers.create(
-                name=f"research_agent_{int(time.time())}"
-            )
-            cls._customer_id = customer.id
-            logger.info(f"✅ Created customer (ID: {cls._customer_id})")
-
         except Exception as e:
-            logger.error(f"Failed to setup agent/customer: {e}")
+            logger.error(f"Failed to setup agent: {e}")
             raise
-
+    
     async def _initialize(self):
-        """Initialize all connections"""
+        """Initialize client"""
         if not self._initialized:
             self.client = await self._get_client()
             self._initialized = True
 
-    async def process(
-        self,
-        user_input: str,
-        session_id: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    @classmethod
+    async def _continuous_polling_task(cls, parlant_session_id: str, event_queue: Queue):
         """
-        Process research paper search request using Parlant's search_medical_qa tool
+        Background task for continuous event polling.
+        백그라운드 연속 이벤트 폴링 태스크
+
+        This task runs continuously until the session is explicitly stopped.
+        세션이 명시적으로 중지될 때까지 계속 실행됩니다.
 
         Args:
-            user_input: Search query
-            session_id: Session ID
-            context: Additional context (profile, language, etc.)
+            parlant_session_id: Parlant session ID
+            event_queue: Queue to store received events
+        """
+        session_data = cls._active_sessions.get(parlant_session_id)
+        if not session_data:
+            logger.error(f"Session data not found for {parlant_session_id}")
+            return
+
+        last_offset = session_data['last_offset']
+        logger.info(f"🚀 Starting continuous polling for session {parlant_session_id} from offset {last_offset}")
+        count_504 = 0
+        limit_504 = 3
+        
+        try:
+            while session_data['is_active']:
+                try:
+                    # Long-polling for events (60 seconds)
+                    # 이벤트 롱폴링 (60초)
+                    events = await cls._parlant_client.sessions.list_events(
+                        session_id=parlant_session_id,
+                        min_offset=last_offset + 1,
+                        wait_for_data=60
+                    )
+
+                    if events:
+                        last_offset = max(e.offset for e in events)
+                        session_data['last_offset'] = last_offset
+
+                        # Put all events into queue for async processing
+                        # 모든 이벤트를 비동기 처리를 위해 큐에 추가
+                        for event in events:
+                            await event_queue.put(event)
+                            logger.debug(f"📥 Event queued: {event.kind} (offset: {event.offset})")
+
+                    # Check if session is still active (may have been deactivated)
+                    # 세션이 여전히 활성화되어 있는지 확인
+                    if not session_data['is_active']:
+                        logger.info(f"✅ Session {parlant_session_id} marked inactive, stopping polling")
+                        break
+
+                except Exception as e:
+                    # 504 is normal for long polling timeout
+                    # 504는 롱폴링 타임아웃의 정상 응답
+                    count_504 += 1
+                    if count_504 > limit_504:
+                        logger.error(f"❌ Polling error: {e}")
+                        break
+                    if "504" in str(e) or "Gateway Timeout" in str(e):
+                        logger.debug(f"⏳ No new events (timeout)")
+                        continue
+                    else:
+                        logger.error(f"❌ Polling error: {e}")
+                        # Put error into queue
+                        await event_queue.put({"error": str(e)})
+                        await asyncio.sleep(5)  # Back off on error
+
+        except asyncio.CancelledError:
+            logger.info(f"🛑 Polling task cancelled for session {parlant_session_id}")
+        except Exception as e:
+            logger.error(f"❌ Fatal polling error: {e}", exc_info=True)
+        finally:
+            logger.info(f"✅ Polling task ended for session {parlant_session_id}")
+
+    @classmethod
+    async def _start_session_polling(cls, parlant_session_id: str, initial_offset: int) -> Queue:
+        """
+        Start background polling for a session.
+        세션에 대한 백그라운드 폴링 시작
+
+        Args:
+            parlant_session_id: Parlant session ID
+            initial_offset: Starting offset for polling
 
         Returns:
-            Dict containing:
-                - answer: Generated answer from Parlant LLM
-                - sources: Source documents summary
-                - papers: Research papers (if any)
-                - tokens_used: Token count
-                - agent_type: "research_paper"
-                - metadata: Additional metadata
+            Event queue for receiving events
+        """
+        # Check if already polling
+        # 이미 폴링 중인지 확인
+        if parlant_session_id in cls._active_sessions:
+            logger.info(f"Session {parlant_session_id} already has active polling")
+            return cls._active_sessions[parlant_session_id]['queue']
+
+        # Create event queue and session data
+        # 이벤트 큐와 세션 데이터 생성
+        event_queue = Queue()
+
+        cls._active_sessions[parlant_session_id] = {
+            'queue': event_queue,
+            'last_offset': initial_offset,
+            'is_active': True,
+            'task': None
+        }
+
+        # Start background polling task
+        # 백그라운드 폴링 태스크 시작
+        task = asyncio.create_task(
+            cls._continuous_polling_task(parlant_session_id, event_queue)
+        )
+        cls._active_sessions[parlant_session_id]['task'] = task
+
+        logger.info(f"✅ Started continuous polling for session {parlant_session_id}")
+        return event_queue
+
+    @classmethod
+    async def _stop_session_polling(cls, parlant_session_id: str):
+        """
+        Stop background polling for a session.
+        세션에 대한 백그라운드 폴링 중지
+
+        Args:
+            parlant_session_id: Parlant session ID
+        """
+        session_data = cls._active_sessions.get(parlant_session_id)
+        if not session_data:
+            logger.warning(f"No active session found: {parlant_session_id}")
+            return
+
+        # Mark session as inactive
+        # 세션을 비활성으로 표시
+        session_data['is_active'] = False
+
+        # Cancel the polling task
+        # 폴링 태스크 취소
+        task = session_data.get('task')
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        # Remove from active sessions
+        # 활성 세션에서 제거
+        del cls._active_sessions[parlant_session_id]
+        logger.info(f"✅ Stopped polling for session {parlant_session_id}")
+
+    async def _get_or_create_customer(self, request: AgentRequest) -> str:
+        """
+        Get existing customer ID from user or create a new one.
+        사용자의 기존 고객 ID를 가져오거나 새로 생성합니다.
+
+        Priority:
+        1. Use parlant_customer_id from request context (if user has one)
+        2. Fetch from database using user_id
+        3. Create new customer with profile tag
+
+        Args:
+            request: AgentRequest with user_id, profile, context
+
+        Returns:
+            Parlant customer ID
+        """
+        # Check if customer ID is in context (passed from frontend/backend)
+        # context에서 고객 ID 확인 (프론트엔드/백엔드에서 전달된 경우)
+        if request.context and request.context.get('parlant_customer_id'):
+            customer_id = request.context['parlant_customer_id']
+            logger.info(f"✅ Using customer ID from context: {customer_id}")
+            return customer_id
+
+        # Try to get from database if user_id is available
+        # user_id가 있으면 데이터베이스에서 가져오기 시도
+        if request.user_id:
+            try:
+                from app.db.connection import Database, get_users_collection
+                # Check if database is initialized before querying
+                # 쿼리 전에 데이터베이스가 초기화되었는지 확인
+                if Database.db is not None:
+                    users = get_users_collection()
+                    user = await users.find_one({"_id": __import__('bson').ObjectId(request.user_id)})
+                    if user and user.get('parlant_customer_id'):
+                        customer_id = user['parlant_customer_id']
+                        logger.info(f"✅ Using customer ID from user DB: {customer_id}")
+                        return customer_id
+                else:
+                    logger.debug("Database not initialized, skipping user lookup")
+            except Exception as e:
+                logger.warning(f"Could not fetch user parlant_customer_id: {e}")
+
+        # Create new customer with profile tag
+        # 프로필 태그로 새 고객 생성
+        profile = request.profile or 'general'
+
+        # Create or get profile tag
+        tag_name = f"profile:{profile}"
+        tag_id = None
+        try:
+            tag = await self.client.tags.create(name=tag_name)
+            tag_id = tag.id
+            logger.info(f"✅ Created profile tag: {tag_name}")
+        except Exception:
+            tags = await self.client.tags.list()
+            profile_tags = [t for t in tags if t.name == tag_name]
+            tag_id = profile_tags[0].id if profile_tags else None
+            if tag_id:
+                logger.info(f"✅ Found existing profile tag: {tag_name}")
+
+        # Create customer with profile tag
+        customer_name = f"session_{request.session_id}_{int(time.time())}"
+        if tag_id:
+            customer = await self.client.customers.create(
+                name=customer_name,
+                tags=[tag_id]
+            )
+            logger.info(f"✅ Created new customer with profile '{profile}': {customer.id}")
+        else:
+            customer = await self.client.customers.create(name=customer_name)
+            logger.warning(f"⚠️ Created customer without profile tag: {customer.id}")
+
+        return customer.id
+
+    async def process(self, request: AgentRequest) -> AgentResponse:
+        """
+        Process research paper search request using continuous polling.
+        연속 폴링을 사용하여 연구 논문 검색 요청 처리
+
+        Args:
+            request: AgentRequest with query, session_id, context
+
+        Returns:
+            AgentResponse with answer, sources, papers
         """
         await self._initialize()
 
-        # Build request
-        request = AgentRequest(
-            query=user_input,
-            session_id=session_id,
-            context=context or {},
-            profile=context.get('profile', 'general') if context else 'general',
-            language=context.get('language', 'ko') if context else 'ko'
-        )
-
-        # Estimate tokens
-        tokens_estimated = self.estimate_context_usage(user_input)
-        self.context_usage += tokens_estimated
-
         try:
-            logger.info(f"🔍 Calling Parlant search_medical_qa for query: {request.query[:50]}...")
+            logger.info(f"🔍 Research Paper query: {request.query[:50]}...")
 
-            # Get or create session for this session_id
-            if session_id not in self._session_cache:
-                # Create customer with correct profile tag for this session
-                profile = request.profile if request.profile else 'general'
+            # Get or create session
+            # 세션 가져오기 또는 생성
+            session_key = request.session_id
+            if session_key not in self._session_cache:
+                # Get or create customer (uses existing if available)
+                # 고객 가져오기 또는 생성 (가능한 경우 기존 고객 사용)
+                customer_id = await self._get_or_create_customer(request)
 
-                # Create or get profile tag
-                try:
-                    # Try to create the tag (it's okay if it already exists)
-                    profile_tag = await self.client.tags.create(name=f"profile:{profile}")
-                    tag_id = profile_tag.id
-                except Exception:
-                    # Tag might already exist, fetch it
-                    tags = await self.client.tags.list()
-                    profile_tags = [t for t in tags if t.name == f"profile:{profile}"]
-                    if profile_tags:
-                        tag_id = profile_tags[0].id
-                    else:
-                        logger.warning(f"⚠️ Could not create or find profile tag: profile:{profile}")
-                        tag_id = None
-
-                # Create a customer for this session with profile tag
-                customer_name = f"session_{session_id}_{int(time.time())}"
-                if tag_id:
-                    session_customer = await self.client.customers.create(
-                        name=customer_name,
-                        tags=[tag_id]
-                    )
-                    logger.info(f"✅ Created customer with profile '{profile}': {session_customer.id}")
-                else:
-                    session_customer = await self.client.customers.create(name=customer_name)
-                    logger.warning(f"⚠️ Created customer without profile tag: {session_customer.id}")
-
-                # Create session with the profile-tagged customer
+                # Create session with customer
                 parlant_session = await self.client.sessions.create(
                     agent_id=self._agent_id,
-                    customer_id=session_customer.id
+                    customer_id=customer_id
                 )
-                self._session_cache[session_id] = parlant_session.id
-                logger.info(f"📝 Created new Parlant session: {parlant_session.id}")
 
-            parlant_session_id = self._session_cache[session_id]
+                self._session_cache[session_key] = (parlant_session.id, customer_id)
+                logger.info(f"📝 Created Parlant session: {parlant_session.id}")
 
-            # Send the query as a customer message event
-            # Set moderation='none' to ensure immediate processing
+            parlant_session_id, _ = self._session_cache[session_key]
+            
+            # Prepare message with context if available
+            message_to_send = request.query
+            
+            # Inject user context if available
+            if request.context and 'user_history' in request.context:
+                user_history = request.context['user_history']
+                summary = user_history.get('summary', '')
+                keywords = user_history.get('keywords', [])
+                
+                if summary or keywords:
+                    context_info = "[사용자 컨텍스트]\n"
+                    if summary:
+                        context_info += f"이전 대화 요약: {summary}\n"
+                    if keywords:
+                        context_info += f"관심 주제: {', '.join(keywords)}\n"
+                    context_info += f"\n[현재 질문]\n{request.query}"
+                    
+                    message_to_send = context_info
+                    logger.info(f"✅ Context injected into Parlant message")
+            
+            # Start continuous polling if not already started
+            # 아직 시작하지 않았다면 연속 폴링 시작
+            if parlant_session_id not in self._active_sessions:
+                # Get initial offset (before sending message)
+                # 초기 오프셋 가져오기 (메시지 보내기 전)
+                event_queue = await self._start_session_polling(parlant_session_id, -1)
+            else:
+                event_queue = self._active_sessions[parlant_session_id]['queue']
+
+            # Send message
             customer_event = await self.client.sessions.create_event(
                 session_id=parlant_session_id,
                 kind="message",
                 source="customer",
-                message=request.query,
-                moderation="none"  # Bypass moderation for immediate agent response
+                message=message_to_send,
             )
 
-            logger.info(f"📝 Customer event created with offset: {customer_event.offset}")
+            logger.info(f"📝 Message sent, offset: {customer_event.offset}")
 
-            # Wait for complete agent response by polling for events
-            # Parlant sends preamble message first (__preamble__ tag), then actual response
-            # We need to wait for the actual response message (without __preamble__ tag)
-            # Termination conditions:
-            # 1. Response contains disclaimer message (indicating completion)
-            # 2. No new events for 10 minutes (600 seconds)
-            max_wait_time = 600  # 10 minutes max total wait
-            poll_interval = 5  # Poll every 5 seconds
-            start_time = asyncio.get_event_loop().time()
-            last_event_offset = customer_event.offset
+            # Collect response from event queue (continuous polling pattern)
+            # 이벤트 큐에서 응답 수집 (연속 폴링 패턴)
+            max_wait = 600  # 5 minutes total timeout
+            start_time = time.time()
             agent_messages = []
-            has_actual_response = False  # Track if we got actual response (not preamble)
-            no_new_events_count = 0
-            max_no_new_events = 120  # Stop after 120 polls with no new events (10 minutes = 600 seconds / 5 seconds per poll)
-            disclaimer_text = "⚠️ 이 답변은 교육 목적이며, 건강에 관한 궁금증이나 문제가 있을 경우 반드시 의료 전문가와 상담하시기 바랍니다."
+            response_complete = False
+
+            # Fallback idle detection
+            idle_start_time = None
+            idle_timeout = 60
+            
+            # Parlant 1:N pattern support - wait for additional messages after ready
+            ready_received = False
+            ready_timer_start = None
+            ready_wait_timeout = 10  # Wait 10s after ready for more messages
+
+            logger.info(f"📡 Listening for events from continuous polling (max {max_wait}s)")
 
             while True:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed > max_wait_time:
-                    logger.warning(f"⏰ Max wait time ({max_wait_time}s) exceeded")
+                elapsed = time.time() - start_time
+
+                # Check total timeout
+                if elapsed > max_wait:
+                    logger.warning(f"⏰ Max wait time exceeded ({elapsed:.1f}s)")
                     break
 
+                # Check ready timeout
+                if ready_received and ready_timer_start is not None:
+                    if time.time() - ready_timer_start > ready_wait_timeout:
+                        logger.info(f"✅ Response complete (ready timeout expired)")
+                        response_complete = True
+                        break
+
+                # Check if response is complete (only if explicitly set via other means, though we rely on ready timeout now)
+                if response_complete:
+                    break
+
+                # Fallback idle timeout
+                if idle_start_time is not None:
+                    idle_duration = time.time() - idle_start_time
+                    if agent_messages and idle_duration > idle_timeout:
+                        logger.info(f"✅ Response complete (fallback: idle timeout)")
+                        break
+
                 try:
-                    # Get events after the last seen event
-                    events = await self.client.sessions.list_events(
-                        session_id=parlant_session_id,
-                        min_offset=last_event_offset + 1,
-                        kinds="message",
-                        wait_for_data=poll_interval
-                    )
+                    # Get event from queue with timeout
+                    # 타임아웃으로 큐에서 이벤트 가져오기
+                    event = await asyncio.wait_for(event_queue.get(), timeout=5.0)
 
-                    # Look for agent messages (source can be 'agent' or 'ai_agent')
-                    # Filter out preamble messages (tagged with '__preamble__')
-                    new_agent_messages = [
-                        event for event in events
-                        if event.kind == 'message' and event.source in ('agent', 'ai_agent')
-                    ]
+                    # Check if it's an error dict
+                    if isinstance(event, dict) and 'error' in event:
+                        logger.error(f"❌ Error from polling: {event['error']}")
+                        raise Exception(f"Polling error: {event['error']}")
 
-                    # Separate preamble and actual messages, check for disclaimer
-                    response_complete = False
-                    for msg in new_agent_messages:
-                        tags = msg.data.get('tags', []) if isinstance(msg.data, dict) else []
-                        message_text = msg.data.get('message', '') if isinstance(msg.data, dict) else ''
+                    # Reset idle timer on event
+                    idle_start_time = None
+                    
+                    # Reset ready timer on any event
+                    if ready_received:
+                        ready_timer_start = time.time()
 
-                        if '__preamble__' in tags:
-                            logger.info(f"📝 Received preamble message: {message_text[:50]}...")
-                        else:
-                            logger.info(f"📨 Received actual response message")
+                    # Process message events
+                    if hasattr(event, 'kind') and event.kind == 'message' and event.source in ('agent', 'ai_agent'):
+                        # Reset ready timer on new message
+                        if ready_received:
+                            logger.info(f"📨 New message after ready - resetting timer")
+                            ready_received = False
+                            ready_timer_start = None
+                            
+                        agent_messages.append(event)
+                        logger.info(f"📨 Received message (total: {len(agent_messages)})")
 
-                        # Check if message contains disclaimer (indicates completion)
-                        if disclaimer_text in message_text:
-                            logger.info(f"✅ Disclaimer found - response is complete!")
-                            response_complete = True
+                    # Process status events
+                    elif hasattr(event, 'kind') and event.kind == 'status':
+                        event_data = event.data if isinstance(event.data, dict) else {}
+                        status = event_data.get('status')
 
-                    if new_agent_messages:
-                        agent_messages.extend(new_agent_messages)
-                        last_event_offset = max(event.offset for event in new_agent_messages)
-                        no_new_events_count = 0  # Reset counter
-                        logger.info(f"📨 Received {len(new_agent_messages)} new message(s) (total: {len(agent_messages)})")
+                        logger.debug(f"📊 Status event: {status}")
 
-                        # If we found the disclaimer, response is complete
-                        if response_complete:
-                            logger.info(f"✅ Response complete with disclaimer after {elapsed:.1f}s")
+                        # ready = potentially response complete (start wait timer)
+                        if status == 'ready' and agent_messages:
+                            if not ready_received:
+                                ready_received = True
+                                ready_timer_start = time.time()
+                                logger.info(f"✅ Agent status: ready - waiting {ready_wait_timeout}s for more messages")
+                            
+                        # error = agent error
+                        elif status == 'error':
+                            error_data = event_data.get('data', {})
+                            error_msg = error_data.get('message', 'Unknown error')
+                            logger.error(f"❌ Agent error: {error_msg}")
+                            raise Exception(f"Parlant agent error: {error_msg}")
+
+                        # cancelled
+                        elif status == 'cancelled':
+                            logger.warning(f"⚠️ Agent was cancelled")
                             break
-                    else:
-                        no_new_events_count += 1
-                        logger.info(f"⏳ No new events ({no_new_events_count}/{max_no_new_events})")
 
-                        # If we have messages and no new events for a while, assume complete
-                        if agent_messages and no_new_events_count >= max_no_new_events:
-                            logger.info(f"✅ Response appears complete after {no_new_events_count} empty polls")
-                            break
-
+                except asyncio.TimeoutError:
+                    # No event in queue within timeout - start idle timer
+                    # 타임아웃 내 큐에 이벤트 없음 - 유휴 타이머 시작
+                    if idle_start_time is None:
+                        idle_start_time = time.time()
+                    continue
                 except Exception as e:
-                    # 504 Gateway Timeout is expected when no new events arrive
-                    if "504" in str(e) or "timeout" in str(e).lower():
-                        no_new_events_count += 1
-                        logger.info(f"⏳ Waiting for response... ({no_new_events_count}/{max_no_new_events})")
-
-                        # If we have messages and timeout, assume complete
-                        if agent_messages and no_new_events_count >= max_no_new_events:
-                            logger.info(f"✅ Response appears complete (timeout after messages)")
-                            break
-                    else:
-                        # Re-raise unexpected errors
-                        raise
-
+                    logger.error(f"❌ Event processing error: {e}")
+                    raise
+            
             if agent_messages:
-                # Debug: log all message data
-                logger.info(f"🔍 Analyzing {len(agent_messages)} agent message(s)")
-                for i, msg in enumerate(agent_messages):
-                    logger.info(f"Message {i}: offset={msg.offset}, data keys={list(msg.data.keys()) if isinstance(msg.data, dict) else 'not dict'}")
-
-                # Combine all agent messages (streaming response)
-                # Skip preamble messages (tagged with '__preamble__')
+                # Combine messages
                 full_answer = []
                 for msg in agent_messages:
-                    event_data = msg.data if hasattr(msg, 'data') else {}
-
-                    # Skip preamble
-                    tags = event_data.get('tags', []) if isinstance(event_data, dict) else []
-                    if '__preamble__' in tags:
-                        continue
-
-                    # Extract message text
-                    if isinstance(event_data, dict):
-                        msg_text = event_data.get('message', event_data.get('text', ''))
-                        if msg_text:
-                            full_answer.append(msg_text)
-
-                # Combine all message parts
+                    # Extract text from different possible structures
+                    msg_text = None
+                    
+                    # Try direct message attribute first
+                    if hasattr(msg, 'message') and msg.message:
+                        msg_text = msg.message
+                    # Try data dict
+                    elif hasattr(msg, 'data'):
+                        event_data = msg.data if isinstance(msg.data, dict) else {}
+                        msg_text = event_data.get('message') or event_data.get('text', '')
+                    
+                    if msg_text and msg_text.strip():
+                        full_answer.append(msg_text)
+                        logger.debug(f"📝 Extracted message: {msg_text[:100]}...")
+                
                 answer_text = '\n'.join(full_answer)
-
-                # Debug: log combined answer
-                logger.info(f"📊 Combined answer from {len(full_answer)} message parts")
-                logger.info(f"📊 Total length: {len(answer_text)} characters")
-                logger.info(f"📊 Answer preview: {answer_text[:200]}...")
-
-                # Get summary information from data
+                
+                logger.info(f"📊 Combined {len(full_answer)} message parts ({len(answer_text)} chars)")
+                
+                # Extract metadata from last message
+                event_data = agent_messages[-1].data if hasattr(agent_messages[-1], 'data') and isinstance(agent_messages[-1].data, dict) else {}
                 summary = event_data.get('summary', {}) if isinstance(event_data, dict) else {}
-                sources_info = summary.get('sources', {}) if isinstance(summary, dict) else {}
-
-                # Build response
-                response_data = AgentResponse(
+                
+                return AgentResponse(
                     answer=answer_text,
                     sources=[{
-                        'type': 'parlant_search',
-                        'summary': summary,
-                        'sources_count': sources_info
+                        'type': 'research_paper',
+                        'summary': summary
                     }],
                     papers=[],
-                    tokens_used=tokens_estimated,  # Approximate
+                    tokens_used=self.estimate_context_usage(request.query),
                     status="success",
                     agent_type=self.agent_type,
                     metadata={
                         'parlant_session_id': parlant_session_id,
-                        'search_method': summary.get('search_method', 'hybrid_optimized'),
-                        'total_count': summary.get('total_count', 0),
-                        'response_time': summary.get('response_time', '0s'),
-                        'sources_breakdown': sources_info,
                         'profile': request.profile,
-                        'language': request.language
+                        'language': request.language,
+                        'server_port': 8800
                     }
                 )
-
-                logger.info(f"✅ Parlant search completed: {summary.get('total_count', 0)} results")
-
-                return response_data.dict()
             else:
-                raise Exception("No assistant response received from Parlant after polling")
-
+                raise Exception("No response received from Parlant")
+        
         except Exception as e:
-            logger.error(f"Research paper agent error: {e}", exc_info=True)
-            return {
-                "answer": f"검색 중 오류가 발생했습니다: {str(e)}\n\n힌트: Parlant 서버가 실행 중인지 확인하세요.",
-                "sources": [],
-                "papers": [],
-                "tokens_used": 0,
+            logger.error(f"Research Paper error: {e}", exc_info=True)
+            return AgentResponse(
+                answer=f"검색 중 오류가 발생했습니다: {str(e)}",
+                sources=[],
+                papers=[],
+                tokens_used=0,
+                status="error",
+                agent_type=self.agent_type,
+                metadata={"error": str(e)}
+            )
+    
+    async def process_stream(self, request: AgentRequest):
+        """
+        Stream responses from Parlant using continuous polling.
+        연속 폴링을 사용하여 Parlant로부터 응답 스트림
+        """
+        await self._initialize()
+
+        try:
+            logger.info(f"🔍 Research Paper query (stream): {request.query[:50]}...")
+
+            # Get or create session
+            # 세션 가져오기 또는 생성
+            session_key = request.session_id
+            if session_key not in self._session_cache:
+                # Get or create customer (uses existing if available)
+                # 고객 가져오기 또는 생성 (가능한 경우 기존 고객 사용)
+                customer_id = await self._get_or_create_customer(request)
+
+                # Create session with customer
+                parlant_session = await self.client.sessions.create(
+                    agent_id=self._agent_id,
+                    customer_id=customer_id
+                )
+
+                self._session_cache[session_key] = (parlant_session.id, customer_id)
+                logger.info(f"📝 Created Parlant session: {parlant_session.id}")
+
+            parlant_session_id, _ = self._session_cache[session_key]
+            
+            # Prepare message with context if available
+            message_to_send = request.query
+            
+            # Inject user context if available
+            if request.context and 'user_history' in request.context:
+                user_history = request.context['user_history']
+                summary = user_history.get('summary', '')
+                keywords = user_history.get('keywords', [])
+                
+                if summary or keywords:
+                    context_info = "[사용자 컨텍스트]\n"
+                    if summary:
+                        context_info += f"이전 대화 요약: {summary}\n"
+                    if keywords:
+                        context_info += f"관심 주제: {', '.join(keywords)}\n"
+                    context_info += f"\n[현재 질문]\n{request.query}"
+                    
+                    message_to_send = context_info
+                    logger.info(f"✅ Context injected into Parlant message")
+            
+            # Start continuous polling if not already started
+            # 아직 시작하지 않았다면 연속 폴링 시작
+            if parlant_session_id not in self._active_sessions:
+                event_queue = await self._start_session_polling(parlant_session_id, -1)
+            else:
+                event_queue = self._active_sessions[parlant_session_id]['queue']
+
+            # Send message
+            customer_event = await self.client.sessions.create_event(
+                session_id=parlant_session_id,
+                kind="message",
+                source="customer",
+                message=message_to_send,
+            )
+
+            logger.info(f"📝 Message sent, offset: {customer_event.offset}")
+
+            # Stream response from event queue (continuous polling pattern)
+            # 이벤트 큐에서 응답 스트림 (연속 폴링 패턴)
+            max_wait = 600  # 10 minutes total timeout
+            start_time = time.time()
+            response_complete = False
+            message_count = 0
+
+            # Fallback idle detection
+            idle_start_time = None
+            idle_timeout = 60
+
+            # Parlant 1:N pattern support - wait for additional messages after ready
+            # Parlant 1:N 패턴 지원 - ready 후에도 추가 메시지 대기
+            ready_received = False
+            ready_timer_start = None
+            ready_wait_timeout = 60  # 10초 동안 추가 메시지 대기
+
+            logger.info(f"📡 Streaming events from continuous polling (max {max_wait}s)")
+
+            while True:
+                elapsed = time.time() - start_time
+                if elapsed > max_wait:
+                    logger.warning(f"⏰ Stream max wait time exceeded")
+                    break
+
+                if response_complete:
+                    logger.info(f"✅ Stream complete (ready timeout expired, total messages: {message_count})")
+                    break
+
+                # Check ready timeout - wait for additional messages after ready
+                # ready 타임아웃 체크 - ready 후에도 추가 메시지 대기
+                if ready_received and ready_timer_start is not None:
+                    ready_elapsed = time.time() - ready_timer_start
+                    if ready_elapsed > ready_wait_timeout:
+                        logger.info(f"✅ Stream complete (no new messages for {ready_wait_timeout}s after ready)")
+                        response_complete = True
+                        break
+
+                if idle_start_time is not None:
+                    idle_duration = time.time() - idle_start_time
+                    if message_count > 0 and idle_duration > idle_timeout:
+                        logger.info(f"✅ Stream complete (fallback: idle timeout)")
+                        break
+
+                try:
+                    # Get event from queue with timeout
+                    event = await asyncio.wait_for(event_queue.get(), timeout=5.0)
+
+                    # Check if it's an error dict
+                    if isinstance(event, dict) and 'error' in event:
+                        logger.error(f"❌ Error from polling: {event['error']}")
+                        yield {
+                            "answer": f"오류가 발생했습니다: {event['error']}",
+                            "status": "error",
+                            "agent_type": self.agent_type
+                        }
+                        return
+
+                    # Reset timers on event (status 변경 시 타임아웃 초기화)
+                    start_time = time.time()
+                    idle_start_time = None
+                    # Reset ready timer on any event (ready 타이머도 초기화)
+                    if ready_received:
+                        ready_timer_start = time.time()
+
+                    # Process message events
+                    # 메시지 이벤트 처리
+                    if hasattr(event, 'kind') and event.kind == 'message' and event.source in ('agent', 'ai_agent'):
+                        # Reset ready timer on new message (Parlant 1:N pattern)
+                        # 새 메시지가 오면 ready 타이머 리셋 (Parlant 1:N 패턴)
+                        if ready_received:
+                            logger.info(f"📨 New message after ready - resetting timer")
+                            ready_timer_start = None
+                            ready_received = False
+
+                        msg_text = None
+                        if hasattr(event, 'message') and event.message:
+                            msg_text = event.message
+                        elif hasattr(event, 'data'):
+                            event_data = event.data if isinstance(event.data, dict) else {}
+                            msg_text = event_data.get('message') or event_data.get('text', '')
+
+                        if msg_text and msg_text.strip():
+                            message_count += 1
+                            # First message: streaming, subsequent: new_message
+                            status = "streaming" if message_count == 1 else "new_message"
+                            logger.info(f"📨 Streaming message #{message_count} (status: {status})")
+                            yield {
+                                "answer": msg_text,
+                                "content": msg_text,
+                                "status": status,
+                                "agent_type": self.agent_type,
+                                "message_index": message_count
+                            }
+
+                    # Process status events
+                    # 상태 이벤트 처리
+                    elif hasattr(event, 'kind') and event.kind == 'status':
+                        event_data = event.data if isinstance(event.data, dict) else {}
+                        status = event_data.get('status')
+
+                        if status == 'ready' and message_count > 0:
+                            # Don't break immediately - start timer for additional messages (Parlant 1:N pattern)
+                            # 바로 종료하지 않고 추가 메시지 대기 타이머 시작 (Parlant 1:N 패턴)
+                            if not ready_received:
+                                ready_received = True
+                                ready_timer_start = time.time()
+                                logger.info(f"⏱️ Agent status: ready - waiting {ready_wait_timeout}s for additional messages")
+                            # Continue polling instead of breaking
+                            # break 대신 계속 폴링
+                        elif status == 'error':
+                            error_data = event_data.get('data', {})
+                            error_msg = error_data.get('message', 'Unknown error')
+                            logger.error(f"❌ Agent error in stream: {error_msg}")
+                            yield {
+                                "answer": f"오류가 발생했습니다: {error_msg}",
+                                "status": "error",
+                                "agent_type": self.agent_type
+                            }
+                            return
+                        elif status == 'cancelled':
+                            logger.warning(f"⚠️ Agent was cancelled")
+                            break
+
+                except asyncio.TimeoutError:
+                    # No event in queue within timeout - start idle timer
+                    if idle_start_time is None:
+                        idle_start_time = time.time()
+                    continue
+                except Exception as e:
+                    logger.error(f"❌ Stream event processing error: {e}")
+                    raise
+            
+        except Exception as e:
+            logger.error(f"Research Paper stream error: {e}", exc_info=True)
+            yield {
+                "answer": f"Error: {str(e)}",
                 "status": "error",
-                "agent_type": self.agent_type,
-                "metadata": {"error": str(e)}
+                "agent_type": self.agent_type
             }
 
     def estimate_context_usage(self, user_input: str) -> int:
-        """
-        Estimate context usage (tokens)
-
-        Args:
-            user_input: User input text
-
-        Returns:
-            Estimated token count
-        """
-        # Base tokens
-        estimated_tokens = int(len(user_input) * 1.5)
-
-        # System prompt tokens
-        estimated_tokens += 600
-
-        # Search results tokens (hybrid search returns substantial data)
-        estimated_tokens += 3000
-
-        # Answer generation tokens
-        estimated_tokens += 1500
-
-        return estimated_tokens
-
-    async def close(self):
-        """Clean up resources"""
-        # Clear session cache
-        self._session_cache.clear()
-
-        logger.info("Research Paper Agent closed")
-
+        """Estimate token usage"""
+        return int(len(user_input) * 1.5) + 600 + 3000 + 1500
+    
     @classmethod
     async def shutdown_server(cls):
-        """Shutdown the Parlant server (call this on application shutdown)"""
+        """Shutdown Parlant server"""
         if cls._parlant_server_process is not None:
-            logger.info("🛑 Shutting down Parlant server...")
+            logger.info("🛑 Shutting down Research Paper server...")
             cls._parlant_server_process.terminate()
             try:
                 cls._parlant_server_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 cls._parlant_server_process.kill()
             cls._parlant_server_process = None
-            logger.info("✅ Parlant server stopped")
-
+            logger.info("✅ Server stopped")
+        
         if cls._parlant_client is not None:
-            # Close client if it has a close method
-            if hasattr(cls._parlant_client, 'close'):
-                await cls._parlant_client.close()
             cls._parlant_client = None

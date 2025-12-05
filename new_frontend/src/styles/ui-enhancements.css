@@ -1,0 +1,387 @@
+/**
+ * UI Enhancements for CareGuide
+ * Enhanced design system utilities for improved visual design
+ */
+
+@layer components {
+  /* ==================== ENHANCED BUTTON SYSTEM ==================== */
+
+  /* Icon Buttons */
+  .btn-icon {
+    @apply w-10 h-10 rounded-lg flex items-center justify-center
+           transition-all duration-200;
+    background: white;
+    border: 1px solid var(--color-line-medium);
+    color: var(--color-text-secondary);
+  }
+
+  .btn-icon:hover {
+    border-color: var(--color-primary);
+    background: var(--color-input-bar);
+    color: var(--color-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 201, 183, 0.1);
+  }
+
+  .btn-icon:active {
+    transform: translateY(0);
+  }
+
+  /* Enhanced Badge Pills */
+  .pill-primary {
+    @apply px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200;
+    background: var(--color-input-bar);
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+  }
+
+  .pill-accent {
+    @apply px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200;
+    background: rgba(159, 122, 234, 0.1);
+    color: var(--color-accent-purple);
+    border: 1px solid var(--color-accent-purple);
+  }
+
+  .pill-success {
+    @apply px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200;
+    background: rgba(0, 168, 232, 0.1);
+    color: var(--color-success);
+    border: 1px solid var(--color-success);
+  }
+
+  /* ==================== ENHANCED LOADING SKELETON ==================== */
+
+  .skeleton {
+    @apply bg-gray-200 animate-pulse rounded;
+    background: linear-gradient(
+      90deg,
+      #E5E7EB 0%,
+      #F3F4F6 50%,
+      #E5E7EB 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* ==================== CARD ELEVATION SYSTEM ==================== */
+
+  .card-elevation-1 {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .card-elevation-2 {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07),
+                0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .card-elevation-3 {
+    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1),
+                0 4px 6px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .card-elevation-4 {
+    box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15),
+                0 10px 10px rgba(0, 0, 0, 0.04);
+    transition: box-shadow 0.2s ease;
+  }
+
+  /* ==================== INTERACTIVE ANIMATIONS ==================== */
+
+  /* Scale on hover for interactive elements */
+  .interactive-scale {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .interactive-scale:hover {
+    transform: scale(1.02);
+  }
+
+  .interactive-scale:active {
+    transform: scale(0.98);
+  }
+
+  /* Enhanced Hover Effects for Cards */
+  .card-hover-lift {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+  }
+
+  /* ==================== ACCESSIBILITY ==================== */
+
+  /* Enhanced Focus States */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-500
+           focus:ring-offset-2 focus:ring-offset-white;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ==================== ANIMATION UTILITIES ==================== */
+
+  @keyframes bounce-in {
+    0% {
+      transform: scale(0.9);
+      opacity: 0;
+    }
+    50% {
+      transform: scale(1.05);
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .bounce-in {
+    animation: bounce-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  .slide-in-right {
+    animation: slide-in-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes slide-in-left {
+    from {
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  .slide-in-left {
+    animation: slide-in-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .fade-in {
+    animation: fade-in 0.3s ease-in-out;
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(0, 201, 183, 0.7);
+    }
+    70% {
+      transform: scale(1);
+      box-shadow: 0 0 0 10px rgba(0, 201, 183, 0);
+    }
+    100% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(0, 201, 183, 0);
+    }
+  }
+
+  .pulse-ring {
+    animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* ==================== ENHANCED FORM INPUTS ==================== */
+
+  /* Input with enhanced validation states */
+  .input-field-enhanced {
+    @apply input-field;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .input-field-enhanced:focus {
+    box-shadow: 0 0 0 3px rgba(0, 201, 183, 0.1);
+    transform: translateY(-1px);
+  }
+
+  .input-field-error {
+    @apply input-field;
+    border-color: var(--color-error);
+    background-color: rgba(239, 68, 68, 0.05);
+  }
+
+  .input-field-error:focus {
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+  }
+
+  .input-field-success {
+    @apply input-field;
+    border-color: var(--color-success);
+    background-color: rgba(0, 168, 232, 0.05);
+  }
+
+  .input-field-success:focus {
+    box-shadow: 0 0 0 3px rgba(0, 168, 232, 0.1);
+  }
+
+  /* ==================== GLASS MORPHISM ==================== */
+
+  .glass {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  .glass-dark {
+    background: rgba(31, 41, 55, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* ==================== GRADIENT TEXT ==================== */
+
+  .gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ==================== TOOLTIP ==================== */
+
+  .tooltip {
+    @apply absolute z-50 px-3 py-2 text-xs font-medium text-white
+           bg-gray-900 rounded-lg shadow-lg;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    pointer-events: none;
+  }
+
+  .tooltip-visible {
+    opacity: 1;
+  }
+
+  /* ==================== STATUS INDICATORS ==================== */
+
+  .status-dot {
+    @apply inline-block w-2 h-2 rounded-full;
+  }
+
+  .status-dot-success {
+    @apply status-dot bg-green-500;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+  }
+
+  .status-dot-warning {
+    @apply status-dot bg-yellow-500;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+  }
+
+  .status-dot-error {
+    @apply status-dot bg-red-500;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+  }
+
+  .status-dot-info {
+    @apply status-dot bg-blue-500;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  }
+
+  /* ==================== ENHANCED CHAT BUBBLES ==================== */
+
+  .chat-bubble-user-enhanced {
+    @apply max-w-[80%] px-4 py-3 rounded-xl rounded-tr-md;
+    background: var(--gradient-primary);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 201, 183, 0.15);
+  }
+
+  .chat-bubble-ai-enhanced {
+    @apply max-w-[80%] px-4 py-3 rounded-xl rounded-tl-md;
+    background: white;
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-line-medium);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  }
+
+  /* ==================== MODERN TAB DESIGN ==================== */
+
+  .tab-pill-container {
+    @apply flex gap-2 p-1 bg-gray-100 rounded-xl;
+  }
+
+  .tab-pill {
+    @apply px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200;
+    color: var(--color-text-secondary);
+  }
+
+  .tab-pill-active {
+    @apply px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    color: var(--color-primary);
+  }
+
+  /* ==================== NOTIFICATION BADGE ==================== */
+
+  .notification-badge {
+    @apply absolute -top-1 -right-1 w-5 h-5 rounded-full
+           flex items-center justify-center
+           text-xs font-bold text-white;
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+  }
+
+  /* ==================== PROGRESS BAR ==================== */
+
+  .progress-bar {
+    @apply w-full bg-gray-200 rounded-full h-2 overflow-hidden;
+  }
+
+  .progress-bar-fill {
+    @apply h-full rounded-full transition-all duration-500 ease-out;
+    background: var(--gradient-primary);
+  }
+
+  /* ==================== CIRCULAR PROGRESS ==================== */
+
+  .circular-progress {
+    @apply relative inline-flex items-center justify-center;
+  }
+
+  .circular-progress-ring {
+    transform: rotate(-90deg);
+  }
+
+  .circular-progress-circle {
+    fill: none;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.5s ease;
+  }
+}

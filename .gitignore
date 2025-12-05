@@ -335,9 +335,10 @@ instance/
 backend/app/api/chat/parlant/embedding_cache/
 backend/app/api/chat/parlant/parlant-data/
 parlant-data/
+nlp_cache/
 embedding_cache/
 
-frontend/  
+# frontend/  
 
 # dependencies
 node_modules/
@@ -383,3 +384,5 @@ docs
 *.backup
 *.bak
 *~
+.playwright-mcp
+eval/*.csv

@@ -14,7 +14,10 @@ from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
 import os
 from dotenv import load_dotenv
-from app.db.mongodb_manager import MongoDBManager as OptimizedMongoDBManager
+try:
+    from app.db.mongodb_manager import MongoDBManager as OptimizedMongoDBManager
+except ImportError:
+    from mongodb_manager import MongoDBManager as OptimizedMongoDBManager
 
 # Chonkie imports for chunking and refinement
 try:
@@ -99,7 +102,8 @@ class EmbeddingCache:
         if len(self._memory_cache) >= self.max_memory_items:
             # Evict least recently used
             lru_key = self._access_order.pop(0)
-            del self._memory_cache[lru_key]
+            if lru_key in self._memory_cache:
+                del self._memory_cache[lru_key]
 
         self._memory_cache[cache_key] = embedding
         self._access_order.append(cache_key)
@@ -483,15 +487,17 @@ class OptimizedVectorDBManager:
         self,
         query: str,
         top_k: int = 10,
-        namespace: str = "papers"
+        namespace: str = "papers",
+        filter: Optional[Dict] = None
     ) -> List[Dict]:
         """
-        Optimized semantic search with caching
+        Optimized semantic search with caching and metadata filtering
 
         Args:
             query: Search query
             top_k: Number of results
             namespace: Pinecone namespace
+            filter: Optional Pinecone metadata filter (e.g., {"has_dialysis_unit": True})
 
         Returns:
             List of search results
@@ -499,13 +505,20 @@ class OptimizedVectorDBManager:
         # Get query embedding (will use cache if available)
         query_embedding = self.generate_embedding_single_cached(query)
 
+        # Build query parameters
+        query_params = {
+            "vector": query_embedding,
+            "top_k": top_k,
+            "namespace": namespace,
+            "include_metadata": True
+        }
+
+        # Add filter if provided
+        if filter:
+            query_params["filter"] = filter
+
         # Search in Pinecone
-        results = self.index.query(
-            vector=query_embedding,
-            top_k=top_k,
-            namespace=namespace,
-            include_metadata=True
-        )
+        results = self.index.query(**query_params)
 
         # Format results
         matches = []

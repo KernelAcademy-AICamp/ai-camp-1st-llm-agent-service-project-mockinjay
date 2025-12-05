@@ -17,6 +17,7 @@ class OpenAIClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         model: str = "gpt-4o-mini",
         embedding_model: str = "text-embedding-3-small"
     ):
@@ -25,11 +26,18 @@ class OpenAIClient:
 
         Args:
             api_key: OpenAI API key
-            model: GPT model to use
+            base_url: API base URL (optional)
+            model: Model to use (default: gpt-4o-mini)
             embedding_model: Embedding model to use
         """
+        openai_key = api_key or os.getenv('OPENAI_API_KEY')
+
+        if not openai_key:
+            raise ValueError("OPENAI_API_KEY environment variable or api_key parameter is required")
+
         self.client = AsyncOpenAI(
-            api_key=api_key or os.getenv('OPENAI_API_KEY')
+            api_key=openai_key,
+            base_url=base_url
         )
         self.model = model
         self.embedding_model = embedding_model
@@ -37,8 +45,11 @@ class OpenAIClient:
         # Tokenizer for token counting
         try:
             self.tokenizer = tiktoken.encoding_for_model(model)
-        except:
+        except Exception as e:
+            # 비OpenAI 모델의 경우 폴백 토크나이저 사용 (Fallback tokenizer for non-OpenAI models)
+            logger.warning(f"Failed to get tokenizer for model {model}: {e}")
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
+            logger.warning(f"Using fallback tokenizer for model: {model}")
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
